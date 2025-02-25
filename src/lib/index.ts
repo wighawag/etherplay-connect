@@ -29,24 +29,38 @@ export type Mechanism =
 
 export type Connection = { error?: { message: string; cause?: any } } & (
 	| {
+			step: 'MechanismToChoose';
+	  }
+	| {
 			step: 'MechanismChosen';
 			mechanism: Mechanism;
 	  }
+
+	// --------------------------------------------------------------------------------------------
+	// Email
+	// --------------------------------------------------------------------------------------------
 	| {
 			step: 'EmailToProvide';
 			mechanism: EmailMechanism<undefined>;
 	  }
 	| {
-			step: 'MechanismToChoose';
-	  }
-	| {
 			step: 'WaitingForOTPVerification';
 			mechanism: EmailMechanism<string>;
 	  }
+	// --------------------------------------------------------------------------------------------
+
+	// --------------------------------------------------------------------------------------------
+	// OAuth
+	// --------------------------------------------------------------------------------------------
 	| {
 			step: 'WaitingForOAuthResponse';
 			mechanism: OauthMechanism;
 	  }
+	// --------------------------------------------------------------------------------------------
+
+	// --------------------------------------------------------------------------------------------
+	// Mnemonic
+	// --------------------------------------------------------------------------------------------
 	| {
 			step: 'MnemonicIndexToProvide';
 			mechanism: MnemonicMechanism<undefined>;
@@ -55,12 +69,18 @@ export type Connection = { error?: { message: string; cause?: any } } & (
 			step: 'MnemonicGeneratingPrivateKey';
 			mechanism: MnemonicMechanism<number>;
 	  }
+	// --------------------------------------------------------------------------------------------
+
+	// --------------------------------------------------------------------------------------------
+	// Final Success
+	// --------------------------------------------------------------------------------------------
 	| {
 			step: 'SignedIn';
 			mechanism: Mechanism;
 			privateKey: string;
 	  }
 );
+// --------------------------------------------------------------------------------------------
 
 export function createConnection(settings: { alchemy: AlchemySettings }) {
 	let $connection: Connection | undefined;
