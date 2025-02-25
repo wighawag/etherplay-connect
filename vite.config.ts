@@ -1,9 +1,10 @@
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
+import { nodePolyfills } from 'vite-plugin-node-polyfills'; // required by oauth login (google) due to error: `Buffer is not defined`
 
 export default defineConfig({
-	plugins: [sveltekit()],
+	plugins: [sveltekit(), nodePolyfills()],
 
 	test: {
 		workspace: [

@@ -1,3 +1,35 @@
-<h1>Welcome to your library project</h1>
-<p>Create your package using @sveltejs/package and preview/showcase your work with SvelteKit</p>
-<p>Visit <a href="https://svelte.dev/docs/kit">svelte.dev/docs/kit</a> to read the documentation</p>
+<script lang="ts">
+	import { PUBLIC_ALCHEMY_RPC_URL } from '$env/static/public';
+	import { createConnection } from '$lib/index.js';
+
+	const connection = createConnection({
+		alchemy: {
+			rpcURL: PUBLIC_ALCHEMY_RPC_URL
+		}
+	});
+
+	let email: string = $state('');
+	let otp: string = $state('');
+</script>
+
+{#if !$connection}
+	<button onclick={() => connection.connect()}>connect</button>
+{:else if $connection.step == 'MechanismToChoose'}
+	<button onclick={() => connection.connect({ type: 'email', mode: 'otp', email: undefined })}
+		>email</button
+	>
+	<button onclick={() => connection.connect({ type: 'oauth', provider: 'google' })}>google</button>
+	<button onclick={() => connection.connect({ type: 'oauth', provider: 'facebook' })}
+		>facebook</button
+	>
+{:else if $connection.step == 'MechanismChosen'}
+	{$connection.mechanism.type}
+{:else if $connection.step == 'EmailToProvide'}
+	<input type="email" bind:value={email} />
+	<button onclick={() => connection.provideEmail(email)}>continue</button>
+{:else if $connection.step == 'WaitingForOTPVerification'}
+	<input type="text" bind:value={otp} />
+	<button onclick={() => connection.provideOTP(otp)}>submit otp</button>
+{:else}
+	{JSON.stringify($connection, null, 2)}
+{/if}
