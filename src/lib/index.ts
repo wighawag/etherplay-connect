@@ -16,7 +16,16 @@ export type OauthMechanism = {
 	provider: 'google' | 'facebook';
 };
 
-export type Mechanism = EmailMechanism<string | undefined> | OauthMechanism;
+export type MnemonicMechanism<T extends number | undefined> = {
+	type: 'mnemonic';
+	mnemonic: string;
+	index: T;
+};
+
+export type Mechanism =
+	| EmailMechanism<string | undefined>
+	| OauthMechanism
+	| MnemonicMechanism<number | undefined>;
 
 export type Connection = { error?: { message: string; cause?: any } } & (
 	| {
@@ -37,6 +46,14 @@ export type Connection = { error?: { message: string; cause?: any } } & (
 	| {
 			step: 'WaitingForOAuthResponse';
 			mechanism: OauthMechanism;
+	  }
+	| {
+			step: 'MnemonicIndexToProvide';
+			mechanism: MnemonicMechanism<undefined>;
+	  }
+	| {
+			step: 'MnemonicGeneratingPrivateKey';
+			mechanism: MnemonicMechanism<number>;
 	  }
 	| {
 			step: 'SignedIn';
@@ -74,7 +91,14 @@ export function createConnection(settings: { alchemy: AlchemySettings }) {
 		if ($connection?.step !== 'EmailToProvide') {
 			throw new Error(`no email to provide`);
 		}
-		return connect({ type: 'email', mode: 'otp', email });
+		return connect({ type: 'email', mode: $connection.mechanism.mode, email });
+	}
+
+	function provideMnemonicIndex(index: number) {
+		if ($connection?.step !== 'MnemonicIndexToProvide') {
+			throw new Error(`no mnemonic index to provide`);
+		}
+		return connect({ type: 'mnemonic', mnemonic: $connection.mechanism.mnemonic, index });
 	}
 
 	async function provideOTP(otp: string) {
@@ -156,6 +180,28 @@ export function createConnection(settings: { alchemy: AlchemySettings }) {
 					console.error(err);
 					setError({ message: 'failed to initiate oauth signin', cause: err });
 				}
+			} else if (mechanism.type === 'mnemonic') {
+				if (mechanism.index === undefined) {
+					set({
+						step: 'MnemonicIndexToProvide',
+						mechanism: { type: 'mnemonic', mnemonic: mechanism.mnemonic, index: undefined }
+					});
+					return;
+				}
+
+				set({
+					step: 'MnemonicGeneratingPrivateKey',
+					mechanism: {
+						type: 'mnemonic',
+						mnemonic: mechanism.mnemonic,
+						index: mechanism.index
+					}
+				});
+				set({
+					step: 'SignedIn',
+					mechanism,
+					privateKey: ''
+				});
 			}
 		} else {
 			set({ step: 'MechanismToChoose' });
@@ -166,6 +212,7 @@ export function createConnection(settings: { alchemy: AlchemySettings }) {
 		subscribe: _store.subscribe,
 		connect,
 		provideEmail,
-		provideOTP
+		provideOTP,
+		provideMnemonicIndex
 	};
 }
