@@ -1,6 +1,4 @@
 <script lang="ts">
-	import type {AlchemyService} from '@renraku/internal-alchemy-login';
-
 	let {
 		cancel,
 	}: {

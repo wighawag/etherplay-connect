@@ -162,7 +162,9 @@
 		</div>
 	{/if}
 	{#if !$alchemy}
-		<Idle {cancel} />
+		<!-- <Idle {cancel} /> -->
+		Initializing...
+		<!-- TODO spinner  -->
 	{:else if $alchemy.step === 'Initialised'}
 		Initialised
 	{:else if $alchemy.step === 'Initialising'}
