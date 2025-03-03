@@ -92,36 +92,6 @@
 		}
 	}
 
-	input {
-		border: 0.0625rem solid #aaa1a0;
-		background-color: #eeeeee;
-		color: #222222;
-		border-radius: 0.25rem;
-		outline: none;
-		box-shadow: none;
-		font-weight: 400;
-		font-size: 1rem;
-		line-height: 1.5;
-		width: 100%;
-		height: 50px;
-		margin-bottom: 1rem;
-		padding: 0.75rem 1rem;
-		font-family: inherit;
-	}
-
-	@media (prefers-color-scheme: dark) {
-		input {
-			border: 0.0625rem solid #2a3140;
-			background-color: #1c212c;
-			color: #e0e3e7;
-		}
-	}
-
-	input::placeholder {
-		color: #8891a4;
-		font-family: inherit;
-	}
-
 	button {
 		padding: 0.75rem 1rem;
 		border: 0.0625rem solid #524ed2;

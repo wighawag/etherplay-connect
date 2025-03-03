@@ -165,8 +165,10 @@
 	{#if !$alchemy || $alchemy.step === 'Initialised' || $alchemy.step === 'Initialising'}
 		<Loading />
 	{:else if $alchemy.step === 'MechanismToChoose'}
-		<!-- TODO -->
-		Choose
+		<!-- TODO? -->
+		<main>
+			<p>Not Supported</p>
+		</main>
 	{:else if $alchemy.mechanism.type == 'email'}
 		<Email {alchemy} {continueAfterLogin} {cancel} />
 	{:else if $alchemy.mechanism.type == 'oauth'}
@@ -220,25 +222,6 @@
 		> p {
 			color: white;
 			font-size: 1rem;
-		}
-		> button {
-			padding: 0.75rem 1rem;
-			border-radius: 0.25rem;
-			outline: none;
-			box-shadow: 0 0 0 rgba(0, 0, 0, 0);
-			color: #fff;
-			font-weight: 400;
-			font-size: 1rem;
-			line-height: 1.5;
-			text-align: center;
-			text-decoration: none;
-			cursor: pointer;
-			user-select: none;
-			width: 100%;
-			height: 50px;
-			background-color: #af291d;
-			border-color: #861d13;
-			width: fit-content;
 		}
 	}
 </style>
