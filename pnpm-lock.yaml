@@ -176,6 +176,9 @@ importers:
       '@testing-library/svelte':
         specifier: ^5.2.4
         version: 5.2.7(svelte@5.20.5)(vite@6.2.0(@types/node@22.13.8)(sass@1.77.6)(terser@5.39.0)(yaml@2.7.0))(vitest@3.0.7(@types/node@22.13.8)(jsdom@25.0.1)(sass@1.77.6)(terser@5.39.0)(yaml@2.7.0))
+      eip-1193:
+        specifier: ^0.6.1
+        version: 0.6.1
       jsdom:
         specifier: ^25.0.1
         version: 25.0.1
@@ -2454,6 +2457,9 @@ packages:
 
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
+
+  eip-1193@0.6.1:
+    resolution: {integrity: sha512-9B06o9exJtraO80s5N/gTfveppEgmFtwV4ycZuuonF7dgJJBUR7bqNHg1W0r3cR2MPryb5Cr5SdY7FcWpXskPg==}
 
   electron-to-chromium@1.5.109:
     resolution: {integrity: sha512-AidaH9JETVRr9DIPGfp1kAarm/W6hRJTPuCnkF+2MqhF4KaAgRIcBc8nvjk+YMXZhwfISof/7WG29eS4iGxQLQ==}
@@ -7290,6 +7296,8 @@ snapshots:
       gopd: 1.2.0
 
   ee-first@1.1.1: {}
+
+  eip-1193@0.6.1: {}
 
   electron-to-chromium@1.5.109: {}
 

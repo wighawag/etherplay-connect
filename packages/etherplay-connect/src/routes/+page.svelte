@@ -7,9 +7,11 @@
 	});
 
 	let connectionAsAny = $derived($connection as any);
+
+	let email: string = $state('');
 </script>
 
-{#if !$connection}
+{#if $connection.step === 'Idle'}
 	<button onclick={() => connection.connect()}>connect</button>
 	<button
 		onclick={() =>
@@ -20,6 +22,10 @@
 	<button onclick={() => connection.connect({ type: 'email', mode: 'otp', email: undefined })}
 		>email</button
 	>
+	<hr />
+	<input bind:value={email} />
+	<button onclick={() => connection.connect({ type: 'email', mode: 'otp', email })}>email</button>
+	<hr />
 	<button
 		onclick={() =>
 			connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: true })}
@@ -64,8 +70,16 @@
 				index: undefined
 			})}>mnemonic</button
 	>
+	<button
+		onclick={() =>
+			connection.connect({
+				type: 'wallet',
+				wallet: 'MetaMask'
+			})}>wallet</button
+	>
 {:else if $connection.step == 'NeedWalletSignature'}
 	Signature requested...
+	<button onclick={() => connection.requestSignature()}>sign</button>
 {:else if $connection.step == 'PopupLaunched'}
 	{#if $connection.popupClosed}
 		Popup seems to be closed.

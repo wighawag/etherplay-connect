@@ -29,6 +29,7 @@
 		"@sveltejs/vite-plugin-svelte": "^5.0.0",
 		"@testing-library/jest-dom": "^6.6.3",
 		"@testing-library/svelte": "^5.2.4",
+		"eip-1193": "^0.6.1",
 		"jsdom": "^25.0.1",
 		"prettier": "^3.4.2",
 		"prettier-plugin-svelte": "^3.3.3",
@@ -46,12 +47,12 @@
 		]
 	},
 	"dependencies": {
-		"etherplay-alchemy": "workspace:*",
 		"@account-kit/signer": "^4.13.0",
 		"@noble/curves": "^1.8.1",
 		"@noble/hashes": "^1.7.1",
 		"@scure/bip32": "^1.6.2",
 		"@scure/bip39": "^1.5.4",
+		"etherplay-alchemy": "workspace:*",
 		"zustand": "^5.0.3"
 	},
 	"scripts": {

@@ -1,6 +1,7 @@
 import type { AlchemyMechanism, OriginAccount } from 'etherplay-alchemy';
 import { writable } from 'svelte/store';
 import { createPopupLauncher, type PopupPromise } from './popup.js';
+import type { EIP1193WindowWalletProvider } from 'eip-1193';
 
 export type PopupSettings = {
 	walletHost: string;
@@ -14,7 +15,13 @@ export type WalletMechanism<T extends string | undefined> = {
 };
 export type Mechanism = AlchemyMechanism | WalletMechanism<string | undefined>;
 
-export type Connection = { error?: { message: string; cause?: any } } & (
+export type Connection = {
+	error?: { message: string; cause?: any };
+	wallets: EIP6963ProviderDetail[];
+} & (
+	| {
+			step: 'Idle';
+	  }
 	| {
 			step: 'MechanismToChoose';
 	  }
@@ -42,10 +49,27 @@ export type Connection = { error?: { message: string; cause?: any } } & (
 	  }
 );
 
+interface EIP6963ProviderInfo {
+	uuid: string;
+	name: string;
+	icon: string;
+	rdns: string;
+}
+
+interface EIP6963ProviderDetail {
+	info: EIP6963ProviderInfo;
+	provider: EIP1193WindowWalletProvider;
+}
+
+export interface EIP6963AnnounceProviderEvent extends CustomEvent {
+	type: 'eip6963:announceProvider';
+	detail: EIP6963ProviderDetail;
+}
+
 export function createConnection(settings: { walletHost: string }) {
-	let $connection: Connection | undefined;
-	const _store = writable<Connection | undefined>($connection);
-	function set(connection: Connection | undefined) {
+	let $connection: Connection = { step: 'Idle', wallets: [] };
+	const _store = writable<Connection>($connection);
+	function set(connection: Connection) {
 		$connection = connection;
 		_store.set($connection);
 		return $connection;
@@ -63,16 +87,77 @@ export function createConnection(settings: { walletHost: string }) {
 
 	let popup: PopupPromise<OriginAccount> | undefined;
 
+	function fetchWallets() {
+		if (typeof window !== 'undefined') {
+			// const defaultProvider = (window as any).ethereum;
+			// console.log(defaultProvider);
+			// TODO ?
+			(window as any).addEventListener(
+				'eip6963:announceProvider',
+				(event: EIP6963AnnounceProviderEvent) => {
+					const { detail } = event;
+					// const { info, provider } = detail;
+					// const { uuid, name, icon, rdns } = info;
+					// console.log('provider', provider);
+					// console.log(`isDefault: ${provider === defaultProvider}`);
+					// console.log('info', info);
+					const existingWallets = $connection.wallets;
+					existingWallets.push(detail);
+
+					set({
+						...$connection,
+						wallets: existingWallets
+					});
+				}
+			);
+			window.dispatchEvent(new Event('eip6963:requestProvider'));
+		}
+	}
+
+	fetchWallets();
+
+	function requestSignature() {}
+
 	async function connect(mechanism?: Mechanism) {
 		if (mechanism) {
 			if (mechanism.type === 'wallet') {
-				const wallet = mechanism.wallet;
-				if (wallet) {
-					set({
-						step: 'WaitingForWalletConnection',
-						mechanism: { type: 'wallet', wallet }
-					});
-					// TODO connect via web3-conneciton or implement it here
+				const walletName = mechanism.wallet;
+				if (walletName) {
+					const mechanism: WalletMechanism<string> = { type: 'wallet', wallet: walletName };
+
+					const wallet = $connection.wallets.find(
+						(v) => v.info.name == walletName || v.info.uuid == walletName
+					);
+					if (wallet) {
+						set({
+							step: 'WaitingForWalletConnection', // TODO FetchingAccounts
+							mechanism,
+							wallets: $connection.wallets
+						});
+						const provider = wallet.provider;
+						let accounts = await provider.request({ method: 'eth_accounts' });
+						if (accounts.length === 0) {
+							set({
+								step: 'WaitingForWalletConnection',
+								mechanism,
+								wallets: $connection.wallets
+							});
+							accounts = await provider.request({ method: 'eth_requestAccounts' });
+						}
+
+						set({
+							step: 'NeedWalletSignature',
+							mechanism,
+							wallets: $connection.wallets
+						});
+					} else {
+						console.log(`failed to get wallet ${walletName}`, $connection.wallets);
+						set({
+							step: 'MechanismToChoose',
+							wallets: $connection.wallets,
+							error: { message: `failed to get wallet ${walletName}` }
+						});
+					}
 				} else {
 					// TODO can also be done automatically before hand
 					// set({
@@ -82,7 +167,8 @@ export function createConnection(settings: { walletHost: string }) {
 
 					set({
 						step: 'WalletToChoose',
-						mechanism: { type: 'wallet', wallet: undefined }
+						mechanism: { type: 'wallet', wallet: undefined },
+						wallets: $connection.wallets
 					});
 				}
 			} else {
@@ -93,7 +179,8 @@ export function createConnection(settings: { walletHost: string }) {
 				set({
 					step: 'PopupLaunched',
 					popupClosed: false,
-					mechanism
+					mechanism,
+					wallets: $connection.wallets
 				});
 
 				const unsubscribe = popup.subscribe(($popup) => {
@@ -112,18 +199,20 @@ export function createConnection(settings: { walletHost: string }) {
 					set({
 						step: 'SignedIn',
 						account: result,
-						mechanism
+						mechanism,
+						wallets: $connection.wallets
 					});
 				} catch (err) {
 					console.log({ error: err });
-					set(undefined);
+					set({ step: 'Idle', wallets: $connection.wallets });
 				} finally {
 					unsubscribe();
 				}
 			}
 		} else {
 			set({
-				step: 'MechanismToChoose'
+				step: 'MechanismToChoose',
+				wallets: $connection.wallets
 			});
 		}
 	}
@@ -187,12 +276,13 @@ export function createConnection(settings: { walletHost: string }) {
 
 	function cancel() {
 		popup?.cancel();
-		set(undefined);
+		set({ step: 'Idle', wallets: $connection.wallets });
 	}
 
 	return {
 		subscribe: _store.subscribe,
 		connect,
-		cancel
+		cancel,
+		requestSignature
 	};
 }
