@@ -170,47 +170,10 @@ export function createAlchemyOnBoarding(
 ) {
 	const sessionKey = options?.sessionKey || 'alchemy-signer-session';
 
+	let popupIsPrepared: boolean = false;
 	let signer: AlchemyWebSigner | undefined;
 
-	async function syncInit() {
-		if (!signer) {
-			console.log(`setting up iframe container...`);
-			const existingContainer = document.getElementById(TURNKEY_IFRAME_CONTAINER_ID);
-			if (!existingContainer) {
-				const container = document.createElement('div');
-				container.id = TURNKEY_IFRAME_CONTAINER_ID;
-				container.style.display = 'none';
-				document.body.appendChild(container);
-			}
-
-			console.log(`creating signer using orgId: ${options?.orgId}...`);
-			signer = new AlchemyWebSigner({
-				client: {
-					// This is created in your dashboard under `https://dashboard.alchemy.com/settings/access-keys`
-					// NOTE: it is not recommended to expose your API key on the client, instead proxy requests to your backend and set the `rpcUrl`
-					// here to point to your backend.
-					connection:
-						'apiKeyNotRecommended' in settings
-							? { apiKey: settings.apiKeyNotRecommended }
-							: { rpcUrl: settings.rpcURL },
-					iframeConfig: {
-						// you will need to render a container with this id in your DOM
-						iframeContainerId: TURNKEY_IFRAME_CONTAINER_ID
-					},
-					rootOrgId: options?.orgId
-				},
-				sessionConfig: {
-					expirationTimeMs: 1 * 60 * 60 * 1000,
-					sessionKey
-				}
-			});
-		}
-	}
-
-	async function init(preparePopup?: boolean): Promise<{
-		user: User;
-		signer: AlchemyWebSigner;
-	} | null> {
+	async function init(params?: { preparePopup?: boolean }): Promise<AlchemyWebSigner> {
 		if (!signer) {
 			console.log(`setting up iframe container...`);
 			const existingContainer = document.getElementById(TURNKEY_IFRAME_CONTAINER_ID);
@@ -243,25 +206,22 @@ export function createAlchemyOnBoarding(
 				}
 			});
 
-			if (preparePopup) {
+			if (params?.preparePopup) {
 				console.log('preparePopupOauth...');
 				await signer.preparePopupOauth();
+				popupIsPrepared = true;
 			}
 		}
 
-		console.log(`signer.getAuthDetails()....`);
-		let user = null;
-		try {
-			user = await signer.getAuthDetails();
-		} catch (err) {
-			console.warn(`error getting current user`, err);
+		return signer;
+	}
+
+	async function preparePopup() {
+		if (!signer) {
+			throw new Error(`no signer initialised`);
 		}
-		console.log(`user`, user);
-		if (user) {
-			return { user, signer };
-		} else {
-			return null;
-		}
+		await signer.preparePopupOauth();
+		popupIsPrepared = true;
 	}
 
 	async function loginViaEmail(
@@ -397,7 +357,7 @@ export function createAlchemyOnBoarding(
 				return null;
 			}
 		} catch (err) {
-			console.error(`fauled to authenticate with bundle`, err);
+			console.error(`failed to authenticate with bundle`, err);
 			return null;
 		}
 	}
@@ -428,7 +388,7 @@ export function createAlchemyOnBoarding(
 				return null;
 			}
 		} catch (err) {
-			console.error(`fauled to authenticate with bundle`, err);
+			console.error(`failed to authenticate with bundle`, err);
 			return null;
 		}
 	}
@@ -450,12 +410,12 @@ export function createAlchemyOnBoarding(
 				return null;
 			}
 		} catch (err) {
-			console.error(`fauled to authenticate with otp`, err);
+			console.error(`failed to authenticate with otp`, err);
 			return null;
 		}
 	}
 
-	async function getSigner(): Promise<{
+	async function getUserSigner(): Promise<{
 		user: User;
 		signer: AlchemyWebSigner;
 	} | null> {
@@ -501,12 +461,18 @@ export function createAlchemyOnBoarding(
 	// }
 
 	return {
-		syncInit,
 		init,
 		loginViaEmail,
 		loginViaOAuth,
 		sign,
-		getSigner,
+		getUserSigner,
+		preparePopup,
+		get signer() {
+			return signer;
+		},
+		get popupIsPrepared() {
+			return popupIsPrepared;
+		},
 		completeEmailLoginViaBundle,
 		completeOAuthWithBundle,
 		completeEmailLoginViaOTP,

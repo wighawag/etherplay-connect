@@ -1,9 +1,11 @@
 import { writable } from 'svelte/store';
 import {
+	AlchemyWebSigner,
 	createAlchemyOnBoarding,
 	type AlchemySettings,
 	type SignerUser
 } from './internal-alchemy/index.js';
+import { onDocumentLoaded } from './utils/web.js';
 
 export type EmailMechanism<T extends string | undefined> = {
 	type: 'email';
@@ -13,6 +15,7 @@ export type EmailMechanism<T extends string | undefined> = {
 
 export type OauthMechanism = {
 	type: 'oauth';
+	usePopup: boolean;
 	provider: { id: 'google' | 'facebook' } | { id: 'auth0'; connection: string };
 };
 
@@ -29,11 +32,25 @@ export type Mechanism =
 
 export type Connection = { error?: { message: string; cause?: any } } & (
 	| {
+			step: 'Initialising';
+			auto: boolean;
+	  }
+	| {
+			step: 'Initialised';
+			signer: AlchemyWebSigner;
+	  }
+	| {
 			step: 'MechanismToChoose';
+			signer: AlchemyWebSigner;
+	  }
+	| {
+			step: 'InitialisingMechanism';
+			mechanism: Mechanism;
 	  }
 	| {
 			step: 'MechanismChosen';
 			mechanism: Mechanism;
+			signer: AlchemyWebSigner;
 	  }
 
 	// --------------------------------------------------------------------------------------------
@@ -42,10 +59,17 @@ export type Connection = { error?: { message: string; cause?: any } } & (
 	| {
 			step: 'EmailToProvide';
 			mechanism: EmailMechanism<undefined>;
+			signer: AlchemyWebSigner;
 	  }
 	| {
-			step: 'WaitingForOTPVerification';
+			step: 'WaitingForOTP';
 			mechanism: EmailMechanism<string>;
+			signer: AlchemyWebSigner;
+	  }
+	| {
+			step: 'VerifyingOTP';
+			mechanism: EmailMechanism<string>;
+			signer: AlchemyWebSigner;
 	  }
 	// --------------------------------------------------------------------------------------------
 
@@ -53,8 +77,19 @@ export type Connection = { error?: { message: string; cause?: any } } & (
 	// OAuth
 	// --------------------------------------------------------------------------------------------
 	| {
+			step: 'InitializingOAuthPopup';
+			mechanism: OauthMechanism;
+			signer: AlchemyWebSigner;
+	  }
+	| {
+			step: 'ConfirmOAuth';
+			mechanism: OauthMechanism;
+			signer: AlchemyWebSigner;
+	  }
+	| {
 			step: 'WaitingForOAuthResponse';
 			mechanism: OauthMechanism;
+			signer: AlchemyWebSigner;
 	  }
 	// --------------------------------------------------------------------------------------------
 
@@ -64,10 +99,12 @@ export type Connection = { error?: { message: string; cause?: any } } & (
 	| {
 			step: 'MnemonicIndexToProvide';
 			mechanism: MnemonicMechanism<undefined>;
+			signer: AlchemyWebSigner;
 	  }
 	| {
 			step: 'MnemonicGeneratingPrivateKey';
 			mechanism: MnemonicMechanism<number>;
+			signer: AlchemyWebSigner;
 	  }
 	// --------------------------------------------------------------------------------------------
 
@@ -77,12 +114,16 @@ export type Connection = { error?: { message: string; cause?: any } } & (
 	| {
 			step: 'SignedIn';
 			mechanism: Mechanism;
+			signer: AlchemyWebSigner;
 			privateKey: string;
 	  }
 );
 // --------------------------------------------------------------------------------------------
 
-export function createConnection(settings: { alchemy: AlchemySettings }) {
+export function createConnection(settings: {
+	alchemy: AlchemySettings;
+	alwaysUsePopupForOAuth?: boolean;
+}) {
 	let $connection: Connection | undefined;
 	const _store = writable<Connection | undefined>($connection);
 	function set(connection: Connection | undefined) {
@@ -103,6 +144,19 @@ export function createConnection(settings: { alchemy: AlchemySettings }) {
 
 	const onboarding = createAlchemyOnBoarding(settings.alchemy);
 
+	async function auto() {
+		set({
+			step: 'Initialising',
+			auto: true
+		});
+		const signer = await onboarding.init({ preparePopup: settings.alwaysUsePopupForOAuth });
+		set({
+			step: 'Initialised',
+			signer
+		});
+	}
+	onDocumentLoaded(auto);
+
 	function setupAlchemySigner(newSigner: SignerUser) {
 		console.log({ newSigner });
 	}
@@ -122,39 +176,115 @@ export function createConnection(settings: { alchemy: AlchemySettings }) {
 	}
 
 	async function provideOTP(otp: string) {
-		if ($connection?.step !== 'WaitingForOTPVerification') {
+		if ($connection?.step !== 'WaitingForOTP') {
 			throw new Error(`no email to provide`);
 		}
 
+		const mechanism = $connection.mechanism;
+		const signer = $connection.signer;
+		set({
+			step: 'VerifyingOTP',
+			mechanism,
+			signer
+		});
+
 		const result = await onboarding.completeEmailLoginViaOTP(otp);
 		console.log({ result });
+
+		set({
+			step: 'SignedIn',
+			mechanism,
+			signer,
+			privateKey: '' // TODO
+		});
+	}
+
+	async function confirmOAuth(data?: { signer: AlchemyWebSigner; mechanism: OauthMechanism }) {
+		let mechanism: OauthMechanism;
+		let signer: AlchemyWebSigner;
+		if (!data) {
+			if ($connection?.step !== 'ConfirmOAuth') {
+				throw new Error(`not in confirm oauth step`);
+			}
+			mechanism = $connection.mechanism;
+			signer = $connection.signer;
+		} else {
+			mechanism = data.mechanism;
+			signer = data.signer;
+		}
+
+		set({
+			step: 'WaitingForOAuthResponse',
+			mechanism,
+			signer
+		});
+
+		try {
+			const newSigner = await onboarding.loginViaOAuth(mechanism.provider);
+			console.log({ newSigner });
+
+			if (newSigner) {
+				set({
+					step: 'SignedIn',
+					mechanism,
+					signer,
+					privateKey: ''
+				});
+			} else {
+				setError({ message: 'no signer' });
+			}
+		} catch (err) {
+			console.error(err);
+			setError({ message: 'failed to initiate oauth signin', cause: err });
+		}
 	}
 
 	async function connect(mechanism?: Mechanism) {
 		if (mechanism) {
-			set({ step: 'MechanismChosen', mechanism });
+			let signer: AlchemyWebSigner;
+			if ($connection && 'signer' in $connection && $connection.signer) {
+				signer = $connection.signer;
+			} else {
+				set({ step: 'InitialisingMechanism', mechanism });
+
+				const popupRequirePreparation = mechanism.type === 'oauth' && mechanism.usePopup;
+
+				signer = await onboarding.init({
+					preparePopup: popupRequirePreparation
+				});
+				if (popupRequirePreparation) {
+					set({
+						step: 'ConfirmOAuth',
+						mechanism,
+						signer
+					});
+					return;
+				}
+			}
+			set({ step: 'MechanismChosen', mechanism, signer });
 
 			if (mechanism.type === 'email') {
 				if (mechanism.email === undefined) {
 					set({
 						step: 'EmailToProvide',
-						mechanism: { type: 'email', mode: 'otp', email: undefined }
+						mechanism: { type: 'email', mode: 'otp', email: undefined },
+						signer
 					});
 					return;
 				}
 
-				const signer = await onboarding.init();
 				console.log({ existingSIgner: signer });
 
 				const promise = onboarding.loginViaEmail(mechanism.email, mechanism.mode);
 
 				set({
-					step: 'WaitingForOTPVerification',
+					step: 'WaitingForOTP',
 					mechanism: {
 						type: 'email',
 						mode: 'otp',
 						email: mechanism.email
-					}
+					},
+					signer
 				});
 
 				try {
@@ -165,6 +295,7 @@ export function createConnection(settings: { alchemy: AlchemySettings }) {
 						set({
 							step: 'SignedIn',
 							mechanism,
+							signer,
 							privateKey: ''
 						});
 					} else {
@@ -175,36 +306,34 @@ export function createConnection(settings: { alchemy: AlchemySettings }) {
 					setError({ message: 'failed to initiate email signin', cause: err });
 				}
 			} else if (mechanism.type === 'oauth') {
-				const signer = await onboarding.init();
 				console.log({ existingSIgner: signer });
 
-				set({
-					step: 'WaitingForOAuthResponse',
-					mechanism
-				});
-
-				try {
-					const newSigner = await onboarding.loginViaOAuth(mechanism.provider);
-					console.log({ newSigner });
-
-					if (newSigner) {
+				if (mechanism.usePopup) {
+					set({
+						step: 'InitializingOAuthPopup',
+						mechanism,
+						signer
+					});
+					if (!onboarding.popupIsPrepared) {
+						await onboarding.preparePopup();
 						set({
-							step: 'SignedIn',
+							step: 'ConfirmOAuth',
 							mechanism,
-							privateKey: ''
+							signer
 						});
-					} else {
-						setError({ message: 'no signer' });
+						return;
 					}
-				} catch (err) {
-					console.error(err);
-					setError({ message: 'failed to initiate oauth signin', cause: err });
+				} else if (settings.alwaysUsePopupForOAuth) {
+					throw new Error(`configured to always use popup for oauth`);
 				}
+
+				await confirmOAuth({ signer, mechanism });
 			} else if (mechanism.type === 'mnemonic') {
 				if (mechanism.index === undefined) {
 					set({
 						step: 'MnemonicIndexToProvide',
-						mechanism: { type: 'mnemonic', mnemonic: mechanism.mnemonic, index: undefined }
+						mechanism: { type: 'mnemonic', mnemonic: mechanism.mnemonic, index: undefined },
+						signer
 					});
 					return;
 				}
@@ -215,16 +344,23 @@ export function createConnection(settings: { alchemy: AlchemySettings }) {
 						type: 'mnemonic',
 						mnemonic: mechanism.mnemonic,
 						index: mechanism.index
-					}
+					},
+					signer
 				});
 				set({
 					step: 'SignedIn',
 					mechanism,
+					signer,
 					privateKey: ''
 				});
 			}
 		} else {
-			set({ step: 'MechanismToChoose' });
+			set({
+				step: 'Initialising',
+				auto: false
+			});
+			const signer = await onboarding.init();
+			set({ step: 'MechanismToChoose', signer });
 		}
 	}
 

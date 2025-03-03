@@ -5,7 +5,8 @@
 	const connection = createConnection({
 		alchemy: {
 			rpcURL: PUBLIC_ALCHEMY_RPC_URL
-		}
+		},
+		alwaysUsePopupForOAuth: true
 	});
 
 	let email: string = $state('');
@@ -13,16 +14,31 @@
 	let mnemonicIndex: number = $state(0);
 </script>
 
-{#if !$connection}
+{#if !$connection || $connection.step === 'Initialised'}
 	<button onclick={() => connection.connect()}>connect</button>
+	<button
+		onclick={() =>
+			connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: true })}
+		>google</button
+	>
+{:else if $connection.step == 'Initialising'}
+	{#if $connection.auto}
+		please wait..
+	{:else}
+		initialising...
+	{/if}
 {:else if $connection.step == 'MechanismToChoose'}
 	<button onclick={() => connection.connect({ type: 'email', mode: 'otp', email: undefined })}
 		>email</button
 	>
-	<button onclick={() => connection.connect({ type: 'oauth', provider: { id: 'google' } })}
+	<button
+		onclick={() =>
+			connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: true })}
 		>google</button
 	>
-	<button onclick={() => connection.connect({ type: 'oauth', provider: { id: 'facebook' } })}
+	<button
+		onclick={() =>
+			connection.connect({ type: 'oauth', provider: { id: 'facebook' }, usePopup: true })}
 		>facebook</button
 	>
 	<button
@@ -41,9 +57,9 @@
 {:else if $connection.step == 'MnemonicIndexToProvide'}
 	<input type="number" bind:value={mnemonicIndex} />
 	<button onclick={() => connection.provideMnemonicIndex(mnemonicIndex)}>continue</button>
-{:else if $connection.step == 'WaitingForOTPVerification'}
+{:else if $connection.step == 'WaitingForOTP'}
 	<input type="text" bind:value={otp} />
 	<button onclick={() => connection.provideOTP(otp)}>submit otp</button>
 {:else}
-	{JSON.stringify($connection, null, 2)}
+	{JSON.stringify({ step: $connection.step, error: $connection.error }, null, 2)}
 {/if}
