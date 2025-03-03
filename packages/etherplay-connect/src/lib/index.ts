@@ -9,11 +9,23 @@ export type PopupSettings = {
 	// extraParams?: Record<string, string>;
 };
 
-export type WalletMechanism<T extends string | undefined> = {
+export type WalletMechanism<
+	WalletName extends string | undefined,
+	HasProvider extends boolean | undefined,
+	Address extends `0x${string}` | undefined
+> = {
 	type: 'wallet';
-	wallet: T;
-};
-export type Mechanism = AlchemyMechanism | WalletMechanism<string | undefined>;
+} & (WalletName extends undefined ? { name?: undefined } : { name: WalletName }) &
+	(HasProvider extends undefined
+		? { provider?: undefined }
+		: { provider: EIP1193WindowWalletProvider }) &
+	(Address extends undefined ? { address?: undefined } : { address: Address });
+
+export type Mechanism =
+	| AlchemyMechanism
+	| WalletMechanism<string | undefined, boolean | undefined, `0x${string}` | undefined>;
+
+export type FullfilledMechanism = AlchemyMechanism | WalletMechanism<string, true, `0x${string}`>;
 
 export type Connection = {
 	error?: { message: string; cause?: any };
@@ -32,19 +44,23 @@ export type Connection = {
 	  }
 	| {
 			step: 'WalletToChoose';
-			mechanism: WalletMechanism<undefined>;
+			mechanism: WalletMechanism<undefined, undefined, undefined>;
 	  }
 	| {
 			step: 'WaitingForWalletConnection';
-			mechanism: WalletMechanism<string>;
+			mechanism: WalletMechanism<string, true, undefined>;
 	  }
 	| {
 			step: 'NeedWalletSignature';
-			mechanism: WalletMechanism<string>;
+			mechanism: WalletMechanism<string, true, `0x${string}`>;
+	  }
+	| {
+			step: 'WaitingForSignature';
+			mechanism: WalletMechanism<string, true, `0x${string}`>;
 	  }
 	| {
 			step: 'SignedIn';
-			mechanism: Mechanism;
+			mechanism: FullfilledMechanism;
 			account: OriginAccount;
 	  }
 );
@@ -116,19 +132,64 @@ export function createConnection(settings: { walletHost: string }) {
 
 	fetchWallets();
 
-	function requestSignature() {}
+	async function requestSignature() {
+		if ($connection.step !== 'NeedWalletSignature') {
+			throw new Error(`invalid step: ${$connection.step}, needs to be NeedWalletSignature`);
+		}
+
+		const provider = $connection.mechanism.provider;
+		const msg = `0x${Buffer.from('hello', 'utf8').toString('hex')}` as `0x${string}`;
+
+		set({
+			...$connection,
+			step: 'WaitingForSignature'
+		});
+		const signature = await provider.request({
+			method: 'personal_sign',
+			params: [msg, $connection.mechanism.address]
+		});
+		console.log({ signature });
+
+		set({
+			...$connection,
+			step: 'SignedIn',
+			mechanism: {
+				type: 'wallet',
+				name: $connection.mechanism.name,
+				provider: $connection.mechanism.provider,
+				address: $connection.mechanism.address
+				// signature: signature as `0x${string}`
+			},
+			account: {
+				localAccount: {
+					address: $connection.mechanism.address
+					// signature: signature as `0x${string}`
+				},
+				originAccount: {
+					address: $connection.mechanism.address
+					// signature: signature as `0x${string}`
+				},
+				mechanismUsed: $connection.mechanism,
+				user: {}
+			}
+		});
+	}
 
 	async function connect(mechanism?: Mechanism) {
 		if (mechanism) {
 			if (mechanism.type === 'wallet') {
-				const walletName = mechanism.wallet;
+				const walletName = mechanism.name;
 				if (walletName) {
-					const mechanism: WalletMechanism<string> = { type: 'wallet', wallet: walletName };
-
 					const wallet = $connection.wallets.find(
 						(v) => v.info.name == walletName || v.info.uuid == walletName
 					);
 					if (wallet) {
+						const mechanism: WalletMechanism<string, true, undefined> = {
+							type: 'wallet',
+							name: walletName,
+							provider: wallet.provider
+						};
+
 						set({
 							step: 'WaitingForWalletConnection', // TODO FetchingAccounts
 							mechanism,
@@ -147,11 +208,14 @@ export function createConnection(settings: { walletHost: string }) {
 
 						set({
 							step: 'NeedWalletSignature',
-							mechanism,
+							mechanism: {
+								...mechanism,
+								address: accounts[0]
+							},
 							wallets: $connection.wallets
 						});
 					} else {
-						console.log(`failed to get wallet ${walletName}`, $connection.wallets);
+						console.error(`failed to get wallet ${walletName}`, $connection.wallets);
 						set({
 							step: 'MechanismToChoose',
 							wallets: $connection.wallets,
@@ -167,7 +231,7 @@ export function createConnection(settings: { walletHost: string }) {
 
 					set({
 						step: 'WalletToChoose',
-						mechanism: { type: 'wallet', wallet: undefined },
+						mechanism: { type: 'wallet' },
 						wallets: $connection.wallets
 					});
 				}

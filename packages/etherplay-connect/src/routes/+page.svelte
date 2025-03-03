@@ -74,7 +74,7 @@
 		onclick={() =>
 			connection.connect({
 				type: 'wallet',
-				wallet: 'MetaMask'
+				name: 'MetaMask'
 			})}>wallet</button
 	>
 {:else if $connection.step == 'NeedWalletSignature'}
