@@ -35,7 +35,7 @@ export function handle(
 		// TODO ?
 		// alchemyConnection.completeEmailLoginViaBundle(mechanism.bundle, mechanism.orgId);
 	} else if (mechanism.type === 'mnemonic' || mechanism.type === 'email' || mechanism.type === 'oauth') {
-		alchemyConnection.connect(mechanism);
+		alchemyConnection.connect(mechanism, {origin: orig, id: requestID});
 	} else {
 		throw new Error(`Unknown mechanism type: ${(mechanism as any).type}`);
 	}

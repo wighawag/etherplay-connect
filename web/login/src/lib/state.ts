@@ -66,10 +66,6 @@ if (!type) {
 					type: 'oauth',
 					provider: {id: oauth},
 					usePopup: false,
-					redirection: {
-						origin: orig,
-						requestID,
-					},
 				};
 			} else {
 				mechanism = {
@@ -91,10 +87,6 @@ if (!type) {
 						type: 'oauth',
 						provider: {id: oauth, connection: oauthConnection},
 						usePopup: false,
-						redirection: {
-							origin: orig,
-							requestID,
-						},
 					};
 				} else {
 					mechanism = {

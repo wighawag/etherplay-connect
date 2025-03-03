@@ -23,12 +23,38 @@
 	<button
 		onclick={() =>
 			connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: true })}
-		>google</button
+		>google (popup)</button
 	>
 	<button
 		onclick={() =>
 			connection.connect({ type: 'oauth', provider: { id: 'facebook' }, usePopup: true })}
-		>facebook</button
+		>facebook (popup)</button
+	>
+	<button
+		onclick={() =>
+			connection.connect({
+				type: 'oauth',
+				provider: { id: 'auth0', connection: 'twitter' },
+				usePopup: true
+			})}>twitter (popup)</button
+	>
+	<button
+		onclick={() =>
+			connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: false })}
+		>google (redirect)</button
+	>
+	<button
+		onclick={() =>
+			connection.connect({ type: 'oauth', provider: { id: 'facebook' }, usePopup: false })}
+		>facebook (redirect)</button
+	>
+	<button
+		onclick={() =>
+			connection.connect({
+				type: 'oauth',
+				provider: { id: 'auth0', connection: 'twitter' },
+				usePopup: false
+			})}>twitter (redirect)</button
 	>
 	<button
 		onclick={() =>

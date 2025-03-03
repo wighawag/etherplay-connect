@@ -23,11 +23,20 @@
 	animated: boolean,
 )}
 	{#if provider?.id == 'google'}
-		<img src="/google_logo.png" alt="Google Logo" class:animated />
+		<picture>
+			<img src="/google_logo.png" alt="Google Logo" class:animated />
+		</picture>
 	{:else if provider?.id == 'facebook'}
-		<img src="/Facebook_Logo_Primary.png" alt="Facebook Logo" class:animated />
-		<!-- {:else if typeof provider === 'object' && provider.type === 'auth0'}
+		<picture>
+			<img src="/Facebook_Logo_Primary.png" alt="Facebook Logo" class:animated />
+			<!-- {:else if typeof provider === 'object' && provider.type === 'auth0'}
 		<img src="/github-mark.png" alt="Github Logo" class:animated /> -->
+		</picture>
+	{:else if provider?.id === 'auth0' && provider.connection === 'twitter'}
+		<picture>
+			<source srcset="/x-logo-white.png" media="(prefers-color-scheme: dark)" />
+			<img alt="X Logo" src="/x-logo-black.png" />
+		</picture>
 	{:else}
 		<div>
 			<p>{animated ? 'Please Wait....' : provider?.id == 'auth0' ? provider.connection : provider}</p>
@@ -70,12 +79,16 @@
 		align-items: center;
 	}
 
-	main > img {
+	main picture {
 		max-width: min(30%, 128px);
 		max-height: min(30%, 128px);
 	}
+	main img {
+		width: 100%;
+		height: 100%;
+	}
 
-	main > img.animated {
+	main img.animated {
 		animation: pulse ease-in 1400ms infinite alternate;
 	}
 

@@ -30,7 +30,7 @@ export type OauthMechanism = {
 	type: 'oauth';
 
 	provider: { id: 'google' | 'facebook' } | { id: 'auth0'; connection: string };
-} & ({ usePopup: true } | { usePopup: false; redirection: { origin: string; requestID: string } });
+} & ({ usePopup: true } | { usePopup: false }); // redirection: { origin: string; requestID: string }
 
 export type OauthRedirectMechanism = {
 	type: 'oauth-redirect';
@@ -278,7 +278,11 @@ export function createAlchemyConnection(settings: {
 		}
 	}
 
-	async function confirmOAuth(data?: { signer: AlchemyWebSigner; mechanism: OauthMechanism }) {
+	async function confirmOAuth(data?: {
+		signer: AlchemyWebSigner;
+		mechanism: OauthMechanism;
+		redirection?: { origin: string; id: string };
+	}) {
 		let mechanism: OauthMechanism;
 		let signer: AlchemyWebSigner;
 		if (!data) {
@@ -298,8 +302,17 @@ export function createAlchemyConnection(settings: {
 			signer
 		});
 
+		let redirection;
+		if (!mechanism.usePopup) {
+			redirection = data?.redirection;
+			if (!redirection) {
+				// TODO error set
+				throw new Error(`no redirection provided`);
+			}
+		}
+
 		try {
-			const result = await onboarding.loginViaOAuth(mechanism.provider);
+			const result = await onboarding.loginViaOAuth(mechanism.provider, redirection);
 
 			if (!result) {
 				set({
@@ -323,13 +336,17 @@ export function createAlchemyConnection(settings: {
 				signer,
 				account
 			});
+			return account;
 		} catch (err) {
 			console.error(err);
 			setError({ message: 'failed to initiate oauth signin', cause: err });
 		}
 	}
 
-	async function connect(mechanism?: AlchemyMechanism) {
+	async function connect(
+		mechanism?: AlchemyMechanism,
+		redirection?: { origin: string; id: string }
+	): Promise<EtherplayAccount | undefined> {
 		if (mechanism) {
 			let signer: AlchemyWebSigner;
 			if ($connection && 'signer' in $connection && $connection.signer) {
@@ -401,6 +418,7 @@ export function createAlchemyConnection(settings: {
 						signer,
 						account
 					});
+					return account;
 				} catch (err) {
 					console.error(err);
 					setError({ message: 'failed to initiate email signin', cause: err });
@@ -427,7 +445,7 @@ export function createAlchemyConnection(settings: {
 					throw new Error(`configured to always use popup for oauth`);
 				}
 
-				await confirmOAuth({ signer, mechanism });
+				await confirmOAuth({ signer, mechanism, redirection });
 			} else if (mechanism.type === 'mnemonic') {
 				if (mechanism.index === undefined) {
 					set({
@@ -472,6 +490,7 @@ export function createAlchemyConnection(settings: {
 					signer,
 					account
 				});
+				return account;
 			}
 		} else {
 			set({
@@ -567,8 +586,7 @@ export function createAlchemyConnection(settings: {
 		const mechanism: OauthMechanism = {
 			type: 'oauth',
 			provider: redirectMechanism.provider,
-			usePopup: false,
-			redirection: redirectMechanism.redirection
+			usePopup: false
 		};
 		set({
 			step: 'GeneratingAccount',

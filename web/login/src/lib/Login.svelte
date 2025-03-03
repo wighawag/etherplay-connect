@@ -5,6 +5,7 @@
 	import Email from './mechanism/Email.svelte';
 	import Mnemonic from './mechanism/Mnemonic.svelte';
 	import Idle from './Idle.svelte';
+	import {get} from 'svelte/store';
 
 	let {
 		alchemy,
@@ -98,13 +99,18 @@
 		}
 		if (!resultPosted) {
 			try {
-				// TODO
-				// const result = toUntrustedOrigin($alchemy);
-				// if (debug) {
-				// 	console.log('postMessage', {result, id: requestID}, orig);
-				// }
-				from.source.postMessage({result: {hello: 'world'}, id: from.requestID}, {targetOrigin: from.origin});
-				resultPosted = true;
+				const state = get(alchemy);
+				if (state?.step === 'SignedIn') {
+					// TODO
+					const result = alchemy.generateOriginAccount(origin, state.account);
+					// if (debug) {
+					// 	console.log('postMessage', {result, id: requestID}, orig);
+					// }
+					from.source.postMessage({result, id: from.requestID}, {targetOrigin: from.origin});
+					resultPosted = true;
+				} else {
+					throw new Error(`invalid step: ${state?.step}`);
+				}
 			} catch (e) {
 				// TODO
 				console.error(e);
