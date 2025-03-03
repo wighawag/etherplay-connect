@@ -46,6 +46,7 @@
 		]
 	},
 	"dependencies": {
+		"etherplay-alchemy": "workspace:*",
 		"@account-kit/signer": "^4.13.0",
 		"@noble/curves": "^1.8.1",
 		"@noble/hashes": "^1.7.1",

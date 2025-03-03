@@ -32,10 +32,48 @@ export type MnemonicMechanism<T extends number | undefined> = {
 	index: T;
 };
 
-export type Mechanism =
+export type AlchemyMechanism =
 	| EmailMechanism<string | undefined>
 	| OauthMechanism
 	| MnemonicMechanism<number | undefined>;
+
+export type AlchemyUser = {
+	email?: string;
+	orgId: string;
+	userId: string;
+	address: `0x${string}`;
+	credentialId?: string;
+	idToken?: string;
+	claims?: Record<string, unknown>;
+};
+
+export type EtherplayAccount = {
+	localAccount: {
+		address: `0x${string}`;
+		index: number;
+		key: `0x${string}`;
+	};
+	signer: {
+		mechanismUsed: AlchemyMechanism;
+		user: AlchemyUser;
+	};
+};
+
+export type OriginAccount = {
+	user: AlchemyUser;
+	localAccount: {
+		address: `0x${string}`;
+	};
+	originAccount: {
+		origin: string;
+		address: `0x${string}`;
+		privateKey: `0x${string}`;
+		mnemonicKey: `0x${string}`;
+		mnemonic: string;
+		index: number;
+	};
+	mechanismUsed: AlchemyMechanism;
+};
 
 export type AlchemyConnection = { error?: { message: string; cause?: any } } & (
 	| {
@@ -52,11 +90,11 @@ export type AlchemyConnection = { error?: { message: string; cause?: any } } & (
 	  }
 	| {
 			step: 'InitialisingMechanism';
-			mechanism: Mechanism;
+			mechanism: AlchemyMechanism;
 	  }
 	| {
 			step: 'MechanismChosen';
-			mechanism: Mechanism;
+			mechanism: AlchemyMechanism;
 			signer: AlchemyWebSigner;
 	  }
 
@@ -116,54 +154,17 @@ export type AlchemyConnection = { error?: { message: string; cause?: any } } & (
 	// --------------------------------------------------------------------------------------------
 	| {
 			step: 'GeneratingAccount';
-			mechanism: Mechanism;
+			mechanism: AlchemyMechanism;
 			signer: AlchemyWebSigner;
 	  }
 	| {
 			step: 'SignedIn';
-			mechanism: Mechanism;
+			mechanism: AlchemyMechanism;
 			signer: AlchemyWebSigner;
 			account: EtherplayAccount;
 	  }
 );
 
-export type AlchemyUser = {
-	email?: string;
-	orgId: string;
-	userId: string;
-	address: `0x${string}`;
-	credentialId?: string;
-	idToken?: string;
-	claims?: Record<string, unknown>;
-};
-
-export type EtherplayAccount = {
-	localAccount: {
-		address: `0x${string}`;
-		index: number;
-		key: `0x${string}`;
-	};
-	signer: {
-		mechanismUsed: Mechanism;
-		user: AlchemyUser;
-	};
-};
-
-export type OriginAccount = {
-	user: AlchemyUser;
-	localAccount: {
-		address: `0x${string}`;
-	};
-	originAccount: {
-		origin: string;
-		address: `0x${string}`;
-		privateKey: `0x${string}`;
-		mnemonicKey: `0x${string}`;
-		mnemonic: string;
-		index: number;
-	};
-	mechanismUsed: Mechanism;
-};
 // --------------------------------------------------------------------------------------------
 
 const storageAccountKey = '__etherplay_account';
@@ -309,7 +310,7 @@ export function createAlchemyConnection(settings: {
 		}
 	}
 
-	async function connect(mechanism?: Mechanism) {
+	async function connect(mechanism?: AlchemyMechanism) {
 		if (mechanism) {
 			let signer: AlchemyWebSigner;
 			if ($connection && 'signer' in $connection && $connection.signer) {
@@ -467,7 +468,7 @@ export function createAlchemyConnection(settings: {
 		mechanism,
 		signerUser
 	}: {
-		mechanism: Mechanism;
+		mechanism: AlchemyMechanism;
 		signerUser: SignerUser;
 	}): Promise<EtherplayAccount> {
 		const key = await onboarding.signToGenerateEntropyKey(localKeyMessage());
