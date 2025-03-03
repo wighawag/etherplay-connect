@@ -61,7 +61,7 @@ export function createConnection(settings: { walletHost: string }) {
 		}
 	}
 
-	let storePromise: PopupPromise<OriginAccount> | undefined;
+	let popup: PopupPromise<OriginAccount> | undefined;
 
 	async function connect(mechanism?: Mechanism) {
 		if (mechanism) {
@@ -86,17 +86,17 @@ export function createConnection(settings: { walletHost: string }) {
 					});
 				}
 			} else {
+				popup = connectViaPopup({
+					mechanism,
+					walletHost: settings.walletHost
+				});
 				set({
 					step: 'PopupLaunched',
 					popupClosed: false,
 					mechanism
 				});
-				storePromise = connectViaPopup({
-					mechanism,
-					walletHost: settings.walletHost
-				});
 
-				const unsubscribe = storePromise.subscribe(($popup) => {
+				const unsubscribe = popup.subscribe(($popup) => {
 					if ($connection?.step === 'PopupLaunched') {
 						if ($popup.closed) {
 							set({
@@ -107,7 +107,7 @@ export function createConnection(settings: { walletHost: string }) {
 					}
 				});
 				try {
-					const result = await storePromise;
+					const result = await popup;
 					console.log({ result });
 					set({
 						step: 'SignedIn',
@@ -186,7 +186,7 @@ export function createConnection(settings: { walletHost: string }) {
 	}
 
 	function cancel() {
-		storePromise?.cancel();
+		popup?.cancel();
 		set(undefined);
 	}
 
