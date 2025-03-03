@@ -1,13 +1,13 @@
 <script lang="ts">
 	import CriticalError from './lib/CriticalError.svelte';
+	import Login from './lib/Login.svelte';
 	import {alchemy, errors} from './lib/state';
 </script>
 
 {#if errors.length > 0}
 	<CriticalError {errors} />
 {:else if alchemy}
-	Login...
-	<!-- <Login alchemy={alchemy.service} from={alchemy.from} /> -->
+	<Login alchemy={alchemy.connection} from={alchemy.from} />
 {:else}
 	<CriticalError errors={[{message: 'no alchemy'}]} />
 {/if}

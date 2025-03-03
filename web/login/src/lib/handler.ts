@@ -32,21 +32,10 @@ export function handle(
 			);
 		}
 	} else if (mechanism.type === 'magicLink') {
+		// TODO ?
 		// alchemyConnection.completeEmailLoginViaBundle(mechanism.bundle, mechanism.orgId);
-	} else if (mechanism.type === 'mnemonic') {
-		// alchemyConnection.startFakeLoginProcess();
-	} else if (mechanism.type === 'email') {
-		// if (mechanism.email) {
-		// 	alchemyConnection.startEmailLoginProcess(mechanism.email, mechanism.mode);
-		// } else {
-		// 	alchemyConnection.setupEmailloginProcess(mechanism.mode);
-		// }
-	} else if (mechanism.type === 'oauth') {
-		// if (!mechanism.usePopup) {
-		// 	alchemyConnection.startSocialLoginProcess(mechanism.provider, {origin: orig, id: requestID});
-		// } else {
-		// 	alchemyConnection.startSocialLoginProcess(mechanism.provider);
-		// }
+	} else if (mechanism.type === 'mnemonic' || mechanism.type === 'email' || mechanism.type === 'oauth') {
+		alchemyConnection.connect(mechanism);
 	} else {
 		throw new Error(`Unknown mechanism type: ${(mechanism as any).type}`);
 	}

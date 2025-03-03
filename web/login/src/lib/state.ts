@@ -37,7 +37,7 @@ const apiKeyNotRecommended: string | null =
 	searchParams.get('api-key') || import.meta.env.VITE_ALCHEMY_API_KEY_NOT_RECOMMENDED;
 
 let alchemy:
-	| {service: AlchemyConnectionStore; from: {source?: MessageEventSource; origin: string; requestID: string}}
+	| {connection: AlchemyConnectionStore; from: {source?: MessageEventSource; origin: string; requestID: string}}
 	| undefined;
 const errors: {message: string}[] = [];
 
@@ -197,7 +197,7 @@ if (!type) {
 if (errors.length == 0 && source && orig && (rpcURL || apiKeyNotRecommended) && requestID && mechanism) {
 	console.log(`mechanism`, mechanism);
 	alchemy = {
-		service: handle({
+		connection: handle({
 			mechanism,
 			rpcURL,
 			apiKeyNotRecommended,
