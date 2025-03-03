@@ -267,7 +267,30 @@ export function createAlchemyConnection(settings: {
 		});
 
 		try {
-			await onboarding.completeEmailLoginViaOTP(otp);
+			const result = await onboarding.completeEmailLoginViaOTP(otp);
+			if (!result) {
+				set({
+					step: 'Initialised',
+					signer,
+					error: { message: 'failed to  login via oauth', cause: 'not result' }
+				});
+				throw new Error(`failed to verify otp`);
+			}
+
+			set({
+				step: 'GeneratingAccount',
+				mechanism,
+				signer
+			});
+			const account = await generateAccount({ mechanism, signerUser: result });
+
+			set({
+				step: 'SignedIn',
+				mechanism,
+				signer,
+				account
+			});
+			return account;
 		} catch (err) {
 			set({
 				step: 'WaitingForOTP',
