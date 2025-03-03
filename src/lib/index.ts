@@ -246,7 +246,16 @@ export function createConnection(settings: {
 			signer
 		});
 
-		await onboarding.completeEmailLoginViaOTP(otp);
+		try {
+			await onboarding.completeEmailLoginViaOTP(otp);
+		} catch (err) {
+			set({
+				step: 'WaitingForOTP',
+				mechanism,
+				signer,
+				error: { message: 'Failed to Verify OTP', cause: err }
+			});
+		}
 	}
 
 	async function confirmOAuth(data?: { signer: AlchemyWebSigner; mechanism: OauthMechanism }) {

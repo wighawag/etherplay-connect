@@ -414,7 +414,7 @@ export function createAlchemyOnBoarding(
 			}
 		} catch (err) {
 			console.error(`failed to authenticate with otp`, err);
-			return null;
+			throw new Error(`failed to authenticate with otp`, { cause: err });
 		}
 	}
 
