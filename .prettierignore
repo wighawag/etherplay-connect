@@ -1,4 +1,13 @@
-# Package Managers
-package-lock.json
+# ###########################################
+# .gitignore
+#############################################
+# environment variables
+.env*.local
+
+# node modules
+node_modules/
+#############################################
+
+# Ignore npm files
 pnpm-lock.yaml
-yarn.lock
+package.json

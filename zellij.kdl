@@ -1,0 +1,24 @@
+layout {
+	pane {
+		pane {}
+		pane split_direction="vertical" {
+			pane name="CONNECT" command="bash"  {
+				args "-c" "pnpm run --filter ./packages/etherplay-connect dev; cd ./packages/etherplay-connect; ${SHELL-bash}"
+			}
+			pane name="ALCHEMY" command="bash"  {
+				args "-c" "pnpm run --filter ./packages/etherplay-alchemy dev; cd ./packages/etherplay-alchemy; ${SHELL-bash}"
+			}
+		}
+		
+		pane split_direction="vertical" {
+			pane name="WEB" command="bash"  {
+				args "-c" "pnpm run --filter ./web dev; cd ./web; ${SHELL-bash}"
+			}
+	
+			pane name="SVELTEKIT DEMO" command="bash"  {
+				args "-c" "pnpm run --filter ./demoes/sveltekit dev; cd ./demoes/sveltekit; ${SHELL-bash}"
+			}
+		}
+	}
+
+}

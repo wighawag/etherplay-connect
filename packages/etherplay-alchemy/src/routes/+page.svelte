@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { PUBLIC_ALCHEMY_RPC_URL } from '$env/static/public';
-	import { createConnection } from '$lib/index.js';
+	import { createAlchemyConnection } from '$lib/index.js';
 
-	const connection = createConnection({
+	const connection = createAlchemyConnection({
 		alchemy: {
 			rpcURL: PUBLIC_ALCHEMY_RPC_URL
 		},

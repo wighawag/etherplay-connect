@@ -1,0 +1,30 @@
+{
+  "name": "etherplay-connect-web",
+  "private": true,
+  "description": "web pages for etherplay-connect",
+  "type": "module",
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tsconfig/svelte": "^5.0.4",
+    "as-soon": "^0.0.11",
+    "sass": "1.77.6",
+    "svelte": "^5.19.6",
+    "svelte-check": "^4.1.4",
+    "typescript": "~5.7.2",
+    "vite": "^6.1.1",
+    "vite-plugin-node-polyfills": "^0.23.0",
+    "vite-plugin-sri3": "^1.0.6",
+    "zustand": "^5.0.3"
+  },
+  "scripts": {
+    "dev": "vite dev --host --port 50000",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
+  },
+  "dependencies": {
+    "etherplay-alchemy": "workspace:*",
+    "micro-eth-signer": "^0.13.3",
+    "viem": "^2.23.3"
+  }
+}

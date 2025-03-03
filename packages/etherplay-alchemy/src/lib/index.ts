@@ -37,7 +37,7 @@ export type Mechanism =
 	| OauthMechanism
 	| MnemonicMechanism<number | undefined>;
 
-export type Connection = { error?: { message: string; cause?: any } } & (
+export type AlchemyConnection = { error?: { message: string; cause?: any } } & (
 	| {
 			step: 'Initialising';
 			auto: boolean;
@@ -175,14 +175,14 @@ export function localKeyMessage(): string {
 	return 'DO NOT ACCEPT THIS SIGNATURE REQUEST! This used by Etherplay Wallet to generate your seed phrase.';
 }
 
-export function createConnection(settings: {
+export function createAlchemyConnection(settings: {
 	alchemy: AlchemySettings;
 	autoInitialise?: boolean;
 	alwaysUsePopupForOAuth?: boolean;
 }) {
-	let $connection: Connection | undefined;
-	const _store = writable<Connection | undefined>($connection);
-	function set(connection: Connection | undefined) {
+	let $connection: AlchemyConnection | undefined;
+	const _store = writable<AlchemyConnection | undefined>($connection);
+	function set(connection: AlchemyConnection | undefined) {
 		$connection = connection;
 		_store.set($connection);
 		return $connection;
