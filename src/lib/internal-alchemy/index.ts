@@ -304,7 +304,7 @@ export function createAlchemyOnBoarding(
 	}
 
 	async function loginViaOAuth(
-		provider: 'google' | 'facebook' | { type: 'auth0'; connection: string },
+		provider: { id: 'google' } | { id: 'facebook' } | { id: 'auth0'; connection: string },
 		redirection?: { origin: string; id: string }
 	): Promise<SignerUser | null> {
 		if (!signer) {
@@ -317,9 +317,9 @@ export function createAlchemyOnBoarding(
 
 		console.log('authenticating...');
 
-		const authProviderId = typeof provider === 'string' ? provider : provider.type;
+		const authProviderId = provider.id;
 		const auth0Connection =
-			typeof provider === 'object' && provider.type === 'auth0' ? provider.connection : undefined;
+			typeof provider === 'object' && provider.id === 'auth0' ? provider.connection : undefined;
 
 		let newUser: User | undefined;
 

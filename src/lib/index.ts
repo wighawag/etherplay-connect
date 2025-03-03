@@ -13,7 +13,7 @@ export type EmailMechanism<T extends string | undefined> = {
 
 export type OauthMechanism = {
 	type: 'oauth';
-	provider: 'google' | 'facebook';
+	provider: { id: 'google' | 'facebook' } | { id: 'auth0'; connection: string };
 };
 
 export type MnemonicMechanism<T extends number | undefined> = {

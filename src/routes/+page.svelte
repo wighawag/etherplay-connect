@@ -19,8 +19,10 @@
 	<button onclick={() => connection.connect({ type: 'email', mode: 'otp', email: undefined })}
 		>email</button
 	>
-	<button onclick={() => connection.connect({ type: 'oauth', provider: 'google' })}>google</button>
-	<button onclick={() => connection.connect({ type: 'oauth', provider: 'facebook' })}
+	<button onclick={() => connection.connect({ type: 'oauth', provider: { id: 'google' } })}
+		>google</button
+	>
+	<button onclick={() => connection.connect({ type: 'oauth', provider: { id: 'facebook' } })}
 		>facebook</button
 	>
 	<button
