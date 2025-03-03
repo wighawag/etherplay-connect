@@ -94,7 +94,7 @@
 	</div>
 
 	<div>
-		{#if !$alchemy || $alchemy.step === 'Initialising' || $alchemy.step === 'Initialised' || $alchemy.step === 'MechanismToChoose'}
+		{#if !$alchemy || $alchemy.step === 'Initialising' || $alchemy.step === 'Initialised' || $alchemy.step === 'InitialisingMechanism' || $alchemy.step === 'MechanismToChoose' || $alchemy.step === 'MechanismChosen'}
 			<h1>Please wait...</h1>
 		{:else if $alchemy.step === 'EmailToProvide'}
 			<h1>Sign in via Email</h1>

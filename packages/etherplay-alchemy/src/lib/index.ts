@@ -270,7 +270,8 @@ export function createAlchemyConnection(settings: {
 			const result = await onboarding.completeEmailLoginViaOTP(otp);
 			if (!result) {
 				set({
-					step: 'Initialised',
+					step: 'WaitingForOTP',
+					mechanism,
 					signer,
 					error: { message: 'failed to  login via oauth', cause: 'not result' }
 				});
@@ -339,7 +340,8 @@ export function createAlchemyConnection(settings: {
 
 			if (!result) {
 				set({
-					step: 'Initialised',
+					step: 'MechanismChosen',
+					mechanism,
 					signer,
 					error: { message: 'failed to  login via oauth', cause: 'not result' }
 				});
@@ -421,7 +423,8 @@ export function createAlchemyConnection(settings: {
 					const result = await promise;
 					if (!result) {
 						set({
-							step: 'Initialised',
+							step: 'MechanismChosen',
+							mechanism,
 							signer,
 							error: { message: 'failed to  verifyotp', cause: 'not result' }
 						});
@@ -590,7 +593,23 @@ export function createAlchemyConnection(settings: {
 		alchemyOrgId: string,
 		alchemyIdToken: string
 	): Promise<EtherplayAccount> {
+		const mechanism: OauthMechanism = {
+			type: 'oauth',
+			provider: redirectMechanism.provider,
+			usePopup: false
+		};
+		set({
+			step: 'InitialisingMechanism',
+			mechanism
+		});
+
 		const signer = await onboarding.init();
+
+		set({
+			step: 'MechanismChosen', // TODO VerifyingOauthBundle ?
+			mechanism,
+			signer
+		});
 
 		const result = await onboarding.completeOAuthWithBundle(
 			alchemyBundle,
@@ -599,18 +618,14 @@ export function createAlchemyConnection(settings: {
 		);
 		if (!result) {
 			set({
-				step: 'Initialised',
+				step: 'MechanismChosen',
 				signer,
+				mechanism,
 				error: { message: 'failed to  login via oauth', cause: 'not result' }
 			});
 			throw new Error(`failed to verify otp`);
 		}
 
-		const mechanism: OauthMechanism = {
-			type: 'oauth',
-			provider: redirectMechanism.provider,
-			usePopup: false
-		};
 		set({
 			step: 'GeneratingAccount',
 			mechanism,

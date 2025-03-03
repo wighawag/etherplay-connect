@@ -46,7 +46,7 @@
 {/snippet}
 
 <main>
-	{#if !$alchemy || $alchemy.step === 'Initialising' || $alchemy.step === 'Initialised' || $alchemy.step === 'MechanismToChoose'}
+	{#if !$alchemy || $alchemy.step === 'Initialising' || $alchemy.step === 'Initialised' || $alchemy.step === 'InitialisingMechanism' || $alchemy.step === 'MechanismToChoose' || $alchemy.step === 'MechanismChosen' || $alchemy.step === 'GeneratingAccount'}
 		{@render logo(provider, true)}
 	{:else if $alchemy.step === 'ConfirmOAuth'}
 		{@render logo(provider, false)}

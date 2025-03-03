@@ -20,6 +20,8 @@ export function handle(
 		});
 	}
 
+	alchemyConnection.subscribe((v) => console.log(v?.step));
+
 	if (mechanism.type === 'oauth-redirect') {
 		if ('error' in mechanism) {
 			window.close();

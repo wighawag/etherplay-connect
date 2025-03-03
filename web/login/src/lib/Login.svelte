@@ -6,6 +6,7 @@
 	import Mnemonic from './mechanism/Mnemonic.svelte';
 	import Idle from './Idle.svelte';
 	import {get} from 'svelte/store';
+	import Loading from './Loading.svelte';
 
 	let {
 		alchemy,
@@ -161,15 +162,10 @@
 			{/if} -->
 		</div>
 	{/if}
-	{#if !$alchemy}
-		<!-- <Idle {cancel} /> -->
-		Initializing...
-		<!-- TODO spinner  -->
-	{:else if $alchemy.step === 'Initialised'}
-		Initialised
-	{:else if $alchemy.step === 'Initialising'}
-		Initializing...
+	{#if !$alchemy || $alchemy.step === 'Initialised' || $alchemy.step === 'Initialising'}
+		<Loading />
 	{:else if $alchemy.step === 'MechanismToChoose'}
+		<!-- TODO -->
 		Choose
 	{:else if $alchemy.mechanism.type == 'email'}
 		<Email {alchemy} {continueAfterLogin} {cancel} />
@@ -177,11 +173,31 @@
 		<OAuth {alchemy} {continueAfterLogin} {cancel} />
 	{:else if $alchemy.mechanism.type == 'mnemonic'}
 		<Mnemonic {alchemy} {continueAfterLogin} {cancel} />
+	{:else}
+		<main>
+			<p>{$alchemy.step}</p>
+		</main>
 	{/if}
 	<!-- TODO more ?-->
 </div>
 
 <style>
+	main {
+		padding: 16px;
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+		min-height: 100vh;
+		max-width: 510px;
+	}
+
+	p {
+		color: #222222;
+		font-size: 1.5rem;
+		margin-block: 1rem;
+		font-weight: 400;
+	}
+
 	.root {
 		width: 100%;
 		height: 100%;
