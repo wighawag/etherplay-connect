@@ -20,11 +20,23 @@ export type EmailMechanism<T extends string | undefined> = {
 	mode: 'otp';
 };
 
+export type MagicLinkReturnMechanism = {
+	type: 'magicLink';
+	bundle: string;
+	orgId: string;
+};
+
 export type OauthMechanism = {
 	type: 'oauth';
-	usePopup: boolean;
+
 	provider: { id: 'google' | 'facebook' } | { id: 'auth0'; connection: string };
-};
+} & ({ usePopup: true } | { usePopup: false; redirection: { origin: string; requestID: string } });
+
+export type OauthRedirectMechanism = {
+	type: 'oauth-redirect';
+	provider: { id: 'google' | 'facebook' } | { id: 'auth0'; connection: string };
+	redirection: { origin: string; requestID: string };
+} & ({ alchemyOrgId: string; alchemyIdToken: string; alchemyBundle: string } | { error: string });
 
 export type MnemonicMechanism<T extends number | undefined> = {
 	type: 'mnemonic';
@@ -36,6 +48,11 @@ export type AlchemyMechanism =
 	| EmailMechanism<string | undefined>
 	| OauthMechanism
 	| MnemonicMechanism<number | undefined>;
+
+export type AlchemyMechanismIncludingRedirects =
+	| AlchemyMechanism
+	| MagicLinkReturnMechanism
+	| OauthRedirectMechanism;
 
 export type AlchemyUser = {
 	email?: string;
@@ -175,6 +192,8 @@ export function originKeyMessage(orig: string): string {
 export function localKeyMessage(): string {
 	return 'DO NOT ACCEPT THIS SIGNATURE REQUEST! This used by Etherplay Wallet to generate your seed phrase.';
 }
+
+export type AlchemyConnectionStore = ReturnType<typeof createAlchemyConnection>;
 
 export function createAlchemyConnection(settings: {
 	alchemy: AlchemySettings;
@@ -523,6 +542,51 @@ export function createAlchemyConnection(settings: {
 		localStorage.setItem(storageAccountKey, accountSTR);
 	}
 
+	async function completeOAuthWithBundle(
+		redirectMechanism: OauthRedirectMechanism,
+		alchemyBundle: string,
+		alchemyOrgId: string,
+		alchemyIdToken: string
+	): Promise<EtherplayAccount> {
+		const signer = await onboarding.init();
+
+		const result = await onboarding.completeOAuthWithBundle(
+			alchemyBundle,
+			alchemyOrgId,
+			alchemyIdToken
+		);
+		if (!result) {
+			set({
+				step: 'Initialised',
+				signer,
+				error: { message: 'failed to  login via oauth', cause: 'not result' }
+			});
+			throw new Error(`failed to verify otp`);
+		}
+
+		const mechanism: OauthMechanism = {
+			type: 'oauth',
+			provider: redirectMechanism.provider,
+			usePopup: false,
+			redirection: redirectMechanism.redirection
+		};
+		set({
+			step: 'GeneratingAccount',
+			mechanism,
+			signer
+		});
+		const account = await generateAccount({ mechanism, signerUser: result });
+
+		set({
+			step: 'SignedIn',
+			mechanism,
+			signer,
+			account
+		});
+
+		return account;
+	}
+
 	return {
 		subscribe: _store.subscribe,
 		connect,
@@ -530,6 +594,7 @@ export function createAlchemyConnection(settings: {
 		provideEmail,
 		provideOTP,
 		provideMnemonicIndex,
-		generateOriginAccount
+		generateOriginAccount,
+		completeOAuthWithBundle
 	};
 }

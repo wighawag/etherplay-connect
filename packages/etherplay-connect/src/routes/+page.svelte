@@ -41,7 +41,13 @@
 {:else if $connection.step == 'NeedWalletSignature'}
 	Signature requested...
 {:else if $connection.step == 'PopupLaunched'}
-	Popup launched...
+	{#if $connection.popupClosed}
+		Popup seems to be closed.
+		<button onclick={() => connection.cancel()}>cancel</button>
+	{:else}
+		Popup launched...
+		<button onclick={() => connection.cancel()}>cancel</button>
+	{/if}
 {:else if $connection.step == 'WaitingForWalletConnection'}
 	Wallet connection requested...
 {:else if $connection.step == 'WalletToChoose'}

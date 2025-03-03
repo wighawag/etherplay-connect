@@ -159,8 +159,14 @@ export function createConnection(settings: { walletHost: string }) {
 		return popupLauncher.launchPopup(popupURL.toString(), { fullWindow });
 	}
 
+	function cancel() {
+		// TODO abort flow
+		set(undefined);
+	}
+
 	return {
 		subscribe: _store.subscribe,
-		connect
+		connect,
+		cancel
 	};
 }
