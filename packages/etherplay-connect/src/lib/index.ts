@@ -1,6 +1,6 @@
 import type { AlchemyMechanism, OriginAccount } from 'etherplay-alchemy';
 import { writable } from 'svelte/store';
-import { createPopupLauncher } from './popup.js';
+import { createPopupLauncher, type PopupPromise } from './popup.js';
 
 export type PopupSettings = {
 	walletHost: string;
@@ -61,6 +61,8 @@ export function createConnection(settings: { walletHost: string }) {
 		}
 	}
 
+	let storePromise: PopupPromise<OriginAccount> | undefined;
+
 	async function connect(mechanism?: Mechanism) {
 		if (mechanism) {
 			if (mechanism.type === 'wallet') {
@@ -89,11 +91,35 @@ export function createConnection(settings: { walletHost: string }) {
 					popupClosed: false,
 					mechanism
 				});
-				await connectViaPopup({
+				storePromise = connectViaPopup({
 					mechanism,
 					walletHost: settings.walletHost
 				});
-				// TODO
+
+				const unsubscribe = storePromise.subscribe(($popup) => {
+					if ($connection?.step === 'PopupLaunched') {
+						if ($popup.closed) {
+							set({
+								...$connection,
+								popupClosed: true
+							});
+						}
+					}
+				});
+				try {
+					const result = await storePromise;
+					console.log({ result });
+					set({
+						step: 'SignedIn',
+						account: result,
+						mechanism
+					});
+				} catch (err) {
+					console.log({ error: err });
+					set(undefined);
+				} finally {
+					unsubscribe();
+				}
 			}
 		} else {
 			set({
@@ -104,7 +130,7 @@ export function createConnection(settings: { walletHost: string }) {
 
 	const popupLauncher = createPopupLauncher<OriginAccount>();
 
-	function connectViaPopup(settings: PopupSettings): Promise<OriginAccount> {
+	function connectViaPopup(settings: PopupSettings) {
 		let popupURL = new URL(`${settings.walletHost}/login/`);
 		let fullWindow = false;
 		if (settings.mechanism.type === 'mnemonic') {
@@ -160,7 +186,7 @@ export function createConnection(settings: { walletHost: string }) {
 	}
 
 	function cancel() {
-		// TODO abort flow
+		storePromise?.cancel();
 		set(undefined);
 	}
 
