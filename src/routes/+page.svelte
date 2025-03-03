@@ -12,6 +12,8 @@
 	let email: string = $state('');
 	let otp: string = $state('');
 	let mnemonicIndex: number = $state(0);
+
+	let connectionAsAny = $derived($connection as any);
 </script>
 
 {#if !$connection || $connection.step === 'Initialised'}
@@ -49,6 +51,21 @@
 				index: undefined
 			})}>mnemonic</button
 	>
+{:else if $connection.step == 'ConfirmOAuth'}
+	<p>You are going to be redirected to a popup to sign-in</p>
+	<button onclick={() => connection.confirmOAuth()}>continue</button>
+{:else if $connection.step == 'InitialisingMechanism'}
+	please wait...
+{:else if $connection.step == 'WaitingForOAuthResponse'}
+	The signing process has started, follow the instructions in the popup
+{:else if $connection.step == 'VerifyingOTP'}
+	Veryfing OTP...
+{:else if $connection.step == 'InitializingOAuthPopup'}
+	please wait for popup initialization ...
+{:else if $connection.step == 'MnemonicGeneratingPrivateKey'}
+	Generating private key....
+{:else if $connection.step == 'SignedIn'}
+	you are signed-in
 {:else if $connection.step == 'MechanismChosen'}
 	{$connection.mechanism.type}
 {:else if $connection.step == 'EmailToProvide'}
@@ -61,5 +78,5 @@
 	<input type="text" bind:value={otp} />
 	<button onclick={() => connection.provideOTP(otp)}>submit otp</button>
 {:else}
-	{JSON.stringify({ step: $connection.step, error: $connection.error }, null, 2)}
+	{JSON.stringify({ step: connectionAsAny.step, error: connectionAsAny.error }, null, 2)}
 {/if}

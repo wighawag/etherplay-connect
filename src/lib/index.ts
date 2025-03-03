@@ -122,6 +122,7 @@ export type Connection = { error?: { message: string; cause?: any } } & (
 
 export function createConnection(settings: {
 	alchemy: AlchemySettings;
+	autoInitialise?: boolean;
 	alwaysUsePopupForOAuth?: boolean;
 }) {
 	let $connection: Connection | undefined;
@@ -145,17 +146,19 @@ export function createConnection(settings: {
 	const onboarding = createAlchemyOnBoarding(settings.alchemy);
 
 	async function auto() {
-		set({
-			step: 'Initialising',
-			auto: true
-		});
 		const signer = await onboarding.init({ preparePopup: settings.alwaysUsePopupForOAuth });
 		set({
 			step: 'Initialised',
 			signer
 		});
 	}
-	onDocumentLoaded(auto);
+	if (settings.autoInitialise) {
+		set({
+			step: 'Initialising',
+			auto: true
+		});
+		onDocumentLoaded(auto);
+	}
 
 	function setupAlchemySigner(newSigner: SignerUser) {
 		console.log({ newSigner });
@@ -347,6 +350,7 @@ export function createConnection(settings: {
 					},
 					signer
 				});
+				// TODO
 				set({
 					step: 'SignedIn',
 					mechanism,
@@ -367,6 +371,7 @@ export function createConnection(settings: {
 	return {
 		subscribe: _store.subscribe,
 		connect,
+		confirmOAuth,
 		provideEmail,
 		provideOTP,
 		provideMnemonicIndex
