@@ -172,7 +172,42 @@ export function createAlchemyOnBoarding(
 
 	let signer: AlchemyWebSigner | undefined;
 
-	async function init(): Promise<{
+	async function syncInit() {
+		if (!signer) {
+			console.log(`setting up iframe container...`);
+			const existingContainer = document.getElementById(TURNKEY_IFRAME_CONTAINER_ID);
+			if (!existingContainer) {
+				const container = document.createElement('div');
+				container.id = TURNKEY_IFRAME_CONTAINER_ID;
+				container.style.display = 'none';
+				document.body.appendChild(container);
+			}
+
+			console.log(`creating signer using orgId: ${options?.orgId}...`);
+			signer = new AlchemyWebSigner({
+				client: {
+					// This is created in your dashboard under `https://dashboard.alchemy.com/settings/access-keys`
+					// NOTE: it is not recommended to expose your API key on the client, instead proxy requests to your backend and set the `rpcUrl`
+					// here to point to your backend.
+					connection:
+						'apiKeyNotRecommended' in settings
+							? { apiKey: settings.apiKeyNotRecommended }
+							: { rpcUrl: settings.rpcURL },
+					iframeConfig: {
+						// you will need to render a container with this id in your DOM
+						iframeContainerId: TURNKEY_IFRAME_CONTAINER_ID
+					},
+					rootOrgId: options?.orgId
+				},
+				sessionConfig: {
+					expirationTimeMs: 1 * 60 * 60 * 1000,
+					sessionKey
+				}
+			});
+		}
+	}
+
+	async function init(preparePopup?: boolean): Promise<{
 		user: User;
 		signer: AlchemyWebSigner;
 	} | null> {
@@ -207,6 +242,11 @@ export function createAlchemyOnBoarding(
 					sessionKey
 				}
 			});
+
+			if (preparePopup) {
+				console.log('preparePopupOauth...');
+				await signer.preparePopupOauth();
+			}
 		}
 
 		console.log(`signer.getAuthDetails()....`);
@@ -264,37 +304,67 @@ export function createAlchemyOnBoarding(
 	}
 
 	async function loginViaOAuth(
-		authProviderId: 'google' | 'facebook',
+		provider: 'google' | 'facebook' | { type: 'auth0'; connection: string },
 		redirection?: { origin: string; id: string }
 	): Promise<SignerUser | null> {
 		if (!signer) {
 			throw new Error(`Alchemy Onboarding not initialised`);
 		}
 
-		const user = await signer.getAuthDetails().catch(() => null);
+		// const user = await signer.getAuthDetails().catch(() => null);
 
-		console.log({ user });
+		// console.log({user});
 
 		console.log('authenticating...');
+
+		const authProviderId = typeof provider === 'string' ? provider : provider.type;
+		const auth0Connection =
+			typeof provider === 'object' && provider.type === 'auth0' ? provider.connection : undefined;
 
 		let newUser: User | undefined;
 
 		if (redirection) {
-			const redirectUrl = `/login/?type=oauth-redirect&origin=${redirection.origin}&id=${redirection.id}&oauth-provider=${authProviderId}${options?.orgId ? `&orgId=${options.orgId}` : ''}`;
+			let erudaStr = '';
+			const currentURL = new URL(location.href);
+			if (currentURL.searchParams.has('_d_eruda')) {
+				const value = currentURL.searchParams.get('_d_eruda');
+				erudaStr = value ? `&_d_eruda=${value}` : '&_d_eruda';
+			}
+			const redirectUrl = `/login/?type=oauth-redirect&origin=${redirection.origin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${options?.orgId ? `&orgId=${options.orgId}` : ''}${erudaStr}`;
 			console.log({ redirectUrl });
-			newUser = await signer.authenticate({
-				type: 'oauth',
-				authProviderId,
-				mode: 'redirect',
-				redirectUrl
-			});
+			if (authProviderId === 'auth0') {
+				newUser = await signer.authenticate({
+					type: 'oauth',
+					authProviderId,
+					auth0Connection,
+					mode: 'redirect',
+					redirectUrl
+				});
+			} else {
+				newUser = await signer.authenticate({
+					type: 'oauth',
+					authProviderId,
+					mode: 'redirect',
+					redirectUrl
+				});
+			}
 		} else {
-			await signer.preparePopupOauth();
-			newUser = await signer.authenticate({
-				type: 'oauth',
-				authProviderId,
-				mode: 'popup'
-			});
+			if (authProviderId === 'auth0') {
+				console.log(`auth0:${auth0Connection}`);
+				newUser = await signer.authenticate({
+					type: 'oauth',
+					authProviderId,
+					auth0Connection,
+					mode: 'popup'
+				});
+			} else {
+				console.log(`oauth:${authProviderId}`);
+				newUser = await signer.authenticate({
+					type: 'oauth',
+					authProviderId,
+					mode: 'popup'
+				});
+			}
 		}
 
 		console.log({ newUser });
@@ -431,6 +501,7 @@ export function createAlchemyOnBoarding(
 	// }
 
 	return {
+		syncInit,
 		init,
 		loginViaEmail,
 		loginViaOAuth,
