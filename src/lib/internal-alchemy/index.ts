@@ -133,18 +133,21 @@ export function fromMnemonicToAccount(
 	index: number
 ): {
 	address: `0x${string}`;
+	privateKey: `0x${string}`;
 } {
 	const hdkey = fromMnemonicToHDKey(mnemonic, index);
 	if (!hdkey.privateKey) {
 		throw new Error(`invalid key`);
 	}
 	return {
-		address: fromPrivateKey(hdkey.privateKey) as `0x${string}`
+		address: fromPrivateKey(hdkey.privateKey) as `0x${string}`,
+		privateKey: `0x${bytesToHex(hdkey.privateKey)}` as `0x${string}`
 	};
 }
 
 export function fromMnemonicToFirstAccount(mnemonic: string): {
 	address: `0x${string}`;
+	privateKey: `0x${string}`;
 } {
 	return fromMnemonicToAccount(mnemonic, 0);
 }

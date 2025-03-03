@@ -1,4 +1,4 @@
-export function onDocumentLoaded(callback: () => void): boolean {
+export function onDocumentLoaded(callback: () => void) {
 	if (typeof document !== 'undefined') {
 		if (
 			(document as any).readyState === 'ready' ||
@@ -17,7 +17,5 @@ export function onDocumentLoaded(callback: () => void): boolean {
 				}
 			);
 		}
-		return true;
 	}
-	return false;
 }

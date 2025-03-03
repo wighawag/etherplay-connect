@@ -62,10 +62,10 @@
 	Veryfing OTP...
 {:else if $connection.step == 'InitializingOAuthPopup'}
 	please wait for popup initialization ...
-{:else if $connection.step == 'MnemonicGeneratingPrivateKey'}
+{:else if $connection.step == 'GeneratingAccount'}
 	Generating private key....
 {:else if $connection.step == 'SignedIn'}
-	you are signed-in
+	you are signed-in: {$connection.account.localAccount.address}
 {:else if $connection.step == 'MechanismChosen'}
 	{$connection.mechanism.type}
 {:else if $connection.step == 'EmailToProvide'}

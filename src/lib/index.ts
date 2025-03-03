@@ -2,10 +2,17 @@ import { writable } from 'svelte/store';
 import {
 	AlchemyWebSigner,
 	createAlchemyOnBoarding,
+	fromEntropyKeyToMnemonic,
+	fromMnemonicSignToGenerateEntropyKey,
+	fromMnemonicToAccount,
+	fromMnemonicToFirstAccount,
 	type AlchemySettings,
 	type SignerUser
 } from './internal-alchemy/index.js';
 import { onDocumentLoaded } from './utils/web.js';
+import { mnemonicToEntropy } from '@scure/bip39';
+import { bytesToHex } from '@noble/hashes/utils';
+import { wordlist } from '@scure/bip39/wordlists/english';
 
 export type EmailMechanism<T extends string | undefined> = {
 	type: 'email';
@@ -101,24 +108,72 @@ export type Connection = { error?: { message: string; cause?: any } } & (
 			mechanism: MnemonicMechanism<undefined>;
 			signer: AlchemyWebSigner;
 	  }
-	| {
-			step: 'MnemonicGeneratingPrivateKey';
-			mechanism: MnemonicMechanism<number>;
-			signer: AlchemyWebSigner;
-	  }
+
 	// --------------------------------------------------------------------------------------------
 
 	// --------------------------------------------------------------------------------------------
 	// Final Success
 	// --------------------------------------------------------------------------------------------
 	| {
+			step: 'GeneratingAccount';
+			mechanism: Mechanism;
+			signer: AlchemyWebSigner;
+	  }
+	| {
 			step: 'SignedIn';
 			mechanism: Mechanism;
 			signer: AlchemyWebSigner;
-			privateKey: string;
+			account: EtherplayAccount;
 	  }
 );
+
+export type AlchemyUser = {
+	email?: string;
+	orgId: string;
+	userId: string;
+	address: `0x${string}`;
+	credentialId?: string;
+	idToken?: string;
+	claims?: Record<string, unknown>;
+};
+
+export type EtherplayAccount = {
+	localAccount: {
+		address: `0x${string}`;
+		index: number;
+		key: `0x${string}`;
+	};
+	signer: {
+		mechanismUsed: Mechanism;
+		user: AlchemyUser;
+	};
+};
+
+export type OriginAccount = {
+	user: AlchemyUser;
+	localAccount: {
+		address: `0x${string}`;
+	};
+	originAccount: {
+		origin: string;
+		address: `0x${string}`;
+		privateKey: `0x${string}`;
+		mnemonicKey: `0x${string}`;
+		mnemonic: string;
+		index: number;
+	};
+	mechanismUsed: Mechanism;
+};
 // --------------------------------------------------------------------------------------------
+
+const storageAccountKey = '__etherplay_account';
+
+export function originKeyMessage(orig: string): string {
+	return `Signing Request for ${orig}:\n Please sign this message only on ${orig} or other trusted frontend.\n\n This gives access to your session account that you need to keep secret`;
+}
+export function localKeyMessage(): string {
+	return 'DO NOT ACCEPT THIS SIGNATURE REQUEST! This used by Etherplay Wallet to generate your seed phrase.';
+}
 
 export function createConnection(settings: {
 	alchemy: AlchemySettings;
@@ -191,15 +246,7 @@ export function createConnection(settings: {
 			signer
 		});
 
-		const result = await onboarding.completeEmailLoginViaOTP(otp);
-		console.log({ result });
-
-		set({
-			step: 'SignedIn',
-			mechanism,
-			signer,
-			privateKey: '' // TODO
-		});
+		await onboarding.completeEmailLoginViaOTP(otp);
 	}
 
 	async function confirmOAuth(data?: { signer: AlchemyWebSigner; mechanism: OauthMechanism }) {
@@ -223,19 +270,30 @@ export function createConnection(settings: {
 		});
 
 		try {
-			const newSigner = await onboarding.loginViaOAuth(mechanism.provider);
-			console.log({ newSigner });
+			const result = await onboarding.loginViaOAuth(mechanism.provider);
 
-			if (newSigner) {
+			if (!result) {
 				set({
-					step: 'SignedIn',
-					mechanism,
+					step: 'Initialised',
 					signer,
-					privateKey: ''
+					error: { message: 'failed to  login via oauth', cause: 'not result' }
 				});
-			} else {
-				setError({ message: 'no signer' });
+				throw new Error(`failed to verify otp`);
 			}
+
+			set({
+				step: 'GeneratingAccount',
+				mechanism,
+				signer
+			});
+			const account = await generateAccount({ mechanism, signerUser: result });
+
+			set({
+				step: 'SignedIn',
+				mechanism,
+				signer,
+				account
+			});
 		} catch (err) {
 			console.error(err);
 			setError({ message: 'failed to initiate oauth signin', cause: err });
@@ -291,19 +349,29 @@ export function createConnection(settings: {
 				});
 
 				try {
-					const newSigner = await promise;
-					console.log({ newSigner });
-
-					if (newSigner) {
+					const result = await promise;
+					if (!result) {
 						set({
-							step: 'SignedIn',
-							mechanism,
+							step: 'Initialised',
 							signer,
-							privateKey: ''
+							error: { message: 'failed to  verifyotp', cause: 'not result' }
 						});
-					} else {
-						setError({ message: 'no signer' });
+						throw new Error(`failed to verify otp`);
 					}
+
+					set({
+						step: 'GeneratingAccount',
+						mechanism,
+						signer
+					});
+					const account = await generateAccount({ mechanism, signerUser: result });
+
+					set({
+						step: 'SignedIn',
+						mechanism,
+						signer,
+						account
+					});
 				} catch (err) {
 					console.error(err);
 					setError({ message: 'failed to initiate email signin', cause: err });
@@ -342,20 +410,38 @@ export function createConnection(settings: {
 				}
 
 				set({
-					step: 'MnemonicGeneratingPrivateKey',
-					mechanism: {
-						type: 'mnemonic',
-						mnemonic: mechanism.mnemonic,
-						index: mechanism.index
-					},
+					step: 'GeneratingAccount',
+					mechanism,
 					signer
 				});
-				// TODO
+				const mnemonic = mechanism.mnemonic;
+				const index = mechanism.index;
+
+				const viemAccount = fromMnemonicToAccount(mnemonic, index);
+				const keyUint8Array = mnemonicToEntropy(mnemonic, wordlist);
+				const key = `0x${bytesToHex(keyUint8Array)}` as `0x${string}`;
+				const account: EtherplayAccount = {
+					localAccount: {
+						address: viemAccount.address,
+						index,
+						key
+					},
+					signer: {
+						mechanismUsed: mechanism,
+						user: {
+							address: viemAccount.address,
+							orgId: 'mnemonic',
+							userId: `${index}@mnemonic.id`,
+							email: `${index}@mnemonic.id`
+						}
+					}
+				};
+
 				set({
 					step: 'SignedIn',
 					mechanism,
 					signer,
-					privateKey: ''
+					account
 				});
 			}
 		} else {
@@ -368,12 +454,72 @@ export function createConnection(settings: {
 		}
 	}
 
+	async function generateAccount({
+		mechanism,
+		signerUser
+	}: {
+		mechanism: Mechanism;
+		signerUser: SignerUser;
+	}): Promise<EtherplayAccount> {
+		const key = await onboarding.signToGenerateEntropyKey(localKeyMessage());
+		const mnemonic = fromEntropyKeyToMnemonic(key);
+		const etherplayAccount: EtherplayAccount = {
+			localAccount: {
+				address: fromMnemonicToFirstAccount(mnemonic).address,
+				index: 0,
+				key
+			},
+			signer: {
+				mechanismUsed: mechanism,
+				user: signerUser.user
+			}
+		};
+
+		// TODO option ?
+		// saveEtherplayAccount(etherplayAccount);
+
+		return etherplayAccount;
+	}
+
+	function generateOriginAccount(origin: string, account: EtherplayAccount): OriginAccount {
+		const originKey = fromMnemonicSignToGenerateEntropyKey(
+			fromEntropyKeyToMnemonic(account.localAccount.key),
+			account.localAccount.index,
+			originKeyMessage(origin)
+		);
+		const originMnemonic = fromEntropyKeyToMnemonic(originKey);
+		const originAccount = fromMnemonicToFirstAccount(originMnemonic);
+		return {
+			user: account.signer.user,
+			localAccount: {
+				address: account.localAccount.address
+			},
+			originAccount: {
+				index: 0,
+				address: originAccount.address,
+				privateKey: originAccount.privateKey,
+				mnemonicKey: originKey,
+				mnemonic: originMnemonic,
+				origin: origin
+			},
+
+			mechanismUsed: account.signer.mechanismUsed
+		};
+	}
+
+	function saveEtherplayAccount(account: EtherplayAccount) {
+		const accountSTR = JSON.stringify(account);
+		sessionStorage.setItem(storageAccountKey, accountSTR);
+		localStorage.setItem(storageAccountKey, accountSTR);
+	}
+
 	return {
 		subscribe: _store.subscribe,
 		connect,
 		confirmOAuth,
 		provideEmail,
 		provideOTP,
-		provideMnemonicIndex
+		provideMnemonicIndex,
+		generateOriginAccount
 	};
 }
