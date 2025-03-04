@@ -6,7 +6,9 @@
 		walletHost: PUBLIC_WALLET_HOST
 	});
 
-	connection.subscribe((c) => console.log(c.step, (c as any).loading));
+	connection.subscribe((c) =>
+		console.log(c.step, (c as any).loading, (c as any).walletAccountChanged)
+	);
 
 	let connectionAsAny = $derived($connection as any);
 
@@ -101,6 +103,13 @@
 {:else if $connection.step == 'SignedIn'}
 	you are signed-in: {$connection.account.address} / {$connection.account.signer.address}
 	<button onclick={() => connection.disconnect()}>disconnect</button>
+
+	{#if $connection.walletAccountChanged}
+		<button
+			onclick={() => connection.connectOnCurrentWalletAccount($connection.walletAccountChanged)}
+			>switch</button
+		>
+	{/if}
 {:else}
 	{JSON.stringify({ step: connectionAsAny.step, error: connectionAsAny.error }, null, 2)}
 {/if}

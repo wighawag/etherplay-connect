@@ -68,6 +68,7 @@ export type Connection = {
 			step: 'SignedIn';
 			mechanism: FullfilledMechanism;
 			account: OriginAccount;
+			walletAccountChanged: `0x${string}` | undefined;
 	  }
 );
 
@@ -145,6 +146,23 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 		}
 	}
 
+	function waitForWallet(name: string): Promise<EIP6963ProviderDetail> {
+		return new Promise((resolve, reject) => {
+			const timeout = setTimeout(() => {
+				clearInterval(interval);
+				reject('timeout');
+			}, 1000);
+			const interval = setInterval(() => {
+				const wallet = $connection.wallets.find((v) => v.info.name == name);
+				if (wallet) {
+					clearTimeout(timeout);
+					clearInterval(interval);
+					resolve(wallet);
+				}
+			}, 100);
+		});
+	}
+
 	if (autoConnect) {
 		if (typeof window !== 'undefined') {
 			// set({step: 'Idle', loading: true, wallets: $connection.wallets});
@@ -152,12 +170,36 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 				const existingAccount = getOriginAccount();
 				if (existingAccount) {
 					if (existingAccount.signer) {
-						set({
-							step: 'SignedIn',
-							account: existingAccount,
-							mechanism: existingAccount.mechanismUsed as FullfilledMechanism,
-							wallets: $connection.wallets
-						});
+						if (existingAccount.mechanismUsed.type == 'wallet') {
+							const walletMechanism = existingAccount.mechanismUsed as WalletMechanism<
+								string,
+								`0x${string}`
+							>;
+							waitForWallet(walletMechanism.name)
+								.then((walletDetails: EIP6963ProviderDetail) => {
+									walletProvider = walletDetails.provider;
+									set({
+										step: 'SignedIn',
+										account: existingAccount,
+										mechanism: existingAccount.mechanismUsed as FullfilledMechanism,
+										wallets: $connection.wallets,
+										walletAccountChanged: undefined
+									});
+									walletProvider.request({ method: 'eth_accounts' }).then(onAccountChanged);
+									watchForAccountChange(walletProvider);
+								})
+								.catch((err) => {
+									set({ step: 'Idle', loading: false, wallets: $connection.wallets });
+								});
+						} else {
+							set({
+								step: 'SignedIn',
+								account: existingAccount,
+								mechanism: existingAccount.mechanismUsed as FullfilledMechanism,
+								wallets: $connection.wallets,
+								walletAccountChanged: undefined
+							});
+						}
 					} else {
 						set({ step: 'Idle', loading: false, wallets: $connection.wallets });
 					}
@@ -236,15 +278,72 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 				name: $connection.mechanism.name,
 				address: $connection.mechanism.address
 			},
-			account
+			account,
+			walletAccountChanged: undefined // TODO check account list
 		});
 		if (remember) {
 			saveOriginAccount(account);
 		}
 	}
 
+	function connectOnCurrentWalletAccount(address: `0x${string}`) {
+		if ($connection.step === 'SignedIn' && $connection.mechanism.type === 'wallet') {
+			connect({
+				type: 'wallet',
+				address,
+				name: $connection.mechanism.name
+			});
+		} else {
+			throw new Error(`need to be using a mechanism of type wallet and be SignedIN`);
+		}
+	}
+
+	function onAccountChanged(accounts: `0x${string}`[]) {
+		if ($connection.step === 'SignedIn' && $connection.mechanism.type === 'wallet') {
+			// TODO if auto-connect and saved-signature ?
+			// connect(
+			// 	{
+			// 		type: 'wallet',
+			// 		address: accounts[0],
+			// 		name: $connection.mechanism.name
+			// 	},
+			// 	{ alwaysRequestSignatureOnlyAfterUserConfirmation: true }
+			// );
+
+			if (
+				accounts.length > 0 &&
+				accounts[0].toLowerCase() != $connection.account.address.toLowerCase()
+			) {
+				set({
+					...$connection,
+					walletAccountChanged: accounts[0]
+				});
+			} else if ($connection.walletAccountChanged) {
+				set({
+					...$connection,
+					walletAccountChanged: undefined
+				});
+			}
+		}
+
+		// if (accounts[0] !== $connection)
+	}
+
+	function watchForAccountChange(walletProvider: EIP1193WindowWalletProvider) {
+		walletProvider.on('accountsChanged', onAccountChanged);
+	}
+	function stopatchingForAccountChange(walletProvider: EIP1193WindowWalletProvider) {
+		walletProvider.removeListener('accountsChanged', onAccountChanged);
+	}
+
 	let remember: boolean = false;
-	async function connect(mechanism?: Mechanism, options?: { doNotStoreLocally?: boolean }) {
+	async function connect(
+		mechanism?: Mechanism,
+		options?: {
+			alwaysRequestSignatureOnlyAfterUserConfirmation?: boolean;
+			doNotStoreLocally?: boolean;
+		}
+	) {
 		remember = !(options?.doNotStoreLocally || false);
 		if (mechanism) {
 			if (mechanism.type === 'wallet') {
@@ -254,6 +353,9 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 						(v) => v.info.name == walletName || v.info.uuid == walletName
 					);
 					if (wallet) {
+						if (walletProvider) {
+							stopatchingForAccountChange(walletProvider);
+						}
 						walletProvider = wallet.provider;
 						const mechanism: WalletMechanism<string, undefined> = {
 							type: 'wallet',
@@ -275,24 +377,46 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 							});
 							accounts = await provider.request({ method: 'eth_requestAccounts' });
 
-							set({
-								step: 'NeedWalletSignature',
-								mechanism: {
-									...mechanism,
-									address: accounts[0]
-								},
-								wallets: $connection.wallets
-							});
+							if (accounts.length > 0) {
+								set({
+									step: 'NeedWalletSignature',
+									mechanism: {
+										...mechanism,
+										address: accounts[0]
+									},
+									wallets: $connection.wallets
+								});
+								watchForAccountChange(walletProvider);
+							} else {
+								set({
+									step: 'MechanismToChoose',
+									wallets: $connection.wallets,
+									error: { message: 'could not get any accounts' }
+								});
+							}
 						} else {
-							set({
-								step: 'NeedWalletSignature',
-								mechanism: {
-									...mechanism,
-									address: accounts[0]
-								},
-								wallets: $connection.wallets
-							});
-							await requestSignature();
+							if (options?.alwaysRequestSignatureOnlyAfterUserConfirmation) {
+								set({
+									step: 'NeedWalletSignature',
+									mechanism: {
+										...mechanism,
+										address: accounts[0]
+									},
+									wallets: $connection.wallets
+								});
+								watchForAccountChange(walletProvider);
+							} else {
+								watchForAccountChange(walletProvider);
+								set({
+									step: 'NeedWalletSignature',
+									mechanism: {
+										...mechanism,
+										address: accounts[0]
+									},
+									wallets: $connection.wallets
+								});
+								await requestSignature();
+							}
 						}
 					} else {
 						console.error(`failed to get wallet ${walletName}`, $connection.wallets);
@@ -344,7 +468,8 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 						step: 'SignedIn',
 						account: result,
 						mechanism,
-						wallets: $connection.wallets
+						wallets: $connection.wallets,
+						walletAccountChanged: undefined
 					});
 					if (remember) {
 						saveOriginAccount(result);
@@ -366,6 +491,9 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 
 	function disconnect() {
 		deleteOriginAccount();
+		if (walletProvider) {
+			stopatchingForAccountChange(walletProvider);
+		}
 		walletProvider = undefined;
 		set({
 			step: 'Idle',
@@ -441,6 +569,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 		connect,
 		cancel,
 		requestSignature,
+		connectOnCurrentWalletAccount,
 		disconnect
 	};
 }
