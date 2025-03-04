@@ -194,7 +194,7 @@ export type AlchemyConnection = { error?: { message: string; cause?: any } } & (
 const storageAccountKey = '__etherplay_account';
 
 export function originKeyMessage(orig: string): string {
-	return `Signing Request for ${orig}:\n Please sign this message only on ${orig} or other trusted frontend.\n\n This gives access to your session account that you need to keep secret`;
+	return `Origin: ${orig}\n\nOnly sign on trusted websites.\n\nThis grants access to your private session account.\n\nVerify before proceeding.`;
 }
 export function localKeyMessage(): string {
 	return 'DO NOT ACCEPT THIS SIGNATURE REQUEST! This used by Etherplay Wallet to generate your seed phrase.';
