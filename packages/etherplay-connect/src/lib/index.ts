@@ -5,8 +5,10 @@ import type { EIP1193WindowWalletProvider } from 'eip-1193';
 import {
 	fromEntropyKeyToMnemonic,
 	fromMnemonicToFirstAccount,
-	fromSignatureToKey
+	fromSignatureToKey,
+	originKeyMessage
 } from 'etherplay-alchemy';
+import { bytesToHex } from '@noble/hashes/utils';
 
 export { fromEntropyKeyToMnemonic };
 
@@ -86,6 +88,7 @@ export interface EIP6963AnnounceProviderEvent extends CustomEvent {
 	detail: EIP6963ProviderDetail;
 }
 
+const encoder = new TextEncoder();
 const storageAccountKey = '__origin_account';
 export function createConnection(settings: { walletHost: string; autoConnect?: boolean }) {
 	let autoConnect = true;
@@ -181,6 +184,10 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 		sessionStorage.setItem(storageAccountKey, accountSTR);
 		localStorage.setItem(storageAccountKey, accountSTR);
 	}
+	function deleteOriginAccount() {
+		sessionStorage.removeItem(storageAccountKey);
+		localStorage.removeItem(storageAccountKey);
+	}
 
 	async function requestSignature() {
 		if ($connection.step !== 'NeedWalletSignature') {
@@ -192,7 +199,10 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 			// TODO error ?
 			throw new Error(`no wallet provided initialised`);
 		}
-		const msg = `0x${Buffer.from('hello', 'utf8').toString('hex')}` as `0x${string}`;
+		const message = originKeyMessage(origin);
+
+		const messageAsBytes = encoder.encode(message);
+		const msg = `0x${bytesToHex(messageAsBytes)}` as `0x${string}`;
 
 		set({
 			...$connection,
@@ -355,6 +365,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 	}
 
 	function disconnect() {
+		deleteOriginAccount();
 		walletProvider = undefined;
 		set({
 			step: 'Idle',

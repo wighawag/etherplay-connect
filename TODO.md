@@ -1,0 +1,2 @@
+save publicKey signed message ain originAccount
+allow multiple originAccount in localstorage/ indexed by addresss. so they can be retriebed (useful only for wallet signing)
