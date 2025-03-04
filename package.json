@@ -15,9 +15,10 @@
   "scripts": {
     "prepare": "set-defaults .vscode && pnpm build:packages",
     "build:packages": "pnpm run --filter './packages/**' build",
-    "build:web": "pnpm run --filter @renraku/web build",
+    "build:web": "pnpm run --filter ./web build",
     "build": "pnpm '/^build:.*/'",
-    "build-only-demo": "pnpm run build:packages && pnpm run --filter ./demoes/sveltekit build",
+    "build:demo": "pnpm run build:packages && pnpm run --filter ./demoes/sveltekit build",
+    "build-and-merge": "pnpm build:demo && pnpm build:web && cp -r ./demoes/sveltekit/build web/dist/demo",
     "start": "zellij-launcher --layout zellij.kdl a $npm_package_name || zellij --layout zellij.kdl -s $npm_package_name",
     "dev": "pnpm run --parallel -r dev"
   }

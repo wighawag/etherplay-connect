@@ -106,7 +106,7 @@
 
 	{#if $connection.walletAccountChanged}
 		<button
-			onclick={() => connection.connectOnCurrentWalletAccount($connection.walletAccountChanged)}
+			onclick={() => connection.connectOnCurrentWalletAccount($connection.walletAccountChanged!)}
 			>switch</button
 		>
 	{/if}
