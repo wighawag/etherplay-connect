@@ -204,16 +204,26 @@ export function createConnection(settings: { walletHost: string }) {
 								wallets: $connection.wallets
 							});
 							accounts = await provider.request({ method: 'eth_requestAccounts' });
-						}
 
-						set({
-							step: 'NeedWalletSignature',
-							mechanism: {
-								...mechanism,
-								address: accounts[0]
-							},
-							wallets: $connection.wallets
-						});
+							set({
+								step: 'NeedWalletSignature',
+								mechanism: {
+									...mechanism,
+									address: accounts[0]
+								},
+								wallets: $connection.wallets
+							});
+						} else {
+							set({
+								step: 'NeedWalletSignature',
+								mechanism: {
+									...mechanism,
+									address: accounts[0]
+								},
+								wallets: $connection.wallets
+							});
+							await requestSignature();
+						}
 					} else {
 						console.error(`failed to get wallet ${walletName}`, $connection.wallets);
 						set({

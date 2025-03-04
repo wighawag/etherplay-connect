@@ -77,6 +77,20 @@ export type EtherplayAccount = {
 };
 
 export type OriginAccount = {
+	address: `0x${string}`;
+	signer: {
+		origin: string;
+		address: `0x${string}`;
+		privateKey: `0x${string}`;
+		mnemomic: {
+			key: `0x${string}`;
+			mnemonic: string;
+			index: number;
+		};
+	};
+};
+
+export type OriginAccount = {
 	user: AlchemyUser;
 	localAccount: {
 		address: `0x${string}`;
