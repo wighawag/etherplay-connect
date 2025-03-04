@@ -11,6 +11,7 @@ import {
 import { bytesToHex } from '@noble/hashes/utils';
 
 export { fromEntropyKeyToMnemonic };
+export type { OriginAccount };
 
 export type PopupSettings = {
 	walletHost: string;
