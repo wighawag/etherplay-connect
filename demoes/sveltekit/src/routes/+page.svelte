@@ -39,11 +39,13 @@
 			connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: true })}
 		>google (popup)</button
 	>
+	<hr />
 	<button
 		onclick={() =>
 			connection.connect({ type: 'oauth', provider: { id: 'facebook' }, usePopup: true })}
 		>facebook (popup)</button
 	>
+	<hr />
 	<button
 		onclick={() =>
 			connection.connect({
@@ -52,16 +54,19 @@
 				usePopup: true
 			})}>twitter (popup)</button
 	>
+	<hr />
 	<button
 		onclick={() =>
 			connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: false })}
 		>google (redirect)</button
 	>
+	<hr />
 	<button
 		onclick={() =>
 			connection.connect({ type: 'oauth', provider: { id: 'facebook' }, usePopup: false })}
 		>facebook (redirect)</button
 	>
+	<hr />
 	<button
 		onclick={() =>
 			connection.connect({
@@ -70,6 +75,7 @@
 				usePopup: false
 			})}>twitter (redirect)</button
 	>
+	<hr />
 	<button
 		onclick={() =>
 			connection.connect({
@@ -78,12 +84,14 @@
 				index: undefined
 			})}>mnemonic</button
 	>
+	<hr />
 	<button
 		onclick={() =>
 			connection.connect({
 				type: 'wallet'
 			})}>web3 wallet</button
 	>
+	<hr />
 {:else if $connection.step == 'NeedWalletSignature'}
 	Signature requested...
 	<button onclick={() => connection.requestSignature()}>sign</button>
@@ -117,6 +125,7 @@
 
 	{#if $connection.walletAccountChanged}
 		<button
+			style="margin-right: 2rem;"
 			onclick={() => connection.connectOnCurrentWalletAccount($connection.walletAccountChanged!)}
 			>switch</button
 		>
