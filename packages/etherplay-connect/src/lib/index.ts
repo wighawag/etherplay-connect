@@ -145,15 +145,23 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 	if (autoConnect) {
 		if (typeof window !== 'undefined') {
 			// set({step: 'Idle', loading: true, wallets: $connection.wallets});
-			const existingAccount = getOriginAccount();
-			if (existingAccount) {
-				set({
-					step: 'SignedIn',
-					account: existingAccount,
-					mechanism: existingAccount.mechanismUsed as FullfilledMechanism,
-					wallets: $connection.wallets
-				});
-			} else {
+			try {
+				const existingAccount = getOriginAccount();
+				if (existingAccount) {
+					if (existingAccount.signer) {
+						set({
+							step: 'SignedIn',
+							account: existingAccount,
+							mechanism: existingAccount.mechanismUsed as FullfilledMechanism,
+							wallets: $connection.wallets
+						});
+					} else {
+						set({ step: 'Idle', loading: false, wallets: $connection.wallets });
+					}
+				} else {
+					set({ step: 'Idle', loading: false, wallets: $connection.wallets });
+				}
+			} catch {
 				set({ step: 'Idle', loading: false, wallets: $connection.wallets });
 			}
 		}
