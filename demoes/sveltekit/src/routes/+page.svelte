@@ -81,9 +81,8 @@
 	<button
 		onclick={() =>
 			connection.connect({
-				type: 'wallet',
-				name: 'MetaMask'
-			})}>wallet</button
+				type: 'wallet'
+			})}>web3 wallet</button
 	>
 {:else if $connection.step == 'NeedWalletSignature'}
 	Signature requested...
@@ -99,7 +98,19 @@
 {:else if $connection.step == 'WaitingForWalletConnection'}
 	Wallet connection requested...
 {:else if $connection.step == 'WalletToChoose'}
-	Wallet to choose...
+	{#if $connection.wallets.length == 0}
+		No wallet found. Download <a
+			href="https://metamask.io/download/"
+			target="_blank"
+			rel="noopener noreferrer">MetaMask</a
+		>
+	{:else}
+		{#each $connection.wallets as wallet}
+			<button onclick={() => connection.connect({ type: 'wallet', name: wallet.info.name })}
+				>{wallet.info.name}</button
+			>
+		{/each}
+	{/if}
 {:else if $connection.step == 'SignedIn'}
 	you are signed-in: {$connection.account.address} / {$connection.account.signer.address}
 	<button onclick={() => connection.disconnect()}>disconnect</button>
