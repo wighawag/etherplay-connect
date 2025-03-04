@@ -6,18 +6,24 @@
 		walletHost: PUBLIC_WALLET_HOST
 	});
 
+	connection.subscribe((c) => console.log(c.step, (c as any).loading));
+
 	let connectionAsAny = $derived($connection as any);
 
 	let email: string = $state('');
 </script>
 
 {#if $connection.step === 'Idle'}
-	<button onclick={() => connection.connect()}>connect</button>
-	<button
-		onclick={() =>
-			connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: true })}
-		>google</button
-	>
+	{#if $connection.loading}
+		loading...
+	{:else}
+		<button onclick={() => connection.connect()}>connect</button>
+		<button
+			onclick={() =>
+				connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: true })}
+			>google</button
+		>
+	{/if}
 {:else if $connection.step == 'MechanismToChoose'}
 	<button onclick={() => connection.connect({ type: 'email', mode: 'otp', email: undefined })}
 		>email</button
@@ -93,8 +99,8 @@
 {:else if $connection.step == 'WalletToChoose'}
 	Wallet to choose...
 {:else if $connection.step == 'SignedIn'}
-	you are signed-in: {$connection.account.localAccount.address} / {$connection.account.originAccount
-		.address}
+	you are signed-in: {$connection.account.address} / {$connection.account.signer.address}
+	<button onclick={() => connection.disconnect()}>disconnect</button>
 {:else}
 	{JSON.stringify({ step: connectionAsAny.step, error: connectionAsAny.error }, null, 2)}
 {/if}

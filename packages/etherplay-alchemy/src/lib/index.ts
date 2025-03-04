@@ -6,6 +6,7 @@ import {
 	fromMnemonicSignToGenerateEntropyKey,
 	fromMnemonicToAccount,
 	fromMnemonicToFirstAccount,
+	fromSignatureToKey,
 	type AlchemySettings,
 	type SignerUser
 } from './internal-alchemy/index.js';
@@ -13,6 +14,14 @@ import { onDocumentLoaded } from './utils/web.js';
 import { mnemonicToEntropy } from '@scure/bip39';
 import { bytesToHex } from '@noble/hashes/utils';
 import { wordlist } from '@scure/bip39/wordlists/english';
+
+export {
+	fromEntropyKeyToMnemonic,
+	fromMnemonicSignToGenerateEntropyKey,
+	fromMnemonicToAccount,
+	fromMnemonicToFirstAccount,
+	fromSignatureToKey
+};
 
 export type EmailMechanism<T extends string | undefined> = {
 	type: 'email';
@@ -82,28 +91,12 @@ export type OriginAccount = {
 		origin: string;
 		address: `0x${string}`;
 		privateKey: `0x${string}`;
-		mnemomic: {
-			key: `0x${string}`;
-			mnemonic: string;
-			index: number;
-		};
+		mnemomicKey: `0x${string}`;
 	};
-};
-
-export type OriginAccount = {
-	user: AlchemyUser;
-	localAccount: {
-		address: `0x${string}`;
+	metadata: {
+		email?: string;
 	};
-	originAccount: {
-		origin: string;
-		address: `0x${string}`;
-		privateKey: `0x${string}`;
-		mnemonicKey: `0x${string}`;
-		mnemonic: string;
-		index: number;
-	};
-	mechanismUsed: AlchemyMechanism;
+	mechanismUsed: AlchemyMechanism | { type: string };
 };
 
 export type AlchemyConnection = { error?: { message: string; cause?: any } } & (
@@ -578,21 +571,25 @@ export function createAlchemyConnection(settings: {
 		const originMnemonic = fromEntropyKeyToMnemonic(originKey);
 		const originAccount = fromMnemonicToFirstAccount(originMnemonic);
 		return {
-			user: account.signer.user,
-			localAccount: {
-				address: account.localAccount.address
-			},
-			originAccount: {
-				index: 0,
+			address: account.localAccount.address,
+			signer: {
+				origin,
 				address: originAccount.address,
 				privateKey: originAccount.privateKey,
-				mnemonicKey: originKey,
-				mnemonic: originMnemonic,
-				origin: origin
+				mnemomicKey: originKey
 			},
-
+			metadata: {
+				email: account.signer.user.email
+			},
 			mechanismUsed: account.signer.mechanismUsed
 		};
+	}
+
+	function getEtherplayAccount(): EtherplayAccount | undefined {
+		const fromStorage = localStorage.getItem(storageAccountKey);
+		if (fromStorage) {
+			return JSON.parse(fromStorage) as EtherplayAccount;
+		}
 	}
 
 	function saveEtherplayAccount(account: EtherplayAccount) {

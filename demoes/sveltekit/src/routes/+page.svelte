@@ -1,14 +1,106 @@
 <script lang="ts">
 	import { PUBLIC_WALLET_HOST } from '$env/static/public';
+	import { createConnection } from 'etherplay-connect';
 
-	let walletHost: string;
-	if (PUBLIC_WALLET_HOST.indexOf('{hostname}') === -1) {
-		walletHost = PUBLIC_WALLET_HOST;
-	} else if (typeof location === 'undefined') {
-		walletHost = PUBLIC_WALLET_HOST.replace('{hostname}', 'localhost');
-	} else {
-		walletHost = PUBLIC_WALLET_HOST.replace('{hostname}', location.hostname);
-	}
+	const connection = createConnection({
+		walletHost: PUBLIC_WALLET_HOST
+	});
+
+	connection.subscribe((c) => console.log(c.step, (c as any).loading));
+
+	let connectionAsAny = $derived($connection as any);
+
+	let email: string = $state('');
 </script>
 
-{walletHost}
+{#if $connection.step === 'Idle'}
+	{#if $connection.loading}
+		loading...
+	{:else}
+		<button onclick={() => connection.connect()}>connect</button>
+		<button
+			onclick={() =>
+				connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: true })}
+			>google</button
+		>
+	{/if}
+{:else if $connection.step == 'MechanismToChoose'}
+	<button onclick={() => connection.connect({ type: 'email', mode: 'otp', email: undefined })}
+		>email</button
+	>
+	<hr />
+	<input bind:value={email} />
+	<button onclick={() => connection.connect({ type: 'email', mode: 'otp', email })}>email</button>
+	<hr />
+	<button
+		onclick={() =>
+			connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: true })}
+		>google (popup)</button
+	>
+	<button
+		onclick={() =>
+			connection.connect({ type: 'oauth', provider: { id: 'facebook' }, usePopup: true })}
+		>facebook (popup)</button
+	>
+	<button
+		onclick={() =>
+			connection.connect({
+				type: 'oauth',
+				provider: { id: 'auth0', connection: 'twitter' },
+				usePopup: true
+			})}>twitter (popup)</button
+	>
+	<button
+		onclick={() =>
+			connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: false })}
+		>google (redirect)</button
+	>
+	<button
+		onclick={() =>
+			connection.connect({ type: 'oauth', provider: { id: 'facebook' }, usePopup: false })}
+		>facebook (redirect)</button
+	>
+	<button
+		onclick={() =>
+			connection.connect({
+				type: 'oauth',
+				provider: { id: 'auth0', connection: 'twitter' },
+				usePopup: false
+			})}>twitter (redirect)</button
+	>
+	<button
+		onclick={() =>
+			connection.connect({
+				type: 'mnemonic',
+				mnemonic: 'test test test test test test test test test test test junk',
+				index: undefined
+			})}>mnemonic</button
+	>
+	<button
+		onclick={() =>
+			connection.connect({
+				type: 'wallet',
+				name: 'MetaMask'
+			})}>wallet</button
+	>
+{:else if $connection.step == 'NeedWalletSignature'}
+	Signature requested...
+	<button onclick={() => connection.requestSignature()}>sign</button>
+{:else if $connection.step == 'PopupLaunched'}
+	{#if $connection.popupClosed}
+		Popup seems to be closed.
+		<button onclick={() => connection.cancel()}>cancel</button>
+	{:else}
+		Popup launched...
+		<button onclick={() => connection.cancel()}>cancel</button>
+	{/if}
+{:else if $connection.step == 'WaitingForWalletConnection'}
+	Wallet connection requested...
+{:else if $connection.step == 'WalletToChoose'}
+	Wallet to choose...
+{:else if $connection.step == 'SignedIn'}
+	you are signed-in: {$connection.account.address} / {$connection.account.signer.address}
+	<button onclick={() => connection.disconnect()}>disconnect</button>
+{:else}
+	{JSON.stringify({ step: connectionAsAny.step, error: connectionAsAny.error }, null, 2)}
+{/if}

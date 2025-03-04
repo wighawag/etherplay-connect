@@ -2,6 +2,13 @@ import type { AlchemyMechanism, OriginAccount } from 'etherplay-alchemy';
 import { writable } from 'svelte/store';
 import { createPopupLauncher, type PopupPromise } from './popup.js';
 import type { EIP1193WindowWalletProvider } from 'eip-1193';
+import {
+	fromEntropyKeyToMnemonic,
+	fromMnemonicToFirstAccount,
+	fromSignatureToKey
+} from 'etherplay-alchemy';
+
+export { fromEntropyKeyToMnemonic };
 
 export type PopupSettings = {
 	walletHost: string;
@@ -11,21 +18,17 @@ export type PopupSettings = {
 
 export type WalletMechanism<
 	WalletName extends string | undefined,
-	HasProvider extends boolean | undefined,
 	Address extends `0x${string}` | undefined
 > = {
 	type: 'wallet';
 } & (WalletName extends undefined ? { name?: undefined } : { name: WalletName }) &
-	(HasProvider extends undefined
-		? { provider?: undefined }
-		: { provider: EIP1193WindowWalletProvider }) &
 	(Address extends undefined ? { address?: undefined } : { address: Address });
 
 export type Mechanism =
 	| AlchemyMechanism
-	| WalletMechanism<string | undefined, boolean | undefined, `0x${string}` | undefined>;
+	| WalletMechanism<string | undefined, `0x${string}` | undefined>;
 
-export type FullfilledMechanism = AlchemyMechanism | WalletMechanism<string, true, `0x${string}`>;
+export type FullfilledMechanism = AlchemyMechanism | WalletMechanism<string, `0x${string}`>;
 
 export type Connection = {
 	error?: { message: string; cause?: any };
@@ -33,6 +36,7 @@ export type Connection = {
 } & (
 	| {
 			step: 'Idle';
+			loading: boolean;
 	  }
 	| {
 			step: 'MechanismToChoose';
@@ -44,19 +48,19 @@ export type Connection = {
 	  }
 	| {
 			step: 'WalletToChoose';
-			mechanism: WalletMechanism<undefined, undefined, undefined>;
+			mechanism: WalletMechanism<undefined, undefined>;
 	  }
 	| {
 			step: 'WaitingForWalletConnection';
-			mechanism: WalletMechanism<string, true, undefined>;
+			mechanism: WalletMechanism<string, undefined>;
 	  }
 	| {
 			step: 'NeedWalletSignature';
-			mechanism: WalletMechanism<string, true, `0x${string}`>;
+			mechanism: WalletMechanism<string, `0x${string}`>;
 	  }
 	| {
 			step: 'WaitingForSignature';
-			mechanism: WalletMechanism<string, true, `0x${string}`>;
+			mechanism: WalletMechanism<string, `0x${string}`>;
 	  }
 	| {
 			step: 'SignedIn';
@@ -82,8 +86,14 @@ export interface EIP6963AnnounceProviderEvent extends CustomEvent {
 	detail: EIP6963ProviderDetail;
 }
 
-export function createConnection(settings: { walletHost: string }) {
-	let $connection: Connection = { step: 'Idle', wallets: [] };
+const storageAccountKey = '__origin_account';
+export function createConnection(settings: { walletHost: string; autoConnect?: boolean }) {
+	let autoConnect = true;
+	if (typeof settings.autoConnect !== 'undefined') {
+		autoConnect = settings.autoConnect;
+	}
+
+	let $connection: Connection = { step: 'Idle', loading: true, wallets: [] };
 	const _store = writable<Connection>($connection);
 	function set(connection: Connection) {
 		$connection = connection;
@@ -100,6 +110,8 @@ export function createConnection(settings: { walletHost: string }) {
 			throw new Error(`no connection`);
 		}
 	}
+
+	let walletProvider: EIP1193WindowWalletProvider | undefined;
 
 	let popup: PopupPromise<OriginAccount> | undefined;
 
@@ -130,14 +142,48 @@ export function createConnection(settings: { walletHost: string }) {
 		}
 	}
 
+	if (autoConnect) {
+		if (typeof window !== 'undefined') {
+			// set({step: 'Idle', loading: true, wallets: $connection.wallets});
+			const existingAccount = getOriginAccount();
+			if (existingAccount) {
+				set({
+					step: 'SignedIn',
+					account: existingAccount,
+					mechanism: existingAccount.mechanismUsed as FullfilledMechanism,
+					wallets: $connection.wallets
+				});
+			} else {
+				set({ step: 'Idle', loading: false, wallets: $connection.wallets });
+			}
+		}
+	} else {
+		set({ step: 'Idle', loading: false, wallets: $connection.wallets });
+	}
 	fetchWallets();
+
+	function getOriginAccount(): OriginAccount | undefined {
+		const fromStorage = localStorage.getItem(storageAccountKey);
+		if (fromStorage) {
+			return JSON.parse(fromStorage) as OriginAccount;
+		}
+	}
+	function saveOriginAccount(account: OriginAccount) {
+		const accountSTR = JSON.stringify(account);
+		sessionStorage.setItem(storageAccountKey, accountSTR);
+		localStorage.setItem(storageAccountKey, accountSTR);
+	}
 
 	async function requestSignature() {
 		if ($connection.step !== 'NeedWalletSignature') {
 			throw new Error(`invalid step: ${$connection.step}, needs to be NeedWalletSignature`);
 		}
 
-		const provider = $connection.mechanism.provider;
+		const provider = walletProvider;
+		if (!provider) {
+			// TODO error ?
+			throw new Error(`no wallet provided initialised`);
+		}
 		const msg = `0x${Buffer.from('hello', 'utf8').toString('hex')}` as `0x${string}`;
 
 		set({
@@ -148,34 +194,40 @@ export function createConnection(settings: { walletHost: string }) {
 			method: 'personal_sign',
 			params: [msg, $connection.mechanism.address]
 		});
-		console.log({ signature });
 
+		const originKey = fromSignatureToKey(signature);
+		const originMnemonic = fromEntropyKeyToMnemonic(originKey);
+		const originAccount = fromMnemonicToFirstAccount(originMnemonic);
+
+		const account = {
+			address: $connection.mechanism.address as `0x${string}`,
+			signer: {
+				origin,
+				address: originAccount.address,
+				privateKey: originAccount.privateKey,
+				mnemomicKey: originKey
+			},
+			metadata: {},
+			mechanismUsed: $connection.mechanism
+		};
 		set({
 			...$connection,
 			step: 'SignedIn',
 			mechanism: {
 				type: 'wallet',
 				name: $connection.mechanism.name,
-				provider: $connection.mechanism.provider,
 				address: $connection.mechanism.address
-				// signature: signature as `0x${string}`
 			},
-			account: {
-				localAccount: {
-					address: $connection.mechanism.address
-					// signature: signature as `0x${string}`
-				},
-				originAccount: {
-					address: $connection.mechanism.address
-					// signature: signature as `0x${string}`
-				},
-				mechanismUsed: $connection.mechanism,
-				user: {}
-			}
+			account
 		});
+		if (remember) {
+			saveOriginAccount(account);
+		}
 	}
 
-	async function connect(mechanism?: Mechanism) {
+	let remember: boolean = false;
+	async function connect(mechanism?: Mechanism, options?: { doNotStoreLocally?: boolean }) {
+		remember = !(options?.doNotStoreLocally || false);
 		if (mechanism) {
 			if (mechanism.type === 'wallet') {
 				const walletName = mechanism.name;
@@ -184,10 +236,10 @@ export function createConnection(settings: { walletHost: string }) {
 						(v) => v.info.name == walletName || v.info.uuid == walletName
 					);
 					if (wallet) {
-						const mechanism: WalletMechanism<string, true, undefined> = {
+						walletProvider = wallet.provider;
+						const mechanism: WalletMechanism<string, undefined> = {
 							type: 'wallet',
-							name: walletName,
-							provider: wallet.provider
+							name: walletName
 						};
 
 						set({
@@ -276,9 +328,12 @@ export function createConnection(settings: { walletHost: string }) {
 						mechanism,
 						wallets: $connection.wallets
 					});
+					if (remember) {
+						saveOriginAccount(result);
+					}
 				} catch (err) {
 					console.log({ error: err });
-					set({ step: 'Idle', wallets: $connection.wallets });
+					set({ step: 'Idle', loading: false, wallets: $connection.wallets });
 				} finally {
 					unsubscribe();
 				}
@@ -289,6 +344,15 @@ export function createConnection(settings: { walletHost: string }) {
 				wallets: $connection.wallets
 			});
 		}
+	}
+
+	function disconnect() {
+		walletProvider = undefined;
+		set({
+			step: 'Idle',
+			loading: false,
+			wallets: $connection.wallets
+		});
 	}
 
 	const popupLauncher = createPopupLauncher<OriginAccount>();
@@ -350,13 +414,14 @@ export function createConnection(settings: { walletHost: string }) {
 
 	function cancel() {
 		popup?.cancel();
-		set({ step: 'Idle', wallets: $connection.wallets });
+		set({ step: 'Idle', loading: false, wallets: $connection.wallets });
 	}
 
 	return {
 		subscribe: _store.subscribe,
 		connect,
 		cancel,
-		requestSignature
+		requestSignature,
+		disconnect
 	};
 }
