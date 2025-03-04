@@ -202,11 +202,18 @@ export function localKeyMessage(): string {
 
 export type AlchemyConnectionStore = ReturnType<typeof createAlchemyConnection>;
 
-export function createAlchemyConnection(settings: {
-	alchemy: AlchemySettings;
-	autoInitialise?: boolean;
-	alwaysUsePopupForOAuth?: boolean;
-}) {
+export function createAlchemyConnection(
+	settings: {
+		alchemy: AlchemySettings;
+		autoInitialise?: boolean;
+		alwaysUsePopupForOAuth?: boolean;
+	}
+	// options?: {
+	// 	sessionKey?: string;
+	// 	orgId?: string;
+	// 	oauthProviderUsed?: string;
+	// }
+) {
 	let $connection: AlchemyConnection | undefined;
 	const _store = writable<AlchemyConnection | undefined>($connection);
 	function set(connection: AlchemyConnection | undefined) {
@@ -225,7 +232,7 @@ export function createAlchemyConnection(settings: {
 		}
 	}
 
-	const onboarding = createAlchemyOnBoarding(settings.alchemy);
+	const onboarding = createAlchemyOnBoarding(settings.alchemy); //, options);
 
 	async function auto() {
 		const signer = await onboarding.init({ preparePopup: settings.alwaysUsePopupForOAuth });

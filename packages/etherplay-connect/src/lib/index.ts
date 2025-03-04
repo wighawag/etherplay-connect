@@ -251,10 +251,27 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 			...$connection,
 			step: 'WaitingForSignature'
 		});
-		const signature = await provider.request({
-			method: 'personal_sign',
-			params: [msg, $connection.mechanism.address]
-		});
+
+		let signature: `0x${string}`;
+		try {
+			signature = await provider.request({
+				method: 'personal_sign',
+				params: [msg, $connection.mechanism.address]
+			});
+		} catch (err) {
+			// TODO handle rejection (code: 4001 ?)
+			set({
+				...$connection,
+				step: 'NeedWalletSignature',
+				mechanism: {
+					type: 'wallet',
+					name: $connection.mechanism.name,
+					address: $connection.mechanism.address
+				},
+				error: { message: 'failed to sign message', cause: err }
+			});
+			return;
+		}
 
 		const originKey = fromSignatureToKey(signature);
 		const originMnemonic = fromEntropyKeyToMnemonic(originKey);
