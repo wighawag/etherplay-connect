@@ -266,7 +266,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 				origin,
 				address: originAccount.address,
 				privateKey: originAccount.privateKey,
-				mnemomicKey: originKey
+				mnemonicKey: originKey
 			},
 			metadata: {},
 			mechanismUsed: $connection.mechanism

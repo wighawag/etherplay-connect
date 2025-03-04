@@ -91,7 +91,7 @@ export type OriginAccount = {
 		origin: string;
 		address: `0x${string}`;
 		privateKey: `0x${string}`;
-		mnemomicKey: `0x${string}`;
+		mnemonicKey: `0x${string}`;
 	};
 	metadata: {
 		email?: string;
@@ -576,7 +576,7 @@ export function createAlchemyConnection(settings: {
 				origin,
 				address: originAccount.address,
 				privateKey: originAccount.privateKey,
-				mnemomicKey: originKey
+				mnemonicKey: originKey
 			},
 			metadata: {
 				email: account.signer.user.email
