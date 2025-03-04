@@ -1,5 +1,5 @@
 {
-	"name": "etherplay-alchemy",
+	"name": "@etherplay/alchemy",
 	"version": "0.0.1",
 	"files": [
 		"dist",

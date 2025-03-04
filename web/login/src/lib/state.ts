@@ -1,4 +1,4 @@
-import type {AlchemyConnectionStore, AlchemyMechanismIncludingRedirects} from 'etherplay-alchemy';
+import type {AlchemyConnectionStore, AlchemyMechanismIncludingRedirects} from '@etherplay/alchemy';
 import {handle} from './handler';
 
 export let source: MessageEventSource | undefined;

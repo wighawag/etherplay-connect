@@ -23,7 +23,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
   },
   "dependencies": {
-    "etherplay-alchemy": "workspace:*",
+    "@etherplay/alchemy": "workspace:*",
     "micro-eth-signer": "^0.13.3",
     "viem": "^2.23.3"
   }

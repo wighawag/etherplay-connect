@@ -1,5 +1,5 @@
-import {createAlchemyConnection} from 'etherplay-alchemy';
-import type {AlchemyConnectionStore, AlchemyMechanismIncludingRedirects} from 'etherplay-alchemy';
+import {createAlchemyConnection} from '@etherplay/alchemy';
+import type {AlchemyConnectionStore, AlchemyMechanismIncludingRedirects} from '@etherplay/alchemy';
 
 export function handle(
 	params: ({rpcURL: string} | {apiKeyNotRecommended: string}) & {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type {AlchemyConnectionStore} from 'etherplay-alchemy';
+	import type {AlchemyConnectionStore} from '@etherplay/alchemy';
 	import {debounce} from '../utils';
 	import OTP from './components/OTP.svelte';
 

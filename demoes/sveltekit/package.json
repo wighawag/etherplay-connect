@@ -3,7 +3,7 @@
 	"private": true,
 	"type": "module",
 	"dependencies": {
-		"etherplay-connect": "workspace:*"
+		"@etherplay/connect": "workspace:*"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "^3.0.8",

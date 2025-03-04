@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type {AlchemyConnectionStore} from 'etherplay-alchemy';
+	import type {AlchemyConnectionStore} from '@etherplay/alchemy';
 
 	let {
 		alchemy,

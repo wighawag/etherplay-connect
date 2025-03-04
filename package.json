@@ -1,5 +1,5 @@
 {
-  "name": "etherplay-account-monorepo",
+  "name": "etherplay-connect-monorepo",
   "private": true,
   "description": "Wallet Connection VIa Session Account",
   "devDependencies": {

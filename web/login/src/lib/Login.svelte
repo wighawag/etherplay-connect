@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type {AlchemyConnectionStore} from 'etherplay-alchemy';
+	import type {AlchemyConnectionStore} from '@etherplay/alchemy';
 	import {onMount} from 'svelte';
 	import OAuth from './mechanism/OAuth.svelte';
 	import Email from './mechanism/Email.svelte';

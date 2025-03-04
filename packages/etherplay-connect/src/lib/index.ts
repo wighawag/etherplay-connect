@@ -1,4 +1,4 @@
-import type { AlchemyMechanism, OriginAccount } from 'etherplay-alchemy';
+import type { AlchemyMechanism, OriginAccount } from '@etherplay/alchemy';
 import { writable } from 'svelte/store';
 import { createPopupLauncher, type PopupPromise } from './popup.js';
 import type { EIP1193WindowWalletProvider } from 'eip-1193';
@@ -7,7 +7,7 @@ import {
 	fromMnemonicToFirstAccount,
 	fromSignatureToKey,
 	originKeyMessage
-} from 'etherplay-alchemy';
+} from '@etherplay/alchemy';
 import { bytesToHex } from '@noble/hashes/utils';
 
 export { fromEntropyKeyToMnemonic };

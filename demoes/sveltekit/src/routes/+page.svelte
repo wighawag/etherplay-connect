@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { PUBLIC_WALLET_HOST } from '$env/static/public';
-	import { createConnection } from 'etherplay-connect';
+	import { createConnection } from '@etherplay/connect';
 
 	const connection = createConnection({
 		walletHost: PUBLIC_WALLET_HOST
