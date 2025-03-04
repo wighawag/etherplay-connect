@@ -20,11 +20,6 @@
 		loading...
 	{:else}
 		<button onclick={() => connection.connect()}>connect</button>
-		<button
-			onclick={() =>
-				connection.connect({ type: 'oauth', provider: { id: 'google' }, usePopup: true })}
-			>google</button
-		>
 	{/if}
 {:else if $connection.step == 'MechanismToChoose'}
 	<button onclick={() => connection.connect({ type: 'email', mode: 'otp', email: undefined })}
@@ -92,6 +87,8 @@
 			})}>web3 wallet</button
 	>
 	<hr />
+	<button onclick={() => connection.cancel()}>back</button>
+	<hr />
 {:else if $connection.step == 'NeedWalletSignature'}
 	Signature requested...
 	<button onclick={() => connection.requestSignature()}>sign</button>
@@ -112,6 +109,8 @@
 			target="_blank"
 			rel="noopener noreferrer">MetaMask</a
 		>
+		<br />
+		<button onclick={() => connection.back('MechanismToChoose')}>back</button>
 	{:else}
 		{#each $connection.wallets as wallet}
 			<button onclick={() => connection.connect({ type: 'wallet', name: wallet.info.name })}

@@ -502,6 +502,17 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 		});
 	}
 
+	function back(step: 'MechanismToChoose' | 'Idle' | 'WalletToChoose') {
+		popup?.cancel();
+		if (step === 'MechanismToChoose') {
+			set({ step, wallets: $connection.wallets });
+		} else if (step === 'Idle') {
+			set({ step, loading: false, wallets: $connection.wallets });
+		} else if (step === 'WalletToChoose') {
+			set({ step, wallets: $connection.wallets, mechanism: { type: 'wallet' } });
+		}
+	}
+
 	const popupLauncher = createPopupLauncher<OriginAccount>();
 
 	function connectViaPopup(settings: PopupSettings) {
@@ -568,6 +579,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 		subscribe: _store.subscribe,
 		connect,
 		cancel,
+		back,
 		requestSignature,
 		connectOnCurrentWalletAccount,
 		disconnect
