@@ -1,3 +1,4 @@
 - [ ] save publicKey signed message ain originAccount
 - [ ] allow multiple originAccount in localstorage/ indexed by addresss. so they can be retriebed (useful only for wallet signing)
-- [ ] TODO?
+- [ ] fixes arround error and popup closing, seems to not always detect
+- [ ] handle window.opener == null with encryption and app domain page that would act as intermediary to then use broadcast channel or localstorage to communicate back to the app
