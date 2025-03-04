@@ -1,6 +1,10 @@
 {
 	"name": "@etherplay/connect",
 	"version": "0.0.1",
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
 	"files": [
 		"dist",
 		"!dist/**/*.test.*",
