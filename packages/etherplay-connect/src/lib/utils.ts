@@ -1,3 +1,4 @@
+import { bytesToHex } from '@noble/hashes/utils';
 import type { Readable } from 'svelte/store';
 
 export function createStorePromise<U, T, V extends Readable<T>>(
@@ -17,4 +18,12 @@ export function createStorePromise<U, T, V extends Readable<T>>(
 	}
 
 	return storePromise;
+}
+
+const encoder = new TextEncoder();
+
+export function hashMessage(message: string): `0x${string}` {
+	const messageAsBytes = encoder.encode(message);
+	const msg = `0x${bytesToHex(messageAsBytes)}` as `0x${string}`;
+	return msg;
 }

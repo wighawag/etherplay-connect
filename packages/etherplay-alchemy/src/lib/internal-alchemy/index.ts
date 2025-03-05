@@ -6,6 +6,7 @@ import { wordlist } from '@scure/bip39/wordlists/english';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { HDKey } from '@scure/bip32';
+import { getPublicKey } from '@noble/secp256k1';
 
 const TURNKEY_IFRAME_CONTAINER_ID = 'turnkey-iframe-container';
 
@@ -15,6 +16,14 @@ const encoder = new TextEncoder();
 export { AlchemyWebSigner };
 
 export type { User };
+
+function toHex(arr: Uint8Array): `0x${string}` {
+	let str = `0x`;
+	for (const element of arr) {
+		str += element.toString(16).padStart(2, '0');
+	}
+	return str as `0x${string}`;
+}
 
 export function concatUint8Arrays(values: readonly Uint8Array[]): Uint8Array {
 	let length = 0;
@@ -133,37 +142,41 @@ export function fromMnemonicToAccount(
 	index: number
 ): {
 	address: `0x${string}`;
+	publicKey: `0x${string}`;
 	privateKey: `0x${string}`;
 } {
 	const hdkey = fromMnemonicToHDKey(mnemonic, index);
 	if (!hdkey.privateKey) {
 		throw new Error(`invalid key`);
 	}
+	const privateKey = `0x${bytesToHex(hdkey.privateKey)}` as `0x${string}`;
 	return {
 		address: fromPrivateKey(hdkey.privateKey) as `0x${string}`,
-		privateKey: `0x${bytesToHex(hdkey.privateKey)}` as `0x${string}`
+		privateKey,
+		publicKey: toHex(getPublicKey(privateKey))
 	};
 }
 
 export function fromMnemonicToFirstAccount(mnemonic: string): {
 	address: `0x${string}`;
+	publicKey: `0x${string}`;
 	privateKey: `0x${string}`;
 } {
 	return fromMnemonicToAccount(mnemonic, 0);
 }
 
-export function fromMnemonicSignToGenerateEntropyKey(
-	mnemonic: string,
-	accountIndex: number,
-	msg: string
-): `0x${string}` {
-	const account = fromMnemonicToHDKey(mnemonic, accountIndex);
-	if (!account.privateKey) {
-		throw new Error(`hd key do not generate account with private key`);
-	}
-	const signature = signTextMessage(msg, `0x${bytesToHex(account.privateKey)}`);
-	return fromSignatureToKey(signature);
-}
+// export function fromMnemonicSignToGenerateEntropyKey(
+// 	mnemonic: string,
+// 	accountIndex: number,
+// 	msg: string
+// ): `0x${string}` {
+// 	const account = fromMnemonicToHDKey(mnemonic, accountIndex);
+// 	if (!account.privateKey) {
+// 		throw new Error(`hd key do not generate account with private key`);
+// 	}
+// 	const signature = signTextMessage(msg, `0x${bytesToHex(account.privateKey)}`);
+// 	return fromSignatureToKey(signature);
+// }
 
 export type AlchemySettings = { rpcURL: string } | { apiKeyNotRecommended: string };
 

@@ -3,10 +3,10 @@ import {
 	AlchemyWebSigner,
 	createAlchemyOnBoarding,
 	fromEntropyKeyToMnemonic,
-	fromMnemonicSignToGenerateEntropyKey,
 	fromMnemonicToAccount,
 	fromMnemonicToFirstAccount,
 	fromSignatureToKey,
+	signTextMessage,
 	type AlchemySettings,
 	type SignerUser
 } from './internal-alchemy/index.js';
@@ -17,7 +17,6 @@ import { wordlist } from '@scure/bip39/wordlists/english';
 
 export {
 	fromEntropyKeyToMnemonic,
-	fromMnemonicSignToGenerateEntropyKey,
 	fromMnemonicToAccount,
 	fromMnemonicToFirstAccount,
 	fromSignatureToKey
@@ -90,6 +89,7 @@ export type OriginAccount = {
 	signer: {
 		origin: string;
 		address: `0x${string}`;
+		publicKey: `0x${string}`;
 		privateKey: `0x${string}`;
 		mnemonicKey: `0x${string}`;
 	};
@@ -97,6 +97,7 @@ export type OriginAccount = {
 		email?: string;
 	};
 	mechanismUsed: AlchemyMechanism | { type: string };
+	savedPublicKeyPublicationSignature?: `0x${string}`;
 };
 
 export type AlchemyConnection = { error?: { message: string; cause?: any } } & (
@@ -194,10 +195,13 @@ export type AlchemyConnection = { error?: { message: string; cause?: any } } & (
 const storageAccountKey = '__etherplay_account';
 
 export function originKeyMessage(orig: string): string {
-	return `Origin: ${orig}\n\nOnly sign on trusted websites.\n\nThis grants access to your private session account.\n\nVerify before proceeding.`;
+	return `Origin: ${orig}\n\nIMPORTANT: Only sign on trusted websites.\n\nThis grants access to your private session account.\n\nVerify before proceeding.`;
 }
 export function localKeyMessage(): string {
 	return 'DO NOT ACCEPT THIS SIGNATURE REQUEST! This used by Etherplay Wallet to generate your seed phrase.';
+}
+export function originPublicKeyPublicationMessage(orig: string, publicKey: `0x${string}`): string {
+	return `Origin: ${orig}\n\nIMPORTANT: Only sign on trusted websites.\n\nThis authorizes the following Public Key to represent your account:\n\n${publicKey}\n\nOthers can use this key to write encrypted messages to you securely.`;
 }
 
 export type AlchemyConnectionStore = ReturnType<typeof createAlchemyConnection>;
@@ -570,17 +574,23 @@ export function createAlchemyConnection(
 	}
 
 	function generateOriginAccount(origin: string, account: EtherplayAccount): OriginAccount {
-		const originKey = fromMnemonicSignToGenerateEntropyKey(
-			fromEntropyKeyToMnemonic(account.localAccount.key),
-			account.localAccount.index,
-			originKeyMessage(origin)
-		);
+		const accountMnemonic = fromEntropyKeyToMnemonic(account.localAccount.key);
+		const accountObject = fromMnemonicToAccount(accountMnemonic, account.localAccount.index);
+		const originKeySignature = signTextMessage(originKeyMessage(origin), accountObject.privateKey);
+
+		const originKey = fromSignatureToKey(originKeySignature);
 		const originMnemonic = fromEntropyKeyToMnemonic(originKey);
 		const originAccount = fromMnemonicToFirstAccount(originMnemonic);
+
+		const savedPublicKeyPublicationSignature = signTextMessage(
+			originPublicKeyPublicationMessage(origin, originAccount.publicKey),
+			accountObject.privateKey
+		);
 		return {
 			address: account.localAccount.address,
 			signer: {
 				origin,
+				publicKey: originAccount.publicKey,
 				address: originAccount.address,
 				privateKey: originAccount.privateKey,
 				mnemonicKey: originKey
@@ -588,7 +598,8 @@ export function createAlchemyConnection(
 			metadata: {
 				email: account.signer.user.email
 			},
-			mechanismUsed: account.signer.mechanismUsed
+			mechanismUsed: account.signer.mechanismUsed,
+			savedPublicKeyPublicationSignature
 		};
 	}
 

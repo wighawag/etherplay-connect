@@ -6,11 +6,12 @@ import {
 	fromEntropyKeyToMnemonic,
 	fromMnemonicToFirstAccount,
 	fromSignatureToKey,
-	originKeyMessage
+	originKeyMessage,
+	originPublicKeyPublicationMessage
 } from '@etherplay/alchemy';
-import { bytesToHex } from '@noble/hashes/utils';
+import { hashMessage } from './utils.js';
 
-export { fromEntropyKeyToMnemonic };
+export { fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage };
 export type { OriginAccount };
 
 export type PopupSettings = {
@@ -90,7 +91,6 @@ export interface EIP6963AnnounceProviderEvent extends CustomEvent {
 	detail: EIP6963ProviderDetail;
 }
 
-const encoder = new TextEncoder();
 const storageAccountKey = '__origin_account';
 export function createConnection(settings: { walletHost: string; autoConnect?: boolean }) {
 	let autoConnect = true;
@@ -243,9 +243,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 			throw new Error(`no wallet provided initialised`);
 		}
 		const message = originKeyMessage(origin);
-
-		const messageAsBytes = encoder.encode(message);
-		const msg = `0x${bytesToHex(messageAsBytes)}` as `0x${string}`;
+		const msg = hashMessage(message);
 
 		set({
 			...$connection,
@@ -282,11 +280,13 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 			signer: {
 				origin,
 				address: originAccount.address,
+				publicKey: originAccount.publicKey,
 				privateKey: originAccount.privateKey,
 				mnemonicKey: originKey
 			},
 			metadata: {},
-			mechanismUsed: $connection.mechanism
+			mechanismUsed: $connection.mechanism,
+			savedPublicKeyPublicationSignature: undefined
 		};
 		set({
 			...$connection,
@@ -593,6 +593,32 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 		set({ step: 'Idle', loading: false, wallets: $connection.wallets });
 	}
 
+	function getSignatureForPublicKeyPublication(): Promise<`0x${string}`> {
+		if ($connection.step !== 'SignedIn') {
+			throw new Error('Not signed in');
+		}
+		const account = $connection.account;
+		if ($connection.mechanism.type === 'wallet') {
+			if (!walletProvider) {
+				throw new Error(`no provider`);
+			}
+			const message = originPublicKeyPublicationMessage(origin, account.signer.publicKey);
+			const msg = hashMessage(message);
+			return walletProvider.request({
+				method: 'personal_sign',
+				params: [msg, account.address]
+			});
+		}
+
+		if (account.savedPublicKeyPublicationSignature) {
+			return Promise.resolve(account.savedPublicKeyPublicationSignature);
+		}
+
+		// TODO offer a way to use iframe + popup to sign the message
+		// this would require saving mnemonic or privatekey on etherplay localstorage though
+		throw new Error(`no saved public key publication signature for ${account.address}`);
+	}
+
 	return {
 		subscribe: _store.subscribe,
 		connect,
@@ -600,6 +626,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 		back,
 		requestSignature,
 		connectOnCurrentWalletAccount,
-		disconnect
+		disconnect,
+		getSignatureForPublicKeyPublication
 	};
 }
