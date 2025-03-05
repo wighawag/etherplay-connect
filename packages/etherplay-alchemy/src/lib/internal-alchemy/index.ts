@@ -229,6 +229,18 @@ export function createAlchemyOnBoarding(
 			}
 		}
 
+		// ----------------------------------------------------------------------------------------
+		// is this necessary ?
+		// ----------------------------------------------------------------------------------------
+		console.log(`signer.getAuthDetails()....`);
+		let user = null;
+		try {
+			user = await signer.getAuthDetails();
+		} catch (err) {
+			console.warn(`no user at this point`, err);
+		}
+		// ----------------------------------------------------------------------------------------
+
 		return signer;
 	}
 
@@ -261,17 +273,29 @@ export function createAlchemyOnBoarding(
 		// }
 
 		console.log(`signer.authenticate with email ...`);
-		const newUser = await signer.authenticate({
-			type: 'email',
-			emailMode,
-			email
-		});
+		let newUser: User;
+		try {
+			newUser = await signer.authenticate({
+				type: 'email',
+				emailMode,
+				email
+			});
+		} catch (err) {
+			console.error(`email, failed to: signer.authenticate(...) `, err);
+			throw err;
+		}
 
 		console.log({ newUser });
 
 		if (newUser) {
 			console.log(`signer.getAuthDetails...`);
-			const user = await signer.getAuthDetails();
+			let user: User;
+			try {
+				user = await signer.getAuthDetails();
+			} catch (err) {
+				console.error(`email, failed to: signer.getAuthDetails() `, err);
+				throw err;
+			}
 			return { user, signer };
 		} else {
 			console.log(`no user`);
@@ -346,7 +370,13 @@ export function createAlchemyOnBoarding(
 		console.log({ newUser });
 
 		if (newUser) {
-			const user = await signer.getAuthDetails();
+			let user: User;
+			try {
+				user = await signer.getAuthDetails();
+			} catch (err) {
+				console.error(`oauth, failed to: signer.getAuthDetails() `, err);
+				throw err;
+			}
 			return { user, signer };
 		} else {
 			return null;
