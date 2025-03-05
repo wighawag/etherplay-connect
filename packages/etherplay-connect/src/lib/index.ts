@@ -325,7 +325,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 			// 		address: accounts[0],
 			// 		name: $connection.mechanism.name
 			// 	},
-			// 	{ alwaysRequestSignatureOnlyAfterUserConfirmation: true }
+			// 	{ requireUserConfirmationBeforeSIgnatureRequest: true }
 			// );
 
 			if (
@@ -358,8 +358,9 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 	async function connect(
 		mechanism?: Mechanism,
 		options?: {
-			alwaysRequestSignatureOnlyAfterUserConfirmation?: boolean;
+			requireUserConfirmationBeforeSIgnatureRequest?: boolean;
 			doNotStoreLocally?: boolean;
+			requestSignatureRightAway?: boolean;
 		}
 	) {
 		remember = !(options?.doNotStoreLocally || false);
@@ -396,15 +397,28 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 							accounts = await provider.request({ method: 'eth_requestAccounts' });
 
 							if (accounts.length > 0) {
-								set({
-									step: 'NeedWalletSignature',
-									mechanism: {
-										...mechanism,
-										address: accounts[0]
-									},
-									wallets: $connection.wallets
-								});
-								watchForAccountChange(walletProvider);
+								if (options?.requestSignatureRightAway) {
+									watchForAccountChange(walletProvider);
+									set({
+										step: 'NeedWalletSignature',
+										mechanism: {
+											...mechanism,
+											address: accounts[0]
+										},
+										wallets: $connection.wallets
+									});
+									await requestSignature();
+								} else {
+									set({
+										step: 'NeedWalletSignature',
+										mechanism: {
+											...mechanism,
+											address: accounts[0]
+										},
+										wallets: $connection.wallets
+									});
+									watchForAccountChange(walletProvider);
+								}
 							} else {
 								set({
 									step: 'MechanismToChoose',
@@ -413,7 +427,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 								});
 							}
 						} else {
-							if (options?.alwaysRequestSignatureOnlyAfterUserConfirmation) {
+							if (options?.requireUserConfirmationBeforeSIgnatureRequest) {
 								set({
 									step: 'NeedWalletSignature',
 									mechanism: {
