@@ -8,7 +8,8 @@ import {
 	fromSignatureToKey,
 	signTextMessage,
 	type AlchemySettings,
-	type SignerUser
+	type SignerUser,
+	type User
 } from './internal-alchemy/index.js';
 import { onDocumentLoaded } from './utils/web.js';
 import { mnemonicToEntropy } from '@scure/bip39';
@@ -284,36 +285,72 @@ export function createAlchemyConnection(
 			signer
 		});
 
+		let result:
+			| {
+					user: User;
+					signer: AlchemyWebSigner;
+			  }
+			| null
+			| undefined;
 		try {
-			const result = await onboarding.completeEmailLoginViaOTP(otp);
-			if (!result) {
-				set({
-					step: 'WaitingForOTP',
-					mechanism,
-					signer,
-					error: { message: 'failed to  login via oauth', cause: 'not result' }
-				});
-				throw new Error(`failed to verify otp`);
-			}
-
+			result = await onboarding.completeEmailLoginViaOTP(otp);
+		} catch (err) {
+			console.error(`failed to complete email via otp`, err);
 			set({
-				step: 'GeneratingAccount',
+				step: 'WaitingForOTP',
 				mechanism,
-				signer
+				signer,
+				error: { message: 'Failed to Verify OTP', cause: err }
 			});
-			const account = await generateAccount({ mechanism, signerUser: result });
+		}
+		if (!result) {
+			set({
+				step: 'WaitingForOTP',
+				mechanism,
+				signer,
+				error: { message: 'failed to  login via oauth', cause: 'not result' }
+			});
+			throw new Error(`failed to verify otp`);
+		}
 
+		set({
+			step: 'GeneratingAccount',
+			mechanism,
+			signer
+		});
+		try {
+			const account = await generateAccount({ mechanism, signerUser: result });
 			set({
 				step: 'SignedIn',
 				mechanism,
 				signer,
 				account
 			});
+			if (emailPromise) {
+				emailPromise.resolve(account);
+				emailPromise = null;
+			} else {
+				console.error(`no promise set`);
+			}
 			return account;
 		} catch (err) {
+			if (emailPromise) {
+				emailPromise.reject(err);
+				emailPromise = null;
+			} else {
+				console.error(`no promise set`);
+			}
+
+			console.error(err);
+			// TODO
+			// allow to regenerate one
 			set({
-				step: 'WaitingForOTP',
-				mechanism,
+				step: 'EmailToProvide',
+				mechanism: {
+					type: 'email',
+					mode: 'otp',
+					email: undefined // TODO default to previous
+				},
 				signer,
 				error: { message: 'Failed to Verify OTP', cause: err }
 			});
@@ -386,6 +423,10 @@ export function createAlchemyConnection(
 		}
 	}
 
+	let emailPromise: {
+		resolve(account: EtherplayAccount): void;
+		reject(err: unknown): void;
+	} | null = null;
 	async function connect(
 		mechanism?: AlchemyMechanism,
 		redirection?: { origin: string; id: string }
@@ -425,7 +466,7 @@ export function createAlchemyConnection(
 
 				console.log({ existingSIgner: signer });
 
-				const promise = onboarding.loginViaEmail(mechanism.email, mechanism.mode);
+				onboarding.loginViaEmail(mechanism.email, mechanism.mode);
 
 				set({
 					step: 'WaitingForOTP',
@@ -437,36 +478,45 @@ export function createAlchemyConnection(
 					signer
 				});
 
-				try {
-					const result = await promise;
-					if (!result) {
-						set({
-							step: 'MechanismChosen',
-							mechanism,
-							signer,
-							error: { message: 'failed to  verifyotp', cause: 'not result' }
-						});
-						throw new Error(`failed to verify otp`);
-					}
+				const promise = new Promise<EtherplayAccount>((resolve, reject) => {
+					emailPromise = {
+						resolve,
+						reject
+					};
+				});
 
-					set({
-						step: 'GeneratingAccount',
-						mechanism,
-						signer
-					});
-					const account = await generateAccount({ mechanism, signerUser: result });
+				return promise;
 
-					set({
-						step: 'SignedIn',
-						mechanism,
-						signer,
-						account
-					});
-					return account;
-				} catch (err) {
-					console.error(err);
-					setError({ message: 'failed to initiate email signin', cause: err });
-				}
+				// try {
+				// 	const result = await promise;
+				// 	if (!result) {
+				// 		set({
+				// 			step: 'MechanismChosen',
+				// 			mechanism,
+				// 			signer,
+				// 			error: { message: 'failed to  verifyotp', cause: 'not result' }
+				// 		});
+				// 		throw new Error(`failed to verify otp`);
+				// 	}
+
+				// 	set({
+				// 		step: 'GeneratingAccount',
+				// 		mechanism,
+				// 		signer
+				// 	});
+				// 	const account = await generateAccount({ mechanism, signerUser: result });
+
+				// 	set({
+				// 		step: 'SignedIn',
+				// 		mechanism,
+				// 		signer,
+				// 		account
+				// 	});
+				// 	return account;
+				// } catch (err) {
+				// 	console.error(err);
+				// 	setError({ message: 'failed to initiate email signin', cause: err });
+				// }
 			} else if (mechanism.type === 'oauth') {
 				console.log({ existingSIgner: signer });
 
