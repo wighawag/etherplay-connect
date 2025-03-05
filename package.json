@@ -14,7 +14,9 @@
   },
   "scripts": {
     "prepare": "set-defaults .vscode && pnpm build:packages",
-    "build:packages": "pnpm run --filter './packages/**' build",
+    "build:packages": "pnpm build:etherplay-alchemy && pnpm build:etherplay-connect",
+    "build:etherplay-alchemy": "pnpm run --filter @etherplay/alchemy build",
+    "build:etherplay-connect": "pnpm run --filter @etherplay/connect build",
     "build:web": "pnpm run --filter ./web build",
     "build": "pnpm '/^build:.*/'",
     "build:demo": "pnpm run build:packages && pnpm run --filter ./demoes/sveltekit build",

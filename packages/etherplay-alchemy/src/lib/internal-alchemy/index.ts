@@ -191,6 +191,7 @@ export function createAlchemyOnBoarding(
 
 	async function init(params?: { preparePopup?: boolean }): Promise<AlchemyWebSigner> {
 		if (!signer) {
+			localStorage.removeItem(sessionKey);
 			console.log(`Alchemy: setting up iframe container...`);
 			const existingContainer = document.getElementById(TURNKEY_IFRAME_CONTAINER_ID);
 			if (!existingContainer) {
@@ -229,17 +230,17 @@ export function createAlchemyOnBoarding(
 			}
 		}
 
-		// ----------------------------------------------------------------------------------------
-		// is this necessary ?
-		// ----------------------------------------------------------------------------------------
-		console.log(`Alchemy: signer.getAuthDetails()....`);
-		let user = null;
-		try {
-			user = await signer.getAuthDetails();
-		} catch (err) {
-			console.warn(`no user at this point`, err);
-		}
-		// ----------------------------------------------------------------------------------------
+		// // ----------------------------------------------------------------------------------------
+		// // is this necessary ?
+		// // ----------------------------------------------------------------------------------------
+		// console.log(`Alchemy: signer.getAuthDetails()....`);
+		// let user = null;
+		// try {
+		// 	user = await signer.getAuthDetails();
+		// } catch (err) {
+		// 	console.warn(`no user at this point`, err);
+		// }
+		// // ----------------------------------------------------------------------------------------
 
 		return signer;
 	}
@@ -498,7 +499,7 @@ export function createAlchemyOnBoarding(
 			() => localSigner.signMessage(msg),
 			{
 				maxRetries: 5,
-				delay: 100
+				delay: 300
 			}
 		);
 		return signature;
