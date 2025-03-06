@@ -148,6 +148,7 @@
 				<p>Please wait...</p>
 			{:else}
 				<p>Could not log you in, due to redirection failure</p>
+				<button onclick={() => cancel()}>Return</button>
 			{/if}
 		{/if}
 	</div>

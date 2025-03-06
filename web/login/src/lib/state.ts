@@ -1,13 +1,20 @@
 import type {AlchemyConnectionStore, AlchemyMechanismIncludingRedirects} from '@etherplay/alchemy';
 import {handle} from './handler';
 
+const errors: {message: string}[] = [];
+
 export let source: MessageEventSource | undefined;
 if (window.opener) {
 	source = window.opener;
+	// if (!window.opener.closed) {
+	// 	source = window.opener;
+	// } else {
+	errors.push({message: 'Your browser does not seem to support popup, required for authentication.'});
+	// }
 } else if (window.parent != window) {
 	// TODO delete
 	// we should not reach there, this is to be used in a popup
-	source = window.parent;
+	// source = window.parent;
 }
 
 export const url = new URL(location.href);
@@ -49,7 +56,6 @@ let alchemy:
 			};
 	  }
 	| undefined;
-const errors: {message: string}[] = [];
 
 let mechanism: AlchemyMechanismIncludingRedirects | undefined;
 

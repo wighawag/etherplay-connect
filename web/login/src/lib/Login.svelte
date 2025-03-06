@@ -142,7 +142,8 @@
 
 	function _cancel(error?: any) {
 		if (!from.source) {
-			throw new Error(`no source`);
+			window.close();
+			return;
 		}
 		if (error) {
 			if (debug) {
