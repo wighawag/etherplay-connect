@@ -4,10 +4,12 @@
 	let {
 		alchemy,
 		continueAfterLogin,
+		goingToRedirect,
 		cancel,
 	}: {
 		alchemy: AlchemyConnectionStore;
-		continueAfterLogin: () => void;
+		continueAfterLogin?: () => void;
+		goingToRedirect?: boolean;
 		cancel: (error?: {message: string; cause?: any}) => void;
 	} = $props();
 
@@ -50,8 +52,15 @@
 			<p>Please wait...</p>
 			<hr />
 		{:else if $alchemy.step === 'SignedIn'}
-			<p>You are logged in!</p>
-			<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
+			{#if continueAfterLogin}
+				<p>You are logged in!</p>
+				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
+			{:else if goingToRedirect}
+				<!-- TODO timeout-->
+				<p>Please wait...</p>
+			{:else}
+				<p>Could not log you in, due to redirection failure</p>
+			{/if}
 		{/if}
 	</div>
 

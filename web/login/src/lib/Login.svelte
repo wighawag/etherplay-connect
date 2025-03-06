@@ -4,15 +4,22 @@
 	import OAuth from './mechanism/OAuth.svelte';
 	import Email from './mechanism/Email.svelte';
 	import Mnemonic from './mechanism/Mnemonic.svelte';
-	import Idle from './Idle.svelte';
 	import {get} from 'svelte/store';
 	import Loading from './Loading.svelte';
 
 	let {
 		alchemy,
 		from,
-	}: {alchemy: AlchemyConnectionStore; from: {source?: MessageEventSource; origin: string; requestID: string}} =
-		$props();
+	}: {
+		alchemy: AlchemyConnectionStore;
+		from: {
+			source?: MessageEventSource;
+			origin: string;
+			requestID: string;
+			domainRedirectPublicKey?: string;
+			canCloseAutomatically: boolean;
+		};
+	} = $props();
 
 	// TODO
 	let debug = false;
@@ -68,6 +75,17 @@
 			}
 		}, 10000);
 
+		alchemy.subscribe((v) => {
+			if (v?.step === 'SignedIn') {
+				if (from.domainRedirectPublicKey) {
+					// TODO encrypt
+					window.location.href = `${from.origin}/_etherplay_accounts.html#myencryptedresult`;
+				} else {
+					postResultIfNotAlreadyPosted(from.canCloseAutomatically);
+				}
+			}
+		});
+
 		return () => {
 			clearTimeout(sourceTimeoutId);
 			closed = true;
@@ -94,7 +112,7 @@
 	}
 
 	let resultPosted = false;
-	function postResultIfNotAlreadyPosted() {
+	function postResultIfNotAlreadyPosted(closeWindow = false) {
 		if (!from.source) {
 			throw new Error(`no source`);
 		}
@@ -116,6 +134,9 @@
 				// TODO
 				console.error(e);
 			}
+		}
+		if (closeWindow) {
+			window.close();
 		}
 	}
 
@@ -170,11 +191,26 @@
 			<p>Not Supported</p>
 		</main>
 	{:else if $alchemy.mechanism.type == 'email'}
-		<Email {alchemy} {continueAfterLogin} {cancel} />
+		<Email
+			{alchemy}
+			goingToRedirect={!!from.domainRedirectPublicKey}
+			continueAfterLogin={from.source ? continueAfterLogin : undefined}
+			{cancel}
+		/>
 	{:else if $alchemy.mechanism.type == 'oauth'}
-		<OAuth {alchemy} {continueAfterLogin} {cancel} />
+		<OAuth
+			{alchemy}
+			goingToRedirect={!!from.domainRedirectPublicKey}
+			continueAfterLogin={from.source ? continueAfterLogin : undefined}
+			{cancel}
+		/>
 	{:else if $alchemy.mechanism.type == 'mnemonic'}
-		<Mnemonic {alchemy} {continueAfterLogin} {cancel} />
+		<Mnemonic
+			{alchemy}
+			goingToRedirect={!!from.domainRedirectPublicKey}
+			continueAfterLogin={from.source ? continueAfterLogin : undefined}
+			{cancel}
+		/>
 	{:else}
 		<main>
 			<p>{$alchemy.step}</p>

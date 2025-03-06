@@ -31,13 +31,23 @@ const alchemyOrgId = searchParams.get('alchemy-org-id');
 const alchemyIdToken = searchParams.get('alchemy-id-token');
 const alchemyBundle = searchParams.get('alchemy-bundle');
 const alchemyError = searchParams.get('alchemy-error');
+const domainRedirectPublicKey = searchParams.get('domain-redirect-public-key') || undefined;
 
 const rpcURL: string | null = searchParams.get('alchemy-api') || import.meta.env.VITE_ALCHEMY_RPC_URL;
 const apiKeyNotRecommended: string | null =
 	searchParams.get('api-key') || import.meta.env.VITE_ALCHEMY_API_KEY_NOT_RECOMMENDED;
 
 let alchemy:
-	| {connection: AlchemyConnectionStore; from: {source?: MessageEventSource; origin: string; requestID: string}}
+	| {
+			connection: AlchemyConnectionStore;
+			from: {
+				source?: MessageEventSource;
+				origin: string;
+				requestID: string;
+				domainRedirectPublicKey?: string;
+				canCloseAutomatically: boolean;
+			};
+	  }
 	| undefined;
 const errors: {message: string}[] = [];
 
@@ -186,8 +196,17 @@ if (!type) {
 	}
 }
 
-if (errors.length == 0 && source && orig && (rpcURL || apiKeyNotRecommended) && requestID && mechanism) {
+if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID && mechanism) {
 	console.log(`mechanism`, mechanism);
+	let canCloseAutomatically = false;
+	if (type === 'mnemonic') {
+		canCloseAutomatically = true;
+	} else if (type === 'email') {
+		canCloseAutomatically = true;
+	} else if (oauth && !oauthRedirection) {
+		canCloseAutomatically = true;
+	}
+
 	alchemy = {
 		connection: handle({
 			mechanism,
@@ -196,13 +215,16 @@ if (errors.length == 0 && source && orig && (rpcURL || apiKeyNotRecommended) && 
 			orig,
 			requestID,
 		}),
-		from: {source, origin: orig, requestID: requestID},
+		from: {source, origin: orig, requestID: requestID, domainRedirectPublicKey, canCloseAutomatically},
 	};
 
 	if (typeof window !== 'undefined') {
 		(window as any).alchemy = alchemy;
 	}
 } else {
+	if (!type) {
+		errors.push({message: `type of flow not provided`});
+	}
 	if (bundle) {
 		errors.push({message: `Magic Link Not Supported For now`});
 	}
