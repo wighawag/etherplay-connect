@@ -1,16 +1,22 @@
 import type {AlchemyConnectionStore, AlchemyMechanismIncludingRedirects} from '@etherplay/alchemy';
 import {handle} from './handler';
 
-const errors: {message: string}[] = [];
+const errors: {message: string; canClose: boolean}[] = [];
 
 export let source: MessageEventSource | undefined;
 if (window.opener) {
 	source = window.opener;
-	// if (!window.opener.closed) {
-	// 	source = window.opener;
-	// } else {
-	errors.push({message: 'Your browser does not seem to support popup, required for authentication.'});
-	// }
+	if (!window.opener.closed) {
+		errors.push({
+			message: 'Your browser does not seem to support popup, required for authentication.',
+			canClose: false,
+		});
+	} else if (navigator.userAgent.includes('MetaMaskMobile')) {
+		errors.push({
+			message: 'MetaMask Mobile does not seem to support popup, required for authentication.',
+			canClose: false,
+		});
+	}
 } else if (window.parent != window) {
 	// TODO delete
 	// we should not reach there, this is to be used in a popup
@@ -67,7 +73,7 @@ if (!type) {
 			orgId,
 		};
 	} else {
-		errors.push({message: `invalid magic link url`});
+		errors.push({message: `invalid magic link url`, canClose: true});
 	}
 	// errors.push({message: `do not support magic links for now`});
 } else {
@@ -92,7 +98,7 @@ if (!type) {
 			}
 		} else if (oauth === 'auth0') {
 			if (!oauthConnection) {
-				errors.push({message: `invalid oauthConnection: ${oauthConnection}`});
+				errors.push({message: `invalid oauthConnection: ${oauthConnection}`, canClose: true});
 			} else {
 				if (oauthRedirection) {
 					if (!orig || !requestID) {
@@ -113,7 +119,7 @@ if (!type) {
 				}
 			}
 		} else {
-			errors.push({message: `invalid oauthProviderUsed: ${oauth}`});
+			errors.push({message: `invalid oauthProviderUsed: ${oauth}`, canClose: true});
 		}
 	} else if (type === 'oauth-redirect') {
 		if (alchemyError) {
@@ -133,7 +139,7 @@ if (!type) {
 				};
 			} else if (oauth === 'auth0') {
 				if (!oauthConnection) {
-					errors.push({message: `invalid oauthConnection: ${oauthConnection}`});
+					errors.push({message: `invalid oauthConnection: ${oauthConnection}`, canClose: true});
 				} else {
 					mechanism = {
 						type: 'oauth-redirect',
@@ -146,7 +152,7 @@ if (!type) {
 					};
 				}
 			} else {
-				errors.push({message: `invalid oauthProviderUsed: ${oauth}`});
+				errors.push({message: `invalid oauthProviderUsed: ${oauth}`, canClose: true});
 			}
 		} else if (alchemyBundle && alchemyIdToken && alchemyOrgId && oauth) {
 			if (!orig || !requestID) {
@@ -164,7 +170,7 @@ if (!type) {
 				};
 			} else if (oauth === 'auth0') {
 				if (!oauthConnection) {
-					errors.push({message: `invalid oauthConnection: ${oauthConnection}`});
+					errors.push({message: `invalid oauthConnection: ${oauthConnection}`, canClose: true});
 				} else {
 					mechanism = {
 						type: 'oauth-redirect',
@@ -176,14 +182,14 @@ if (!type) {
 					};
 				}
 			} else {
-				errors.push({message: `invalid oauthProviderUsed: ${oauth}`});
+				errors.push({message: `invalid oauthProviderUsed: ${oauth}`, canClose: true});
 			}
 		} else {
-			errors.push({message: `invalid oauth-redirect`});
+			errors.push({message: `invalid oauth-redirect`, canClose: true});
 		}
 	} else if (type === 'email') {
 		if (emailMode == 'magicLink') {
-			errors.push({message: `magic links are not supported`});
+			errors.push({message: `magic links are not supported`, canClose: true});
 		} else if (emailMode == 'otp') {
 			mechanism = {
 				type: 'email',
@@ -191,7 +197,7 @@ if (!type) {
 				mode: emailMode,
 			};
 		} else {
-			errors.push({message: `invalid email mode`});
+			errors.push({message: `invalid email mode`, canClose: true});
 		}
 	} else if (type === 'mnemonic') {
 		mechanism = {
@@ -229,13 +235,13 @@ if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID 
 	}
 } else {
 	if (!type) {
-		errors.push({message: `type of flow not provided`});
+		errors.push({message: `type of flow not provided`, canClose: true});
 	}
 	if (bundle) {
-		errors.push({message: `Magic Link Not Supported For now`});
+		errors.push({message: `Magic Link Not Supported For now`, canClose: true});
 	}
 	if (!source) {
-		errors.push({message: `launched from an incompatible web-browser.`});
+		errors.push({message: `launched from an incompatible web-browser.`, canClose: true});
 
 		window.addEventListener('message', (event: MessageEvent) => {
 			try {
@@ -251,13 +257,13 @@ if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID 
 		});
 	}
 	if (!requestID) {
-		errors.push({message: `no requestID provided`});
+		errors.push({message: `no requestID provided`, canClose: true});
 	}
 	if (!orig) {
-		errors.push({message: `no origin provided`});
+		errors.push({message: `no origin provided`, canClose: true});
 	}
 	if (!rpcURL && !apiKeyNotRecommended) {
-		errors.push({message: `no rpcURL or apiKey provided`});
+		errors.push({message: `no rpcURL or apiKey provided`, canClose: true});
 	}
 }
 

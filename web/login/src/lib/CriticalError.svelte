@@ -1,8 +1,10 @@
 <script lang="ts">
 	interface Props {
-		errors: {message: string}[];
+		errors: {message: string; canClose: boolean}[];
 	}
 	let {errors}: Props = $props();
+
+	let canClose = $derived(errors.reduce((prev, curr) => prev && curr.canClose, true));
 </script>
 
 <main>
@@ -14,14 +16,10 @@
 
 		<button
 			onclick={() => {
-				if (window.opener) {
-					if (!window.opener.closed) {
-						window.close();
-					} else {
-						window.history.back();
-					}
-				} else {
+				if (canClose) {
 					window.close();
+				} else {
+					window.history.back();
 				}
 			}}>Return</button
 		>
