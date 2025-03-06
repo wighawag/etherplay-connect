@@ -12,7 +12,7 @@ if ((!window.opener || window.opener.closed) && navigator.userAgent.includes('Me
 	});
 } else if (window.opener) {
 	source = window.opener;
-	if (!window.opener.closed) {
+	if (window.opener.closed) {
 		errors.push({
 			message: 'Your browser does not seem to support popup, required for authentication.',
 			canClose: false,
