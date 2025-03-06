@@ -4,16 +4,17 @@ import {handle} from './handler';
 const errors: {message: string; canClose: boolean}[] = [];
 
 export let source: MessageEventSource | undefined;
-if (window.opener) {
+
+if ((!window.opener || window.opener.closed) && navigator.userAgent.includes('MetaMaskMobile')) {
+	errors.push({
+		message: 'MetaMask Mobile does not seem to support popup, required for authentication.',
+		canClose: false,
+	});
+} else if (window.opener) {
 	source = window.opener;
 	if (!window.opener.closed) {
 		errors.push({
 			message: 'Your browser does not seem to support popup, required for authentication.',
-			canClose: false,
-		});
-	} else if (navigator.userAgent.includes('MetaMaskMobile')) {
-		errors.push({
-			message: 'MetaMask Mobile does not seem to support popup, required for authentication.',
 			canClose: false,
 		});
 	}
