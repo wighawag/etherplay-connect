@@ -3,15 +3,14 @@ import {handle} from './handler';
 
 const errors: {message: string; canClose: boolean}[] = [];
 
-export let source: MessageEventSource | undefined;
+export const source: MessageEventSource | undefined = window.opener || undefined;
 
-if ((!window.opener || window.opener.closed) && navigator.userAgent.includes('MetaMaskMobile')) {
+if ((!source || window.opener.closed) && navigator.userAgent.includes('MetaMaskMobile')) {
 	errors.push({
 		message: 'MetaMask Mobile does not seem to support popup, required for authentication.',
 		canClose: false,
 	});
 } else if (window.opener) {
-	source = window.opener;
 	if (window.opener.closed) {
 		errors.push({
 			message: 'Your browser does not seem to support popup, required for authentication.',
@@ -240,22 +239,6 @@ if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID 
 	}
 	if (bundle) {
 		errors.push({message: `Magic Link Not Supported For now`, canClose: true});
-	}
-	if (!source) {
-		errors.push({message: `launched from an incompatible web-browser.`, canClose: true});
-
-		window.addEventListener('message', (event: MessageEvent) => {
-			try {
-				console.log('ping?', event.origin, event.source, event.data);
-			} catch (err) {
-				console.log(`error getting event`);
-			}
-
-			if (!source && event.origin === orig) {
-				console.log('source:', event.source);
-				source = event.source || undefined;
-			}
-		});
 	}
 	if (!requestID) {
 		errors.push({message: `no requestID provided`, canClose: true});
