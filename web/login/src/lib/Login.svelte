@@ -121,7 +121,7 @@
 				const state = get(alchemy);
 				if (state?.step === 'SignedIn') {
 					// TODO
-					const result = alchemy.generateOriginAccount(origin, state.account);
+					const result = alchemy.generateOriginAccount(from.origin, state.account);
 					// if (debug) {
 					// 	console.log('postMessage', {result, id: requestID}, orig);
 					// }
