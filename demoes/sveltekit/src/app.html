@@ -5,12 +5,12 @@
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 
-		<!-- inject eruda loader (use ?_d_eruda or even ?_d_eruda=<plugin package name separated by ",">) -->
+		<!-- inject eruda loader (use ?eruda or even ?eruda=<plugin package name separated by ",">) -->
 		<!--prettier-ignore -->
 		<script>
 			(function () {
 				let params = new URLSearchParams(window.location.search);
-				const eruda_options = params.get('_d_eruda');
+				const eruda_options = params.get('eruda');
 				if (eruda_options !== "" && !eruda_options && localStorage.getItem('active-eruda') != 'true') return;
 				const _ = '';
 				let add_plugins = '';

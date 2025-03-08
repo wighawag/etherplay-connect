@@ -151,7 +151,7 @@ export function fromMnemonicToAccount(
 		throw new Error(`invalid key`);
 	}
 	return {
-		address: fromPrivateKey(hdkey.privateKey) as `0x${string}`,
+		address: fromPrivateKey(hdkey.privateKey).toLowerCase() as `0x${string}`,
 		privateKey: `0x${bytesToHex(hdkey.privateKey)}` as `0x${string}`,
 		publicKey: toHex(getPublicKey(hdkey.privateKey))
 	};
@@ -192,7 +192,7 @@ export function createAlchemyOnBoarding(
 	async function init(params?: { preparePopup?: boolean }): Promise<AlchemyWebSigner> {
 		if (!signer) {
 			localStorage.removeItem(sessionKey);
-			console.log(`Alchemy: setting up iframe container...`);
+			// console.log(`Alchemy: setting up iframe container...`);
 			const existingContainer = document.getElementById(TURNKEY_IFRAME_CONTAINER_ID);
 			if (!existingContainer) {
 				const container = document.createElement('div');
@@ -201,7 +201,7 @@ export function createAlchemyOnBoarding(
 				document.body.appendChild(container);
 			}
 
-			console.log(`Alchemy: creating signer using orgId: ${options?.orgId}...`);
+			// console.log(`Alchemy: creating signer using orgId: ${options?.orgId}...`);
 			signer = new AlchemyWebSigner({
 				client: {
 					// This is created in your dashboard under `https://dashboard.alchemy.com/settings/access-keys`
@@ -224,7 +224,7 @@ export function createAlchemyOnBoarding(
 			});
 
 			if (params?.preparePopup) {
-				console.log('Alchemy: preparePopupOauth...');
+				// console.log('Alchemy: preparePopupOauth...');
 				await signer.preparePopupOauth();
 				popupIsPrepared = true;
 			}
@@ -249,7 +249,7 @@ export function createAlchemyOnBoarding(
 		if (!signer) {
 			throw new Error(`no signer initialised`);
 		}
-		console.log('Alchemy: preparePopupOauth...');
+		// console.log('Alchemy: preparePopupOauth...');
 		await signer.preparePopupOauth();
 		popupIsPrepared = true;
 	}
@@ -274,7 +274,7 @@ export function createAlchemyOnBoarding(
 		// 	return {user, signer};
 		// }
 
-		console.log(`Alchemy: signer.authenticate with email ...`);
+		// console.log(`Alchemy: signer.authenticate with email ...`);
 		let newUser: User;
 		try {
 			newUser = await signer.authenticate({
@@ -287,10 +287,10 @@ export function createAlchemyOnBoarding(
 			throw err;
 		}
 
-		console.log({ newUser });
+		// console.log({ newUser });
 
 		if (newUser) {
-			console.log(`Alchemy: signer.getAuthDetails...`);
+			// console.log(`Alchemy: signer.getAuthDetails...`);
 			let user: User;
 			try {
 				user = await signer.getAuthDetails();
@@ -317,7 +317,7 @@ export function createAlchemyOnBoarding(
 
 		// console.log({user});
 
-		console.log('authenticating...');
+		// console.log('authenticating...');
 
 		const authProviderId = provider.id;
 		const auth0Connection =
@@ -328,12 +328,12 @@ export function createAlchemyOnBoarding(
 		if (redirection) {
 			let erudaStr = '';
 			const currentURL = new URL(location.href);
-			if (currentURL.searchParams.has('_d_eruda')) {
-				const value = currentURL.searchParams.get('_d_eruda');
-				erudaStr = value ? `&_d_eruda=${value}` : '&_d_eruda';
+			if (currentURL.searchParams.has('eruda')) {
+				const value = currentURL.searchParams.get('eruda');
+				erudaStr = value ? `&eruda=${value}` : '&eruda';
 			}
 			const redirectUrl = `/login/?type=oauth-redirect&origin=${redirection.origin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${options?.orgId ? `&orgId=${options.orgId}` : ''}${erudaStr}`;
-			console.log(`Alchemy: signer.authenticate(...) redirect &{ redirectUrl }`);
+			// console.log(`Alchemy: signer.authenticate(...) redirect &{ redirectUrl }`);
 			if (authProviderId === 'auth0') {
 				newUser = await signer.authenticate({
 					type: 'oauth',
@@ -351,9 +351,9 @@ export function createAlchemyOnBoarding(
 				});
 			}
 		} else {
-			console.log(`Alchemy: signer.authenticate(...) popup`);
+			// console.log(`Alchemy: signer.authenticate(...) popup`);
 			if (authProviderId === 'auth0') {
-				console.log(`auth0:${auth0Connection}`);
+				// console.log(`auth0:${auth0Connection}`);
 				newUser = await signer.authenticate({
 					type: 'oauth',
 					authProviderId,
@@ -361,7 +361,7 @@ export function createAlchemyOnBoarding(
 					mode: 'popup'
 				});
 			} else {
-				console.log(`oauth:${authProviderId}`);
+				// console.log(`oauth:${authProviderId}`);
 				newUser = await signer.authenticate({
 					type: 'oauth',
 					authProviderId,
@@ -370,12 +370,12 @@ export function createAlchemyOnBoarding(
 			}
 		}
 
-		console.log({ newUser });
+		// console.log({ newUser });
 
 		if (newUser) {
 			let user: User;
 			try {
-				console.log(`Alchemy: signer.getAuthDetails() loginViaOauth`);
+				// console.log(`Alchemy: signer.getAuthDetails() loginViaOauth`);
 				user = await signer.getAuthDetails();
 			} catch (err) {
 				console.error(`oauth, failed to: signer.getAuthDetails() `, err);
@@ -398,10 +398,10 @@ export function createAlchemyOnBoarding(
 			throw new Error(`Alchemy Onboarding not initialised`);
 		}
 		try {
-			console.log(`Alchemy: signer.authenticate(...) completeEmailLoginViaBundle`);
+			// console.log(`Alchemy: signer.authenticate(...) completeEmailLoginViaBundle`);
 			await signer.authenticate({ type: 'email', bundle, orgId });
 
-			console.log(`Alchemy: signer.getAuthDetails() completeEmailLoginViaBundle`);
+			// console.log(`Alchemy: signer.getAuthDetails() completeEmailLoginViaBundle`);
 			const user = await signer.getAuthDetails().catch(() => null);
 			if (user) {
 				return { user, signer };
@@ -426,7 +426,7 @@ export function createAlchemyOnBoarding(
 			throw new Error(`Alchemy Onboarding not initialised`);
 		}
 		try {
-			console.log(`Alchemy: signer.authenticate(...) completeOAuthWithBundle`);
+			// console.log(`Alchemy: signer.authenticate(...) completeOAuthWithBundle`);
 			await signer.authenticate({
 				type: 'oauthReturn',
 				bundle: alchemyBundle,
@@ -434,7 +434,7 @@ export function createAlchemyOnBoarding(
 				idToken: alchemyIdToken
 			});
 
-			console.log(`Alchemy: signer.getAuthDetails() completeOAuthWithBundle`);
+			// console.log(`Alchemy: signer.getAuthDetails() completeOAuthWithBundle`);
 			const user = await signer.getAuthDetails().catch(() => null);
 			if (user) {
 				return { user, signer };
@@ -455,10 +455,10 @@ export function createAlchemyOnBoarding(
 			throw new Error(`Alchemy Onboarding not initialised`);
 		}
 		try {
-			console.log(`Alchemy: signer.authenticate(...) completeEmailLoginViaOTP`);
+			// console.log(`Alchemy: signer.authenticate(...) completeEmailLoginViaOTP`);
 			await signer.authenticate({ type: 'otp', otpCode });
 
-			console.log(`Alchemy: signer.getAuthDetails() completeEmailLoginViaOTP`);
+			// console.log(`Alchemy: signer.getAuthDetails() completeEmailLoginViaOTP`);
 			const user = await signer.getAuthDetails().catch(() => null);
 			if (user) {
 				return { user, signer };
@@ -478,7 +478,7 @@ export function createAlchemyOnBoarding(
 		if (!signer) {
 			throw new Error(`Alchemy Onboarding not initialised`);
 		}
-		console.log(`Alchemy: signer.getAuthDetails() getUserSigner`);
+		// console.log(`Alchemy: signer.getAuthDetails() getUserSigner`);
 		const user = await signer.getAuthDetails().catch(() => null);
 		if (user) {
 			return { user, signer };
@@ -493,7 +493,7 @@ export function createAlchemyOnBoarding(
 		}
 		const localSigner = signer;
 
-		console.log(`Alchemy: signer.signMessage(msg) sign`);
+		// console.log(`Alchemy: signer.signMessage(msg) sign`);
 
 		const signature: `0x${string}` = await retry<`0x${string}`>(
 			() => localSigner.signMessage(msg),

@@ -317,6 +317,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 	}
 
 	function onAccountChanged(accounts: `0x${string}`[]) {
+		const accountsFormated = accounts.map((a) => a.toLowerCase()) as `0x${string}`[];
 		if ($connection.step === 'SignedIn' && $connection.mechanism.type === 'wallet') {
 			// TODO if auto-connect and saved-signature ?
 			// connect(
@@ -328,13 +329,10 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 			// 	{ requireUserConfirmationBeforeSIgnatureRequest: true }
 			// );
 
-			if (
-				accounts.length > 0 &&
-				accounts[0].toLowerCase() != $connection.account.address.toLowerCase()
-			) {
+			if (accountsFormated.length > 0 && accountsFormated[0] != $connection.account.address) {
 				set({
 					...$connection,
-					walletAccountChanged: accounts[0]
+					walletAccountChanged: accountsFormated[0]
 				});
 			} else if ($connection.walletAccountChanged) {
 				set({
@@ -388,6 +386,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 						});
 						const provider = wallet.provider;
 						let accounts = await provider.request({ method: 'eth_accounts' });
+						accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 						if (accounts.length === 0) {
 							set({
 								step: 'WaitingForWalletConnection',
@@ -395,7 +394,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 								wallets: $connection.wallets
 							});
 							accounts = await provider.request({ method: 'eth_requestAccounts' });
-
+							accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 							if (accounts.length > 0) {
 								if (options?.requestSignatureRightAway) {
 									watchForAccountChange(walletProvider);
@@ -592,8 +591,11 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 			}
 		}
 
-		if (currentURL.searchParams.has('_d_eruda')) {
-			entriesToAdd.push(['_d_eruda', currentURL.searchParams.get('_d_eruda') || '']);
+		if (currentURL.searchParams.has('eruda')) {
+			entriesToAdd.push(['eruda', currentURL.searchParams.get('eruda') || '']);
+		}
+		if (currentURL.searchParams.has('eruda')) {
+			entriesToAdd.push(['eruda', currentURL.searchParams.get('eruda') || '']);
 		}
 
 		for (const entryToAdd of entriesToAdd) {

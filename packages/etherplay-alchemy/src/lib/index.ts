@@ -254,10 +254,6 @@ export function createAlchemyConnection(
 		onDocumentLoaded(auto);
 	}
 
-	function setupAlchemySigner(newSigner: SignerUser) {
-		console.log({ newSigner });
-	}
-
 	function provideEmail(email: string) {
 		if ($connection?.step !== 'EmailToProvide') {
 			throw new Error(`no email to provide`);
@@ -464,7 +460,7 @@ export function createAlchemyConnection(
 					return;
 				}
 
-				console.log({ existingSIgner: signer });
+				// console.log({ existingSIgner: signer });
 
 				onboarding.loginViaEmail(mechanism.email, mechanism.mode);
 
@@ -518,7 +514,7 @@ export function createAlchemyConnection(
 				// 	setError({ message: 'failed to initiate email signin', cause: err });
 				// }
 			} else if (mechanism.type === 'oauth') {
-				console.log({ existingSIgner: signer });
+				// console.log({ existingSIgner: signer });
 
 				if (mechanism.usePopup) {
 					set({
@@ -561,16 +557,17 @@ export function createAlchemyConnection(
 				const viemAccount = fromMnemonicToAccount(mnemonic, index);
 				const keyUint8Array = mnemonicToEntropy(mnemonic, wordlist);
 				const key = `0x${bytesToHex(keyUint8Array)}` as `0x${string}`;
+				const address = viemAccount.address.toLowerCase() as `0x${string}`;
 				const account: EtherplayAccount = {
 					localAccount: {
-						address: viemAccount.address,
+						address,
 						index,
 						key
 					},
 					signer: {
 						mechanismUsed: mechanism,
 						user: {
-							address: viemAccount.address,
+							address,
 							orgId: 'mnemonic',
 							userId: `${index}@mnemonic.id`,
 							email: `${index}@mnemonic.id`
