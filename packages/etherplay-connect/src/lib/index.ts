@@ -252,6 +252,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 
 		let signature: `0x${string}`;
 		try {
+			// TODO timeout
 			signature = await provider.request({
 				method: 'personal_sign',
 				params: [msg, $connection.mechanism.address]
