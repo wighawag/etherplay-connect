@@ -35,7 +35,11 @@ export type Mechanism =
 export type FullfilledMechanism = AlchemyMechanism | WalletMechanism<string, `0x${string}`>;
 
 export type Connection = {
+	// The connection can have an error in every state.
+	// a banner or other mechanism to show error should be used.
+	// error should be dismissable
 	error?: { message: string; cause?: any };
+	// wallets represent the web3 wallet installed on the user browser
 	wallets: EIP6963ProviderDetail[];
 } & ( // loading can be true initially as the system will try to auto-login and fetch installed web3 wallet // Start in Idle
 	| {
