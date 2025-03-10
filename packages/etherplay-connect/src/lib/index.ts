@@ -37,35 +37,46 @@ export type FullfilledMechanism = AlchemyMechanism | WalletMechanism<string, `0x
 export type Connection = {
 	error?: { message: string; cause?: any };
 	wallets: EIP6963ProviderDetail[];
-} & (
+} & ( // loading can be true initially as the system will try to auto-login and fetch installed web3 wallet // Start in Idle
 	| {
 			step: 'Idle';
 			loading: boolean;
 	  }
+	// It can then end up in MechanismToChoose if no specific connection mechanism was chosen upon clicking "connect"
 	| {
 			step: 'MechanismToChoose';
 	  }
+	// if a social/email login mechanism was chose, a popup will be launched
+	// popupClosed can be true and this means the popup has been closed and the user has to cancel the process to continue further
 	| {
 			step: 'PopupLaunched';
 			popupClosed: boolean;
 			mechanism: AlchemyMechanism;
 	  }
+	// If the user has chosen to use web3-wallet there might be multi-choice for it
 	| {
 			step: 'WalletToChoose';
 			mechanism: WalletMechanism<undefined, undefined>;
 	  }
+	// Once a user has chosen a wallet, the system will try to connect to it
 	| {
 			step: 'WaitingForWalletConnection';
 			mechanism: WalletMechanism<string, undefined>;
 	  }
+	// Once the wallet is connected, the system will need a signature
+	// this state represent the fact and require another user interaction to request the signature
 	| {
 			step: 'NeedWalletSignature';
 			mechanism: WalletMechanism<string, `0x${string}`>;
 	  }
+	// This state is triggered once the signature is requested, the user will have to confirm with its wallet
 	| {
 			step: 'WaitingForSignature';
 			mechanism: WalletMechanism<string, `0x${string}`>;
 	  }
+	// Finally the user is fully signed in
+	// walletAccountChanged if set, represent the fact that the user has changed its web3-wallet accounnt.
+	// a notification could be shown to the user so that he can switch the app to use that other account.
 	| {
 			step: 'SignedIn';
 			mechanism: FullfilledMechanism;
