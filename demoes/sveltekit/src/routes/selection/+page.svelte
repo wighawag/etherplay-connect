@@ -22,10 +22,6 @@
 		<button onclick={() => connection.connect()}>connect</button>
 	{/if}
 {:else if $connection.step == 'MechanismToChoose'}
-	<button onclick={() => connection.connect({ type: 'email', mode: 'otp', email: undefined })}
-		>email</button
-	>
-	<hr />
 	<input bind:value={email} />
 	<button onclick={() => connection.connect({ type: 'email', mode: 'otp', email })}>email</button>
 	<hr />
