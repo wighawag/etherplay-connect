@@ -1,6 +1,6 @@
 {
 	"name": "@etherplay/connect",
-	"version": "0.0.8",
+	"version": "0.0.9",
 	"license": "MIT",
 	"publishConfig": {
 		"access": "public"
@@ -8,8 +8,8 @@
 	"type": "module",
 	"exports": {
 		".": {
-		  "types": "./dist/index.d.ts",
-		  "default": "./dist/index.js"
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
 		}
 	},
 	"files": [
