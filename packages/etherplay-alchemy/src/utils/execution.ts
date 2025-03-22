@@ -4,9 +4,9 @@ export async function retry<T>(
 		maxRetries?: number;
 		delay?: number;
 		onRetry?: (error: unknown, attempt: number) => void;
-	} = {}
+	} = {},
 ): Promise<T> {
-	const { maxRetries = 2, delay = 0, onRetry } = options;
+	const {maxRetries = 2, delay = 0, onRetry} = options;
 
 	let lastError: unknown;
 

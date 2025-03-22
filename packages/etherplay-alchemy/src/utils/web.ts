@@ -13,8 +13,8 @@ export function onDocumentLoaded(callback: () => void) {
 					callback();
 				},
 				{
-					once: true
-				}
+					once: true,
+				},
 			);
 		}
 	}

@@ -60,6 +60,7 @@
 {:else if $connection.step == 'NeedWalletSignature'}
 	Signature requested...
 	<button onclick={() => connection.requestSignature()}>sign</button>
+	<button onclick={() => connection.back('MechanismToChoose')}>back</button>
 {:else if $connection.step == 'PopupLaunched'}
 	{#if $connection.popupClosed}
 		Popup seems to be closed.
@@ -85,6 +86,7 @@
 				>{wallet.info.name}</button
 			>
 		{/each}
+		<button onclick={() => connection.back('MechanismToChoose')}>back</button>
 	{/if}
 {:else if $connection.step == 'SignedIn'}
 	you are signed-in: {$connection.account.address} / {$connection.account.signer.address}

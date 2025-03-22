@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import {writable} from 'svelte/store';
 import {
 	AlchemyWebSigner,
 	createAlchemyOnBoarding,
@@ -9,19 +9,14 @@ import {
 	signTextMessage,
 	type AlchemySettings,
 	type SignerUser,
-	type User
+	type User,
 } from './internal-alchemy/index.js';
-import { onDocumentLoaded } from './utils/web.js';
-import { mnemonicToEntropy } from '@scure/bip39';
-import { bytesToHex } from '@noble/hashes/utils';
-import { wordlist } from '@scure/bip39/wordlists/english';
+import {onDocumentLoaded} from './utils/web.js';
+import {mnemonicToEntropy} from '@scure/bip39';
+import {bytesToHex} from '@noble/hashes/utils';
+import {wordlist} from '@scure/bip39/wordlists/english';
 
-export {
-	fromEntropyKeyToMnemonic,
-	fromMnemonicToAccount,
-	fromMnemonicToFirstAccount,
-	fromSignatureToKey
-};
+export {fromEntropyKeyToMnemonic, fromMnemonicToAccount, fromMnemonicToFirstAccount, fromSignatureToKey};
 
 export type EmailMechanism<T extends string | undefined> = {
 	type: 'email';
@@ -38,14 +33,14 @@ export type MagicLinkReturnMechanism = {
 export type OauthMechanism = {
 	type: 'oauth';
 
-	provider: { id: 'google' | 'facebook' } | { id: 'auth0'; connection: string };
-} & ({ usePopup: true } | { usePopup: false }); // redirection: { origin: string; requestID: string }
+	provider: {id: 'google' | 'facebook'} | {id: 'auth0'; connection: string};
+} & ({usePopup: true} | {usePopup: false}); // redirection: { origin: string; requestID: string }
 
 export type OauthRedirectMechanism = {
 	type: 'oauth-redirect';
-	provider: { id: 'google' | 'facebook' } | { id: 'auth0'; connection: string };
-	redirection: { origin: string; requestID: string };
-} & ({ alchemyOrgId: string; alchemyIdToken: string; alchemyBundle: string } | { error: string });
+	provider: {id: 'google' | 'facebook'} | {id: 'auth0'; connection: string};
+	redirection: {origin: string; requestID: string};
+} & ({alchemyOrgId: string; alchemyIdToken: string; alchemyBundle: string} | {error: string});
 
 export type MnemonicMechanism<T extends number | undefined> = {
 	type: 'mnemonic';
@@ -58,10 +53,7 @@ export type AlchemyMechanism =
 	| OauthMechanism
 	| MnemonicMechanism<number | undefined>;
 
-export type AlchemyMechanismIncludingRedirects =
-	| AlchemyMechanism
-	| MagicLinkReturnMechanism
-	| OauthRedirectMechanism;
+export type AlchemyMechanismIncludingRedirects = AlchemyMechanism | MagicLinkReturnMechanism | OauthRedirectMechanism;
 
 export type AlchemyUser = {
 	email?: string;
@@ -97,11 +89,11 @@ export type OriginAccount = {
 	metadata: {
 		email?: string;
 	};
-	mechanismUsed: AlchemyMechanism | { type: string };
+	mechanismUsed: AlchemyMechanism | {type: string};
 	savedPublicKeyPublicationSignature?: `0x${string}`;
 };
 
-export type AlchemyConnection = { error?: { message: string; cause?: any } } & (
+export type AlchemyConnection = {error?: {message: string; cause?: any}} & (
 	| {
 			step: 'Initialising';
 			auto: boolean;
@@ -212,7 +204,7 @@ export function createAlchemyConnection(
 		alchemy: AlchemySettings;
 		autoInitialise?: boolean;
 		alwaysUsePopupForOAuth?: boolean;
-	}
+	},
 	// options?: {
 	// 	sessionKey?: string;
 	// 	orgId?: string;
@@ -226,11 +218,11 @@ export function createAlchemyConnection(
 		_store.set($connection);
 		return $connection;
 	}
-	function setError(error: { message: string; cause?: any }) {
+	function setError(error: {message: string; cause?: any}) {
 		if ($connection) {
 			set({
 				...$connection,
-				error
+				error,
 			});
 		} else {
 			throw new Error(`no connection`);
@@ -240,16 +232,16 @@ export function createAlchemyConnection(
 	const onboarding = createAlchemyOnBoarding(settings.alchemy); //, options);
 
 	async function auto() {
-		const signer = await onboarding.init({ preparePopup: settings.alwaysUsePopupForOAuth });
+		const signer = await onboarding.init({preparePopup: settings.alwaysUsePopupForOAuth});
 		set({
 			step: 'Initialised',
-			signer
+			signer,
 		});
 	}
 	if (settings.autoInitialise) {
 		set({
 			step: 'Initialising',
-			auto: true
+			auto: true,
 		});
 		onDocumentLoaded(auto);
 	}
@@ -258,14 +250,14 @@ export function createAlchemyConnection(
 		if ($connection?.step !== 'EmailToProvide') {
 			throw new Error(`no email to provide`);
 		}
-		return connect({ type: 'email', mode: $connection.mechanism.mode, email });
+		return connect({type: 'email', mode: $connection.mechanism.mode, email});
 	}
 
 	function provideMnemonicIndex(index: number) {
 		if ($connection?.step !== 'MnemonicIndexToProvide') {
 			throw new Error(`no mnemonic index to provide`);
 		}
-		return connect({ type: 'mnemonic', mnemonic: $connection.mechanism.mnemonic, index });
+		return connect({type: 'mnemonic', mnemonic: $connection.mechanism.mnemonic, index});
 	}
 
 	async function provideOTP(otp: string) {
@@ -278,7 +270,7 @@ export function createAlchemyConnection(
 		set({
 			step: 'VerifyingOTP',
 			mechanism,
-			signer
+			signer,
 		});
 
 		let result:
@@ -296,7 +288,7 @@ export function createAlchemyConnection(
 				step: 'WaitingForOTP',
 				mechanism,
 				signer,
-				error: { message: 'Failed to Verify OTP', cause: err }
+				error: {message: 'Failed to Verify OTP', cause: err},
 			});
 		}
 		if (!result) {
@@ -304,7 +296,7 @@ export function createAlchemyConnection(
 				step: 'WaitingForOTP',
 				mechanism,
 				signer,
-				error: { message: 'failed to  login via oauth', cause: 'not result' }
+				error: {message: 'failed to  login via oauth', cause: 'not result'},
 			});
 			throw new Error(`failed to verify otp`);
 		}
@@ -312,15 +304,15 @@ export function createAlchemyConnection(
 		set({
 			step: 'GeneratingAccount',
 			mechanism,
-			signer
+			signer,
 		});
 		try {
-			const account = await generateAccount({ mechanism, signerUser: result });
+			const account = await generateAccount({mechanism, signerUser: result});
 			set({
 				step: 'SignedIn',
 				mechanism,
 				signer,
-				account
+				account,
 			});
 			if (emailPromise) {
 				emailPromise.resolve(account);
@@ -345,10 +337,10 @@ export function createAlchemyConnection(
 				mechanism: {
 					type: 'email',
 					mode: 'otp',
-					email: undefined // TODO default to previous
+					email: undefined, // TODO default to previous
 				},
 				signer,
-				error: { message: 'Failed to Verify OTP', cause: err }
+				error: {message: 'Failed to Verify OTP', cause: err},
 			});
 		}
 	}
@@ -356,7 +348,7 @@ export function createAlchemyConnection(
 	async function confirmOAuth(data?: {
 		signer: AlchemyWebSigner;
 		mechanism: OauthMechanism;
-		redirection?: { origin: string; id: string };
+		redirection?: {origin: string; id: string};
 	}) {
 		let mechanism: OauthMechanism;
 		let signer: AlchemyWebSigner;
@@ -374,7 +366,7 @@ export function createAlchemyConnection(
 		set({
 			step: 'WaitingForOAuthResponse',
 			mechanism,
-			signer
+			signer,
 		});
 
 		let redirection;
@@ -394,7 +386,7 @@ export function createAlchemyConnection(
 					step: 'MechanismChosen',
 					mechanism,
 					signer,
-					error: { message: 'failed to  login via oauth', cause: 'not result' }
+					error: {message: 'failed to  login via oauth', cause: 'not result'},
 				});
 				throw new Error(`failed to verify otp`);
 			}
@@ -402,20 +394,20 @@ export function createAlchemyConnection(
 			set({
 				step: 'GeneratingAccount',
 				mechanism,
-				signer
+				signer,
 			});
-			const account = await generateAccount({ mechanism, signerUser: result });
+			const account = await generateAccount({mechanism, signerUser: result});
 
 			set({
 				step: 'SignedIn',
 				mechanism,
 				signer,
-				account
+				account,
 			});
 			return account;
 		} catch (err) {
 			console.error(err);
-			setError({ message: 'failed to initiate oauth signin', cause: err });
+			setError({message: 'failed to initiate oauth signin', cause: err});
 		}
 	}
 
@@ -425,37 +417,37 @@ export function createAlchemyConnection(
 	} | null = null;
 	async function connect(
 		mechanism?: AlchemyMechanism,
-		redirection?: { origin: string; id: string }
+		redirection?: {origin: string; id: string},
 	): Promise<EtherplayAccount | undefined> {
 		if (mechanism) {
 			let signer: AlchemyWebSigner;
 			if ($connection && 'signer' in $connection && $connection.signer) {
 				signer = $connection.signer;
 			} else {
-				set({ step: 'InitialisingMechanism', mechanism });
+				set({step: 'InitialisingMechanism', mechanism});
 
 				const popupRequirePreparation = mechanism.type === 'oauth' && mechanism.usePopup;
 
 				signer = await onboarding.init({
-					preparePopup: popupRequirePreparation
+					preparePopup: popupRequirePreparation,
 				});
 				if (popupRequirePreparation) {
 					set({
 						step: 'ConfirmOAuth',
 						mechanism,
-						signer
+						signer,
 					});
 					return;
 				}
 			}
-			set({ step: 'MechanismChosen', mechanism, signer });
+			set({step: 'MechanismChosen', mechanism, signer});
 
 			if (mechanism.type === 'email') {
 				if (mechanism.email === undefined) {
 					set({
 						step: 'EmailToProvide',
-						mechanism: { type: 'email', mode: 'otp', email: undefined },
-						signer
+						mechanism: {type: 'email', mode: 'otp', email: undefined},
+						signer,
 					});
 					return;
 				}
@@ -469,15 +461,15 @@ export function createAlchemyConnection(
 					mechanism: {
 						type: 'email',
 						mode: 'otp',
-						email: mechanism.email
+						email: mechanism.email,
 					},
-					signer
+					signer,
 				});
 
 				const promise = new Promise<EtherplayAccount>((resolve, reject) => {
 					emailPromise = {
 						resolve,
-						reject
+						reject,
 					};
 				});
 
@@ -520,14 +512,14 @@ export function createAlchemyConnection(
 					set({
 						step: 'InitializingOAuthPopup',
 						mechanism,
-						signer
+						signer,
 					});
 					if (!onboarding.popupIsPrepared) {
 						await onboarding.preparePopup();
 						set({
 							step: 'ConfirmOAuth',
 							mechanism,
-							signer
+							signer,
 						});
 						return;
 					}
@@ -535,13 +527,13 @@ export function createAlchemyConnection(
 					throw new Error(`configured to always use popup for oauth`);
 				}
 
-				await confirmOAuth({ signer, mechanism, redirection });
+				await confirmOAuth({signer, mechanism, redirection});
 			} else if (mechanism.type === 'mnemonic') {
 				if (mechanism.index === undefined) {
 					set({
 						step: 'MnemonicIndexToProvide',
-						mechanism: { type: 'mnemonic', mnemonic: mechanism.mnemonic, index: undefined },
-						signer
+						mechanism: {type: 'mnemonic', mnemonic: mechanism.mnemonic, index: undefined},
+						signer,
 					});
 					return;
 				}
@@ -549,7 +541,7 @@ export function createAlchemyConnection(
 				set({
 					step: 'GeneratingAccount',
 					mechanism,
-					signer
+					signer,
 				});
 				const mnemonic = mechanism.mnemonic;
 				const index = mechanism.index;
@@ -562,7 +554,7 @@ export function createAlchemyConnection(
 					localAccount: {
 						address,
 						index,
-						key
+						key,
 					},
 					signer: {
 						mechanismUsed: mechanism,
@@ -570,32 +562,32 @@ export function createAlchemyConnection(
 							address,
 							orgId: 'mnemonic',
 							userId: `${index}@mnemonic.id`,
-							email: `${index}@mnemonic.id`
-						}
-					}
+							email: `${index}@mnemonic.id`,
+						},
+					},
 				};
 
 				set({
 					step: 'SignedIn',
 					mechanism,
 					signer,
-					account
+					account,
 				});
 				return account;
 			}
 		} else {
 			set({
 				step: 'Initialising',
-				auto: false
+				auto: false,
 			});
 			const signer = await onboarding.init();
-			set({ step: 'MechanismToChoose', signer });
+			set({step: 'MechanismToChoose', signer});
 		}
 	}
 
 	async function generateAccount({
 		mechanism,
-		signerUser
+		signerUser,
 	}: {
 		mechanism: AlchemyMechanism;
 		signerUser: SignerUser;
@@ -606,12 +598,12 @@ export function createAlchemyConnection(
 			localAccount: {
 				address: fromMnemonicToFirstAccount(mnemonic).address,
 				index: 0,
-				key
+				key,
 			},
 			signer: {
 				mechanismUsed: mechanism,
-				user: signerUser.user
-			}
+				user: signerUser.user,
+			},
 		};
 
 		// TODO option ?
@@ -631,7 +623,7 @@ export function createAlchemyConnection(
 
 		const savedPublicKeyPublicationSignature = signTextMessage(
 			originPublicKeyPublicationMessage(origin, originAccount.publicKey),
-			accountObject.privateKey
+			accountObject.privateKey,
 		);
 		return {
 			address: account.localAccount.address,
@@ -640,13 +632,13 @@ export function createAlchemyConnection(
 				publicKey: originAccount.publicKey,
 				address: originAccount.address,
 				privateKey: originAccount.privateKey,
-				mnemonicKey: originKey
+				mnemonicKey: originKey,
 			},
 			metadata: {
-				email: account.signer.user.email
+				email: account.signer.user.email,
 			},
 			mechanismUsed: account.signer.mechanismUsed,
-			savedPublicKeyPublicationSignature
+			savedPublicKeyPublicationSignature,
 		};
 	}
 
@@ -667,16 +659,16 @@ export function createAlchemyConnection(
 		redirectMechanism: OauthRedirectMechanism,
 		alchemyBundle: string,
 		alchemyOrgId: string,
-		alchemyIdToken: string
+		alchemyIdToken: string,
 	): Promise<EtherplayAccount> {
 		const mechanism: OauthMechanism = {
 			type: 'oauth',
 			provider: redirectMechanism.provider,
-			usePopup: false
+			usePopup: false,
 		};
 		set({
 			step: 'InitialisingMechanism',
-			mechanism
+			mechanism,
 		});
 
 		const signer = await onboarding.init();
@@ -684,20 +676,16 @@ export function createAlchemyConnection(
 		set({
 			step: 'MechanismChosen', // TODO VerifyingOauthBundle ?
 			mechanism,
-			signer
+			signer,
 		});
 
-		const result = await onboarding.completeOAuthWithBundle(
-			alchemyBundle,
-			alchemyOrgId,
-			alchemyIdToken
-		);
+		const result = await onboarding.completeOAuthWithBundle(alchemyBundle, alchemyOrgId, alchemyIdToken);
 		if (!result) {
 			set({
 				step: 'MechanismChosen',
 				signer,
 				mechanism,
-				error: { message: 'failed to  login via oauth', cause: 'not result' }
+				error: {message: 'failed to  login via oauth', cause: 'not result'},
 			});
 			throw new Error(`failed to verify otp`);
 		}
@@ -705,15 +693,15 @@ export function createAlchemyConnection(
 		set({
 			step: 'GeneratingAccount',
 			mechanism,
-			signer
+			signer,
 		});
-		const account = await generateAccount({ mechanism, signerUser: result });
+		const account = await generateAccount({mechanism, signerUser: result});
 
 		set({
 			step: 'SignedIn',
 			mechanism,
 			signer,
-			account
+			account,
 		});
 
 		return account;
@@ -727,6 +715,6 @@ export function createAlchemyConnection(
 		provideOTP,
 		provideMnemonicIndex,
 		generateOriginAccount,
-		completeOAuthWithBundle
+		completeOAuthWithBundle,
 	};
 }

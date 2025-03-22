@@ -1,5 +1,5 @@
-import { writable, type Readable } from 'svelte/store';
-import { createStorePromise } from './utils.js';
+import {writable, type Readable} from 'svelte/store';
+import {createStorePromise} from './utils.js';
 
 export type Error = {
 	message: string;
@@ -14,9 +14,7 @@ export type Popup = {
 	error?: Error;
 };
 
-export type PopupPromise<T> = ReturnType<
-	typeof createStorePromise<T, Popup, Readable<Popup> & { cancel: () => void }>
->;
+export type PopupPromise<T> = ReturnType<typeof createStorePromise<T, Popup, Readable<Popup> & {cancel: () => void}>>;
 
 export function createPopupLauncher<T>() {
 	let id = 1;
@@ -26,12 +24,12 @@ export function createPopupLauncher<T>() {
 				onMessage: (messageEvent: MessageEvent) => void;
 				rejectRecovery: (error: Error) => void;
 		  }
-		| { popup: undefined } = { popup: undefined };
+		| {popup: undefined} = {popup: undefined};
 
 	function launchPopup(
 		url: string,
-		options?: { fullWindow?: boolean }
-	): Promise<T> & Readable<Popup> & { cancel: () => void } {
+		options?: {fullWindow?: boolean},
+	): Promise<T> & Readable<Popup> & {cancel: () => void} {
 		const urlObject = new URL(url);
 		const expectedOrigin = `${urlObject.protocol}//${urlObject.host}`;
 		const pathname = urlObject.pathname;
@@ -39,7 +37,7 @@ export function createPopupLauncher<T>() {
 		let $popup: Popup = {
 			closed: false,
 			launched: false,
-			resolved: false
+			resolved: false,
 		};
 		const _store = writable<Popup>($popup);
 		function set(state: Popup) {
@@ -58,11 +56,11 @@ export function createPopupLauncher<T>() {
 			} catch (err) {
 				console.error(err);
 			}
-			currentPopup = { popup: undefined };
+			currentPopup = {popup: undefined};
 			if (couldCloseExistingPopup) {
-				tmpRejectRecovery({ message: 'popup closed so new one can take over' });
+				tmpRejectRecovery({message: 'popup closed so new one can take over'});
 			} else {
-				tmpRejectRecovery({ message: 'popup replaced' });
+				tmpRejectRecovery({message: 'popup replaced'});
 			}
 		}
 
@@ -70,7 +68,7 @@ export function createPopupLauncher<T>() {
 		let _rejectRecovery: (error: Error) => void;
 
 		function resolveRecovery(state: T) {
-			currentPopup = { popup: undefined };
+			currentPopup = {popup: undefined};
 			console.log(`stop listening to message as we resolved it`);
 			window.removeEventListener('message', onMessage);
 
@@ -78,14 +76,14 @@ export function createPopupLauncher<T>() {
 				set({
 					closed: true,
 					launched: true,
-					resolved: true
+					resolved: true,
 				});
 				_resolveRecovery(state);
 			}
 		}
 
 		function rejectRecovery(error: Error) {
-			currentPopup = { popup: undefined };
+			currentPopup = {popup: undefined};
 			console.log(`stop listening to message as we rejected it`, error);
 			window.removeEventListener('message', onMessage);
 			if (_rejectRecovery) {
@@ -95,8 +93,8 @@ export function createPopupLauncher<T>() {
 					resolved: true,
 					error: {
 						message: 'errored',
-						cause: error
-					}
+						cause: error,
+					},
 				});
 				_rejectRecovery(error);
 			}
@@ -158,7 +156,7 @@ export function createPopupLauncher<T>() {
 									closed: true,
 									launched: $popup.launched,
 									resolved: $popup.resolved,
-									error: $popup.error
+									error: $popup.error,
 								});
 							}
 						}, 100);
@@ -171,10 +169,10 @@ export function createPopupLauncher<T>() {
 			subscribe: _store.subscribe,
 			cancel() {
 				// TODO
-			}
+			},
 		};
 
-		const storePromise = createStorePromise<T, Popup, Readable<Popup> & { cancel: () => void }>(
+		const storePromise = createStorePromise<T, Popup, Readable<Popup> & {cancel: () => void}>(
 			store,
 			(resolve, reject) => {
 				_resolveRecovery = resolve;
@@ -186,25 +184,21 @@ export function createPopupLauncher<T>() {
 					? ''
 					: 'popup=1,scrollbars=0,menubar=0,location=0,resizable=0,status=0,titlebar=0,toolbar=0,width=500,height=700';
 
-				console.log({ popupParameters });
-				const popup = window.open(
-					urlObject.toString(),
-					`${pathname}:${window.origin}`,
-					popupParameters
-				);
+				console.log({popupParameters});
+				const popup = window.open(urlObject.toString(), `${pathname}:${window.origin}`, popupParameters);
 				if (!popup) {
 					throw new Error(`could not open the login popup`);
 				}
-				currentPopup = { popup, onMessage, rejectRecovery: _rejectRecovery };
+				currentPopup = {popup, onMessage, rejectRecovery: _rejectRecovery};
 				console.log(`listening to message... ${id}`);
 				window.addEventListener('message', currentPopup.onMessage);
 				watchForPopupClosed(popup);
 				// continuouslyPingPopup(popup);
-			}
+			},
 		);
 
 		return storePromise;
 	}
 
-	return { launchPopup };
+	return {launchPopup};
 }

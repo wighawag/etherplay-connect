@@ -1,22 +1,22 @@
-import type { User } from '@account-kit/signer';
-import { AlchemyWebSigner } from '@account-kit/signer';
-import { entropyToMnemonic, mnemonicToSeedSync } from '@scure/bip39';
-import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
-import { wordlist } from '@scure/bip39/wordlists/english';
-import { secp256k1 } from '@noble/curves/secp256k1';
-import { keccak_256 } from '@noble/hashes/sha3';
-import { HDKey } from '@scure/bip32';
-import { getPublicKey } from '@noble/secp256k1';
-import { retry } from '$lib/utils/execution.js';
+import type {User} from '@account-kit/signer';
+import {AlchemyWebSigner} from '@account-kit/signer';
+import {entropyToMnemonic, mnemonicToSeedSync} from '@scure/bip39';
+import {hexToBytes, bytesToHex} from '@noble/hashes/utils';
+import {wordlist} from '@scure/bip39/wordlists/english';
+import {secp256k1} from '@noble/curves/secp256k1';
+import {keccak_256} from '@noble/hashes/sha3';
+import {HDKey} from '@scure/bip32';
+import {getPublicKey} from '@noble/secp256k1';
+import {retry} from '../utils/execution.js';
 
 const TURNKEY_IFRAME_CONTAINER_ID = 'turnkey-iframe-container';
 
 const EIP191MessagePrefix = '\x19Ethereum Signed Message:\n';
 const encoder = new TextEncoder();
 
-export { AlchemyWebSigner };
+export {AlchemyWebSigner};
 
-export type { User };
+export type {User};
 
 function toHex(arr: Uint8Array): `0x${string}` {
 	let str = `0x`;
@@ -99,7 +99,7 @@ export function parse(address: string) {
 		const len = hasPrefix ? 42 : 40;
 		throw new Error(`address must be ${len}-char hex, got ${address.length}-char ${address}`);
 	}
-	return { hasPrefix, data };
+	return {hasPrefix, data};
 }
 
 export function addChecksum(nonChecksummedAddress: string): string {
@@ -140,7 +140,7 @@ export function fromMnemonicToHDKey(mnemonic: string, index: number): HDKey {
 
 export function fromMnemonicToAccount(
 	mnemonic: string,
-	index: number
+	index: number,
 ): {
 	address: `0x${string}`;
 	publicKey: `0x${string}`;
@@ -153,7 +153,7 @@ export function fromMnemonicToAccount(
 	return {
 		address: fromPrivateKey(hdkey.privateKey).toLowerCase() as `0x${string}`,
 		privateKey: `0x${bytesToHex(hdkey.privateKey)}` as `0x${string}`,
-		publicKey: toHex(getPublicKey(hdkey.privateKey))
+		publicKey: toHex(getPublicKey(hdkey.privateKey)),
 	};
 }
 
@@ -178,18 +178,15 @@ export function fromMnemonicToFirstAccount(mnemonic: string): {
 // 	return fromSignatureToKey(signature);
 // }
 
-export type AlchemySettings = { rpcURL: string } | { apiKeyNotRecommended: string };
+export type AlchemySettings = {rpcURL: string} | {apiKeyNotRecommended: string};
 
-export function createAlchemyOnBoarding(
-	settings: AlchemySettings,
-	options?: { sessionKey?: string; orgId?: string }
-) {
+export function createAlchemyOnBoarding(settings: AlchemySettings, options?: {sessionKey?: string; orgId?: string}) {
 	const sessionKey = options?.sessionKey || 'alchemy-signer-session';
 
 	let popupIsPrepared: boolean = false;
 	let signer: AlchemyWebSigner | undefined;
 
-	async function init(params?: { preparePopup?: boolean }): Promise<AlchemyWebSigner> {
+	async function init(params?: {preparePopup?: boolean}): Promise<AlchemyWebSigner> {
 		if (!signer) {
 			localStorage.removeItem(sessionKey);
 			// console.log(`Alchemy: setting up iframe container...`);
@@ -208,19 +205,17 @@ export function createAlchemyOnBoarding(
 					// NOTE: it is not recommended to expose your API key on the client, instead proxy requests to your backend and set the `rpcUrl`
 					// here to point to your backend.
 					connection:
-						'apiKeyNotRecommended' in settings
-							? { apiKey: settings.apiKeyNotRecommended }
-							: { rpcUrl: settings.rpcURL },
+						'apiKeyNotRecommended' in settings ? {apiKey: settings.apiKeyNotRecommended} : {rpcUrl: settings.rpcURL},
 					iframeConfig: {
 						// you will need to render a container with this id in your DOM
-						iframeContainerId: TURNKEY_IFRAME_CONTAINER_ID
+						iframeContainerId: TURNKEY_IFRAME_CONTAINER_ID,
 					},
-					rootOrgId: options?.orgId
+					rootOrgId: options?.orgId,
 				},
 				sessionConfig: {
 					expirationTimeMs: 1 * 60 * 60 * 1000,
-					sessionKey
-				}
+					sessionKey,
+				},
 			});
 
 			if (params?.preparePopup) {
@@ -254,10 +249,7 @@ export function createAlchemyOnBoarding(
 		popupIsPrepared = true;
 	}
 
-	async function loginViaEmail(
-		email: string,
-		emailMode: 'otp' | 'magicLink'
-	): Promise<SignerUser | null> {
+	async function loginViaEmail(email: string, emailMode: 'otp' | 'magicLink'): Promise<SignerUser | null> {
 		if (!signer) {
 			throw new Error(`Alchemy Onboarding not initialised`);
 		}
@@ -280,7 +272,7 @@ export function createAlchemyOnBoarding(
 			newUser = await signer.authenticate({
 				type: 'email',
 				emailMode,
-				email
+				email,
 			});
 		} catch (err) {
 			console.error(`email, failed to: signer.authenticate(...) `, err);
@@ -298,7 +290,7 @@ export function createAlchemyOnBoarding(
 				console.error(`email, failed to: signer.getAuthDetails() `, err);
 				throw err;
 			}
-			return { user, signer };
+			return {user, signer};
 		} else {
 			console.log(`no user`);
 			return null;
@@ -306,8 +298,8 @@ export function createAlchemyOnBoarding(
 	}
 
 	async function loginViaOAuth(
-		provider: { id: 'google' } | { id: 'facebook' } | { id: 'auth0'; connection: string },
-		redirection?: { origin: string; id: string }
+		provider: {id: 'google'} | {id: 'facebook'} | {id: 'auth0'; connection: string},
+		redirection?: {origin: string; id: string},
 	): Promise<SignerUser | null> {
 		if (!signer) {
 			throw new Error(`Alchemy Onboarding not initialised`);
@@ -320,8 +312,7 @@ export function createAlchemyOnBoarding(
 		// console.log('authenticating...');
 
 		const authProviderId = provider.id;
-		const auth0Connection =
-			typeof provider === 'object' && provider.id === 'auth0' ? provider.connection : undefined;
+		const auth0Connection = typeof provider === 'object' && provider.id === 'auth0' ? provider.connection : undefined;
 
 		let newUser: User | undefined;
 
@@ -340,14 +331,14 @@ export function createAlchemyOnBoarding(
 					authProviderId,
 					auth0Connection,
 					mode: 'redirect',
-					redirectUrl
+					redirectUrl,
 				});
 			} else {
 				newUser = await signer.authenticate({
 					type: 'oauth',
 					authProviderId,
 					mode: 'redirect',
-					redirectUrl
+					redirectUrl,
 				});
 			}
 		} else {
@@ -358,14 +349,14 @@ export function createAlchemyOnBoarding(
 					type: 'oauth',
 					authProviderId,
 					auth0Connection,
-					mode: 'popup'
+					mode: 'popup',
 				});
 			} else {
 				// console.log(`oauth:${authProviderId}`);
 				newUser = await signer.authenticate({
 					type: 'oauth',
 					authProviderId,
-					mode: 'popup'
+					mode: 'popup',
 				});
 			}
 		}
@@ -381,7 +372,7 @@ export function createAlchemyOnBoarding(
 				console.error(`oauth, failed to: signer.getAuthDetails() `, err);
 				throw err;
 			}
-			return { user, signer };
+			return {user, signer};
 		} else {
 			return null;
 		}
@@ -389,7 +380,7 @@ export function createAlchemyOnBoarding(
 
 	async function completeEmailLoginViaBundle(
 		bundle: string,
-		orgId?: string
+		orgId?: string,
 	): Promise<{
 		user: User;
 		signer: AlchemyWebSigner;
@@ -399,12 +390,12 @@ export function createAlchemyOnBoarding(
 		}
 		try {
 			// console.log(`Alchemy: signer.authenticate(...) completeEmailLoginViaBundle`);
-			await signer.authenticate({ type: 'email', bundle, orgId });
+			await signer.authenticate({type: 'email', bundle, orgId});
 
 			// console.log(`Alchemy: signer.getAuthDetails() completeEmailLoginViaBundle`);
 			const user = await signer.getAuthDetails().catch(() => null);
 			if (user) {
-				return { user, signer };
+				return {user, signer};
 			} else {
 				return null;
 			}
@@ -417,7 +408,7 @@ export function createAlchemyOnBoarding(
 	async function completeOAuthWithBundle(
 		alchemyBundle: string,
 		alchemyOrgId: string,
-		alchemyIdToken: string
+		alchemyIdToken: string,
 	): Promise<{
 		user: User;
 		signer: AlchemyWebSigner;
@@ -431,13 +422,13 @@ export function createAlchemyOnBoarding(
 				type: 'oauthReturn',
 				bundle: alchemyBundle,
 				orgId: alchemyOrgId,
-				idToken: alchemyIdToken
+				idToken: alchemyIdToken,
 			});
 
 			// console.log(`Alchemy: signer.getAuthDetails() completeOAuthWithBundle`);
 			const user = await signer.getAuthDetails().catch(() => null);
 			if (user) {
-				return { user, signer };
+				return {user, signer};
 			} else {
 				return null;
 			}
@@ -456,18 +447,18 @@ export function createAlchemyOnBoarding(
 		}
 		try {
 			// console.log(`Alchemy: signer.authenticate(...) completeEmailLoginViaOTP`);
-			await signer.authenticate({ type: 'otp', otpCode });
+			await signer.authenticate({type: 'otp', otpCode});
 
 			// console.log(`Alchemy: signer.getAuthDetails() completeEmailLoginViaOTP`);
 			const user = await signer.getAuthDetails().catch(() => null);
 			if (user) {
-				return { user, signer };
+				return {user, signer};
 			} else {
 				return null;
 			}
 		} catch (err) {
 			console.error(`failed to authenticate with otp`, err);
-			throw new Error(`failed to authenticate with otp`, { cause: err });
+			throw new Error(`failed to authenticate with otp`, {cause: err});
 		}
 	}
 
@@ -481,7 +472,7 @@ export function createAlchemyOnBoarding(
 		// console.log(`Alchemy: signer.getAuthDetails() getUserSigner`);
 		const user = await signer.getAuthDetails().catch(() => null);
 		if (user) {
-			return { user, signer };
+			return {user, signer};
 		} else {
 			return null;
 		}
@@ -495,13 +486,10 @@ export function createAlchemyOnBoarding(
 
 		// console.log(`Alchemy: signer.signMessage(msg) sign`);
 
-		const signature: `0x${string}` = await retry<`0x${string}`>(
-			() => localSigner.signMessage(msg),
-			{
-				maxRetries: 5,
-				delay: 300
-			}
-		);
+		const signature: `0x${string}` = await retry<`0x${string}`>(() => localSigner.signMessage(msg), {
+			maxRetries: 5,
+			delay: 300,
+		});
 		return signature;
 	}
 
@@ -535,7 +523,7 @@ export function createAlchemyOnBoarding(
 		completeEmailLoginViaBundle,
 		completeOAuthWithBundle,
 		completeEmailLoginViaOTP,
-		signToGenerateEntropyKey
+		signToGenerateEntropyKey,
 		// getSession,
 	};
 }

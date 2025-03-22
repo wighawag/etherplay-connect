@@ -1,9 +1,9 @@
-import { bytesToHex } from '@noble/hashes/utils';
-import type { Readable } from 'svelte/store';
+import {bytesToHex} from '@noble/hashes/utils';
+import type {Readable} from 'svelte/store';
 
 export function createStorePromise<U, T, V extends Readable<T>>(
 	store: V,
-	executor: (resolve: (value: U | PromiseLike<U>) => void, reject: (reason?: any) => void) => void
+	executor: (resolve: (value: U | PromiseLike<U>) => void, reject: (reason?: any) => void) => void,
 ): Promise<U> & V {
 	const storePromise = new Promise<U>(executor) as Promise<U> & V;
 
