@@ -85,7 +85,11 @@ export type Connection = {
 			step: 'SignedIn';
 			mechanism: FullfilledMechanism;
 			account: OriginAccount;
-			walletAccountChanged: `0x${string}` | undefined;
+			wallet?: {
+				provider: EIP1193WindowWalletProvider;
+				accountChanged?: `0x${string}`;
+				chainId: string;
+			};
 	  }
 );
 
@@ -131,7 +135,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 		}
 	}
 
-	let walletProvider: EIP1193WindowWalletProvider | undefined;
+	let _wallet: { provider: EIP1193WindowWalletProvider; chainId: string } | undefined;
 
 	let popup: PopupPromise<OriginAccount> | undefined;
 
@@ -192,14 +196,22 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 								`0x${string}`
 							>;
 							waitForWallet(walletMechanism.name)
-								.then((walletDetails: EIP6963ProviderDetail) => {
-									walletProvider = walletDetails.provider;
+								.then(async (walletDetails: EIP6963ProviderDetail) => {
+									const walletProvider = walletDetails.provider;
+									const chainIdAsHex = await walletProvider.request({ method: 'eth_chainId' });
+									const chainId = Number(chainIdAsHex).toString();
+									_wallet = { provider: walletProvider, chainId };
+									watchForChainIdChange(_wallet.provider);
 									set({
 										step: 'SignedIn',
 										account: existingAccount,
 										mechanism: existingAccount.mechanismUsed as FullfilledMechanism,
 										wallets: $connection.wallets,
-										walletAccountChanged: undefined
+										wallet: {
+											provider: walletProvider,
+											accountChanged: undefined,
+											chainId
+										}
 									});
 									walletProvider.request({ method: 'eth_accounts' }).then(onAccountChanged);
 									watchForAccountChange(walletProvider);
@@ -213,7 +225,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 								account: existingAccount,
 								mechanism: existingAccount.mechanismUsed as FullfilledMechanism,
 								wallets: $connection.wallets,
-								walletAccountChanged: undefined
+								wallet: undefined
 							});
 						}
 					} else {
@@ -252,11 +264,12 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 			throw new Error(`invalid step: ${$connection.step}, needs to be NeedWalletSignature`);
 		}
 
-		const provider = walletProvider;
-		if (!provider) {
+		if (!_wallet) {
 			// TODO error ?
 			throw new Error(`no wallet provided initialised`);
 		}
+		const provider = _wallet.provider;
+		const chainId = _wallet.chainId;
 		const message = originKeyMessage(origin);
 		const msg = hashMessage(message);
 
@@ -313,7 +326,11 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 				address: $connection.mechanism.address
 			},
 			account,
-			walletAccountChanged: undefined // TODO check account list
+			wallet: {
+				chainId,
+				provider: provider,
+				accountChanged: undefined // TODO check account list
+			}
 		});
 		if (remember) {
 			saveOriginAccount(account);
@@ -332,6 +349,26 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 		}
 	}
 
+	function onChainChanged(chainIdAsHex: `0x${string}`) {
+		const chainId = Number(chainIdAsHex).toString();
+		if (_wallet) {
+			_wallet.chainId = chainId;
+		}
+		if (
+			$connection.step === 'SignedIn' &&
+			$connection.wallet &&
+			$connection.wallet.chainId != chainId
+		) {
+			set({
+				...$connection,
+				wallet: {
+					...$connection.wallet,
+					chainId
+				}
+			});
+		}
+	}
+
 	function onAccountChanged(accounts: `0x${string}`[]) {
 		const accountsFormated = accounts.map((a) => a.toLowerCase()) as `0x${string}`[];
 		if ($connection.step === 'SignedIn' && $connection.mechanism.type === 'wallet') {
@@ -345,15 +382,25 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 			// 	{ requireUserConfirmationBeforeSIgnatureRequest: true }
 			// );
 
-			if (accountsFormated.length > 0 && accountsFormated[0] != $connection.account.address) {
+			if (
+				$connection.wallet &&
+				accountsFormated.length > 0 &&
+				accountsFormated[0] != $connection.account.address
+			) {
 				set({
 					...$connection,
-					walletAccountChanged: accountsFormated[0]
+					wallet: {
+						...$connection.wallet,
+						accountChanged: accountsFormated[0]
+					}
 				});
-			} else if ($connection.walletAccountChanged) {
+			} else if ($connection.wallet) {
 				set({
 					...$connection,
-					walletAccountChanged: undefined
+					wallet: {
+						...$connection.wallet,
+						accountChanged: undefined
+					}
 				});
 			}
 		}
@@ -366,6 +413,13 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 	}
 	function stopatchingForAccountChange(walletProvider: EIP1193WindowWalletProvider) {
 		walletProvider.removeListener('accountsChanged', onAccountChanged);
+	}
+
+	function watchForChainIdChange(walletProvider: EIP1193WindowWalletProvider) {
+		walletProvider.on('chainChanged', onChainChanged);
+	}
+	function stopatchingForChainIdChange(walletProvider: EIP1193WindowWalletProvider) {
+		walletProvider.removeListener('chainChanged', onChainChanged);
 	}
 
 	let remember: boolean = false;
@@ -386,10 +440,11 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 						(v) => v.info.name == walletName || v.info.uuid == walletName
 					);
 					if (wallet) {
-						if (walletProvider) {
-							stopatchingForAccountChange(walletProvider);
+						if (_wallet) {
+							stopatchingForAccountChange(_wallet.provider);
+							stopatchingForChainIdChange(_wallet.provider);
 						}
-						walletProvider = wallet.provider;
+
 						const mechanism: WalletMechanism<string, undefined> = {
 							type: 'wallet',
 							name: walletName
@@ -401,6 +456,13 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 							wallets: $connection.wallets
 						});
 						const provider = wallet.provider;
+						const chainIdAsHex = await provider.request({ method: 'eth_chainId' });
+						const chainId = Number(chainIdAsHex).toString();
+						_wallet = {
+							chainId,
+							provider
+						};
+						watchForChainIdChange(_wallet.provider);
 						let accounts = await provider.request({ method: 'eth_accounts' });
 						accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 						if (accounts.length === 0) {
@@ -413,7 +475,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 							accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 							if (accounts.length > 0) {
 								if (options?.requestSignatureRightAway) {
-									watchForAccountChange(walletProvider);
+									watchForAccountChange(_wallet.provider);
 									set({
 										step: 'NeedWalletSignature',
 										mechanism: {
@@ -432,7 +494,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 										},
 										wallets: $connection.wallets
 									});
-									watchForAccountChange(walletProvider);
+									watchForAccountChange(_wallet.provider);
 								}
 							} else {
 								set({
@@ -451,9 +513,9 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 									},
 									wallets: $connection.wallets
 								});
-								watchForAccountChange(walletProvider);
+								watchForAccountChange(_wallet.provider);
 							} else {
-								watchForAccountChange(walletProvider);
+								watchForAccountChange(_wallet.provider);
 								set({
 									step: 'NeedWalletSignature',
 									mechanism: {
@@ -516,7 +578,7 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 						account: result,
 						mechanism,
 						wallets: $connection.wallets,
-						walletAccountChanged: undefined
+						wallet: undefined
 					});
 					if (remember) {
 						saveOriginAccount(result);
@@ -538,10 +600,11 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 
 	function disconnect() {
 		deleteOriginAccount();
-		if (walletProvider) {
-			stopatchingForAccountChange(walletProvider);
+		if (_wallet) {
+			stopatchingForAccountChange(_wallet.provider);
+			stopatchingForChainIdChange(_wallet.provider);
 		}
-		walletProvider = undefined;
+		_wallet = undefined;
 		set({
 			step: 'Idle',
 			loading: false,
@@ -631,12 +694,12 @@ export function createConnection(settings: { walletHost: string; autoConnect?: b
 		}
 		const account = $connection.account;
 		if ($connection.mechanism.type === 'wallet') {
-			if (!walletProvider) {
+			if (!_wallet) {
 				throw new Error(`no provider`);
 			}
 			const message = originPublicKeyPublicationMessage(origin, account.signer.publicKey);
 			const msg = hashMessage(message);
-			return walletProvider.request({
+			return _wallet.provider.request({
 				method: 'personal_sign',
 				params: [msg, account.address]
 			});

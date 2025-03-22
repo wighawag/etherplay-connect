@@ -90,11 +90,11 @@
 	you are signed-in: {$connection.account.address} / {$connection.account.signer.address}
 	<button onclick={() => connection.disconnect()}>disconnect</button>
 
-	{#if $connection.walletAccountChanged}
+	{@const accountChanged = $connection.wallet?.accountChanged}
+	{#if accountChanged}
 		<button
 			style="margin-right: 2rem;"
-			onclick={() => connection.connectOnCurrentWalletAccount($connection.walletAccountChanged!)}
-			>switch</button
+			onclick={() => connection.connectOnCurrentWalletAccount(accountChanged)}>switch</button
 		>
 	{/if}
 {:else}
