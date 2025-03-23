@@ -48,9 +48,9 @@
 	<hr />
 	<button onclick={() => connection.cancel()}>back</button>
 	<hr />
-{:else if $connection.step == 'NeedWalletSignature'}
-	Signature requested...
-	<button onclick={() => connection.requestSignature()}>sign</button>
+{:else if $connection.step == 'WalletConnected'}
+	Wallet connected
+	<button onclick={() => connection.requestSignature()}>sign-in private account</button>
 	<button onclick={() => connection.back('MechanismToChoose')}>back</button>
 {:else if $connection.step == 'PopupLaunched'}
 	{#if $connection.popupClosed}

@@ -41,48 +41,78 @@ export type Connection = {
 	| {
 			step: 'Idle';
 			loading: boolean;
+			wallet: undefined;
 	  }
 	// It can then end up in MechanismToChoose if no specific connection mechanism was chosen upon clicking "connect"
 	| {
 			step: 'MechanismToChoose';
+			wallet: undefined;
 	  }
-	// if a social/email login mechanism was chose, a popup will be launched
+	// if a social/email login mechanism was chosen, a popup will be launched
 	// popupClosed can be true and this means the popup has been closed and the user has to cancel the process to continue further
 	| {
 			step: 'PopupLaunched';
+			wallet: undefined;
 			popupClosed: boolean;
 			mechanism: AlchemyMechanism;
 	  }
 	// If the user has chosen to use web3-wallet there might be multi-choice for it
 	| {
 			step: 'WalletToChoose';
+			wallet: undefined;
 			mechanism: WalletMechanism<undefined, undefined>;
 	  }
 	// Once a user has chosen a wallet, the system will try to connect to it
 	| {
 			step: 'WaitingForWalletConnection';
+			wallet: undefined;
 			mechanism: WalletMechanism<string, undefined>;
 	  }
 	// Once the wallet is connected, the system will need a signature
 	// this state represent the fact and require another user interaction to request the signature
 	| {
-			step: 'NeedWalletSignature';
+			step: 'WalletConnected';
 			mechanism: WalletMechanism<string, `0x${string}`>;
+			wallet: {
+				provider: EIP1193WindowWalletProvider;
+				locked: boolean;
+				accountChanged?: `0x${string}`;
+				chainId: string;
+				invalidChainId: boolean;
+				switchingChain: 'addingChain' | 'switchingChain' | false;
+			};
 	  }
 	// This state is triggered once the signature is requested, the user will have to confirm with its wallet
 	| {
 			step: 'WaitingForSignature';
 			mechanism: WalletMechanism<string, `0x${string}`>;
+			wallet: {
+				provider: EIP1193WindowWalletProvider;
+				locked: boolean;
+				accountChanged?: `0x${string}`;
+				chainId: string;
+				invalidChainId: boolean;
+				switchingChain: 'addingChain' | 'switchingChain' | false;
+			};
 	  }
 	// Finally the user is fully signed in
-	// walletAccountChanged if set, represent the fact that the user has changed its web3-wallet accounnt.
+	// wallet?.accountChanged if set, represent the fact that the user has changed its web3-wallet accounnt.
+	// wallet?.invalidChainId if set, represent the fact that the wallet is connected to a different chain.
+	// wallet?.switchingChain if set, represent the fact that the user is currently switching chain.
 	// a notification could be shown to the user so that he can switch the app to use that other account.
 	| {
 			step: 'SignedIn';
-			mechanism: FullfilledMechanism;
+			mechanism: AlchemyMechanism;
 			account: OriginAccount;
-			wallet?: {
+			wallet: undefined;
+	  }
+	| {
+			step: 'SignedIn';
+			mechanism: WalletMechanism<string, `0x${string}`>;
+			account: OriginAccount;
+			wallet: {
 				provider: EIP1193WindowWalletProvider;
+				locked: boolean;
 				accountChanged?: `0x${string}`;
 				chainId: string;
 				invalidChainId: boolean;
@@ -112,6 +142,7 @@ const storageAccountKey = '__origin_account';
 export function createConnection(settings: {
 	walletHost: string;
 	autoConnect?: boolean;
+	requestSignatureAutomaticallyIfPossible?: boolean;
 	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
 }) {
 	const alwaysOnChainId = settings.node.chainId;
@@ -125,8 +156,9 @@ export function createConnection(settings: {
 	if (typeof settings.autoConnect !== 'undefined') {
 		autoConnect = settings.autoConnect;
 	}
+	const requestSignatureAutomaticallyIfPossible = settings.requestSignatureAutomaticallyIfPossible || false;
 
-	let $connection: Connection = {step: 'Idle', loading: true, wallets: []};
+	let $connection: Connection = {step: 'Idle', loading: true, wallet: undefined, wallets: []};
 	const _store = writable<Connection>($connection);
 	function set(connection: Connection) {
 		$connection = connection;
@@ -196,8 +228,11 @@ export function createConnection(settings: {
 				const existingAccount = getOriginAccount();
 				if (existingAccount) {
 					if (existingAccount.signer) {
-						if (existingAccount.mechanismUsed.type == 'wallet') {
-							const walletMechanism = existingAccount.mechanismUsed as WalletMechanism<string, `0x${string}`>;
+						const mechanismUsed = existingAccount.mechanismUsed as
+							| AlchemyMechanism
+							| WalletMechanism<string, `0x${string}`>;
+						if (mechanismUsed.type == 'wallet') {
+							const walletMechanism = mechanismUsed as WalletMechanism<string, `0x${string}`>;
 							waitForWallet(walletMechanism.name)
 								.then(async (walletDetails: EIP6963ProviderDetail) => {
 									const walletProvider = walletDetails.provider;
@@ -209,10 +244,11 @@ export function createConnection(settings: {
 									set({
 										step: 'SignedIn',
 										account: existingAccount,
-										mechanism: existingAccount.mechanismUsed as FullfilledMechanism,
+										mechanism: walletMechanism,
 										wallets: $connection.wallets,
 										wallet: {
 											provider: walletProvider,
+											locked: false, // TODO should fetch eth_account first
 											accountChanged: undefined,
 											chainId,
 											invalidChainId: alwaysOnChainId != chainId,
@@ -223,29 +259,29 @@ export function createConnection(settings: {
 									watchForAccountChange(walletProvider);
 								})
 								.catch((err) => {
-									set({step: 'Idle', loading: false, wallets: $connection.wallets});
+									set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 								});
 						} else {
 							set({
 								step: 'SignedIn',
 								account: existingAccount,
-								mechanism: existingAccount.mechanismUsed as FullfilledMechanism,
+								mechanism: mechanismUsed,
 								wallets: $connection.wallets,
 								wallet: undefined,
 							});
 						}
 					} else {
-						set({step: 'Idle', loading: false, wallets: $connection.wallets});
+						set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 					}
 				} else {
-					set({step: 'Idle', loading: false, wallets: $connection.wallets});
+					set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 				}
 			} catch {
-				set({step: 'Idle', loading: false, wallets: $connection.wallets});
+				set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 			}
 		}
 	} else {
-		set({step: 'Idle', loading: false, wallets: $connection.wallets});
+		set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 	}
 	fetchWallets();
 
@@ -266,8 +302,8 @@ export function createConnection(settings: {
 	}
 
 	async function requestSignature() {
-		if ($connection.step !== 'NeedWalletSignature') {
-			throw new Error(`invalid step: ${$connection.step}, needs to be NeedWalletSignature`);
+		if ($connection.step !== 'WalletConnected') {
+			throw new Error(`invalid step: ${$connection.step}, needs to be WalletConnected`);
 		}
 
 		if (!_wallet) {
@@ -295,7 +331,7 @@ export function createConnection(settings: {
 			// TODO handle rejection (code: 4001 ?)
 			set({
 				...$connection,
-				step: 'NeedWalletSignature',
+				step: 'WalletConnected',
 				mechanism: {
 					type: 'wallet',
 					name: $connection.mechanism.name,
@@ -335,6 +371,7 @@ export function createConnection(settings: {
 			wallet: {
 				chainId,
 				provider: provider,
+				locked: false,
 				accountChanged: undefined, // TODO check account list
 				invalidChainId: alwaysOnChainId != chainId,
 				switchingChain: false,
@@ -362,7 +399,12 @@ export function createConnection(settings: {
 		if (_wallet) {
 			_wallet.chainId = chainId;
 		}
-		if ($connection.step === 'SignedIn' && $connection.wallet && $connection.wallet.chainId != chainId) {
+		if (
+			$connection.step === 'SignedIn' &&
+			$connection.mechanism.type === 'wallet' &&
+			$connection.wallet &&
+			$connection.wallet.chainId != chainId
+		) {
 			set({
 				...$connection,
 				wallet: {
@@ -376,6 +418,25 @@ export function createConnection(settings: {
 
 	function onAccountChanged(accounts: `0x${string}`[]) {
 		const accountsFormated = accounts.map((a) => a.toLowerCase()) as `0x${string}`[];
+
+		if (accountsFormated.length === 0 && $connection.wallet) {
+			set({
+				...$connection,
+				wallet: {
+					...$connection.wallet,
+					locked: true,
+				},
+			});
+		} else if (accountsFormated.length > 0 && $connection.wallet?.locked) {
+			set({
+				...$connection,
+				wallet: {
+					...$connection.wallet,
+					locked: false,
+				},
+			});
+		}
+
 		if ($connection.step === 'SignedIn' && $connection.mechanism.type === 'wallet') {
 			// TODO if auto-connect and saved-signature ?
 			// connect(
@@ -384,7 +445,7 @@ export function createConnection(settings: {
 			// 		address: accounts[0],
 			// 		name: $connection.mechanism.name
 			// 	},
-			// 	{ requireUserConfirmationBeforeSIgnatureRequest: true }
+			// 	{ requireUserConfirmationBeforeSignatureRequest: true }
 			// );
 
 			if ($connection.wallet && accountsFormated.length > 0 && accountsFormated[0] != $connection.account.address) {
@@ -427,7 +488,7 @@ export function createConnection(settings: {
 	async function connect(
 		mechanism?: Mechanism,
 		options?: {
-			requireUserConfirmationBeforeSIgnatureRequest?: boolean;
+			requireUserConfirmationBeforeSignatureRequest?: boolean;
 			doNotStoreLocally?: boolean;
 			requestSignatureRightAway?: boolean;
 		},
@@ -454,6 +515,7 @@ export function createConnection(settings: {
 							step: 'WaitingForWalletConnection', // TODO FetchingAccounts
 							mechanism,
 							wallets: $connection.wallets,
+							wallet: undefined,
 						});
 						const provider = wallet.provider;
 						const chainIdAsHex = await provider.request({method: 'eth_chainId'});
@@ -468,9 +530,10 @@ export function createConnection(settings: {
 						accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 						if (accounts.length === 0) {
 							set({
-								step: 'WaitingForWalletConnection',
+								step: 'WaitingForWalletConnection', // TODO add another step to unlock ?
 								mechanism,
 								wallets: $connection.wallets,
+								wallet: undefined,
 							});
 							accounts = await provider.request({method: 'eth_requestAccounts'});
 							accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
@@ -478,22 +541,38 @@ export function createConnection(settings: {
 								if (options?.requestSignatureRightAway) {
 									watchForAccountChange(_wallet.provider);
 									set({
-										step: 'NeedWalletSignature',
+										step: 'WalletConnected',
 										mechanism: {
 											...mechanism,
 											address: accounts[0],
 										},
 										wallets: $connection.wallets,
+										wallet: {
+											provider: _wallet.provider,
+											locked: false,
+											accountChanged: undefined,
+											chainId,
+											invalidChainId: alwaysOnChainId != chainId,
+											switchingChain: false,
+										},
 									});
 									await requestSignature();
 								} else {
 									set({
-										step: 'NeedWalletSignature',
+										step: 'WalletConnected',
 										mechanism: {
 											...mechanism,
 											address: accounts[0],
 										},
 										wallets: $connection.wallets,
+										wallet: {
+											provider: _wallet.provider,
+											locked: false,
+											accountChanged: undefined,
+											chainId,
+											invalidChainId: alwaysOnChainId != chainId,
+											switchingChain: false,
+										},
 									});
 									watchForAccountChange(_wallet.provider);
 								}
@@ -501,29 +580,46 @@ export function createConnection(settings: {
 								set({
 									step: 'MechanismToChoose',
 									wallets: $connection.wallets,
+									wallet: undefined,
 									error: {message: 'could not get any accounts'},
 								});
 							}
 						} else {
-							if (options?.requireUserConfirmationBeforeSIgnatureRequest) {
+							if (!requestSignatureAutomaticallyIfPossible || options?.requireUserConfirmationBeforeSignatureRequest) {
 								set({
-									step: 'NeedWalletSignature',
+									step: 'WalletConnected',
 									mechanism: {
 										...mechanism,
 										address: accounts[0],
 									},
 									wallets: $connection.wallets,
+									wallet: {
+										provider: _wallet.provider,
+										locked: false,
+										accountChanged: undefined,
+										chainId,
+										invalidChainId: alwaysOnChainId != chainId,
+										switchingChain: false,
+									},
 								});
 								watchForAccountChange(_wallet.provider);
 							} else {
 								watchForAccountChange(_wallet.provider);
 								set({
-									step: 'NeedWalletSignature',
+									step: 'WalletConnected',
 									mechanism: {
 										...mechanism,
 										address: accounts[0],
 									},
 									wallets: $connection.wallets,
+									wallet: {
+										provider: _wallet.provider,
+										locked: false,
+										accountChanged: undefined,
+										chainId,
+										invalidChainId: alwaysOnChainId != chainId,
+										switchingChain: false,
+									},
 								});
 								await requestSignature();
 							}
@@ -533,6 +629,7 @@ export function createConnection(settings: {
 						set({
 							step: 'MechanismToChoose',
 							wallets: $connection.wallets,
+							wallet: undefined,
 							error: {message: `failed to get wallet ${walletName}`},
 						});
 					}
@@ -546,6 +643,7 @@ export function createConnection(settings: {
 					set({
 						step: 'WalletToChoose',
 						mechanism: {type: 'wallet'},
+						wallet: undefined,
 						wallets: $connection.wallets,
 					});
 				}
@@ -559,6 +657,7 @@ export function createConnection(settings: {
 					popupClosed: false,
 					mechanism,
 					wallets: $connection.wallets,
+					wallet: undefined,
 				});
 
 				const unsubscribe = popup.subscribe(($popup) => {
@@ -586,7 +685,7 @@ export function createConnection(settings: {
 					}
 				} catch (err) {
 					console.log({error: err});
-					set({step: 'Idle', loading: false, wallets: $connection.wallets});
+					set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 				} finally {
 					unsubscribe();
 				}
@@ -595,6 +694,7 @@ export function createConnection(settings: {
 			set({
 				step: 'MechanismToChoose',
 				wallets: $connection.wallets,
+				wallet: undefined,
 			});
 		}
 	}
@@ -610,6 +710,7 @@ export function createConnection(settings: {
 		set({
 			step: 'Idle',
 			loading: false,
+			wallet: undefined,
 			wallets: $connection.wallets,
 		});
 	}
@@ -617,11 +718,11 @@ export function createConnection(settings: {
 	function back(step: 'MechanismToChoose' | 'Idle' | 'WalletToChoose') {
 		popup?.cancel();
 		if (step === 'MechanismToChoose') {
-			set({step, wallets: $connection.wallets});
+			set({step, wallets: $connection.wallets, wallet: undefined});
 		} else if (step === 'Idle') {
-			set({step, loading: false, wallets: $connection.wallets});
+			set({step, loading: false, wallet: undefined, wallets: $connection.wallets});
 		} else if (step === 'WalletToChoose') {
-			set({step, wallets: $connection.wallets, mechanism: {type: 'wallet'}});
+			set({step, wallet: undefined, wallets: $connection.wallets, mechanism: {type: 'wallet'}});
 		}
 	}
 
@@ -687,7 +788,7 @@ export function createConnection(settings: {
 
 	function cancel() {
 		popup?.cancel();
-		set({step: 'Idle', loading: false, wallets: $connection.wallets});
+		set({step: 'Idle', wallet: undefined, loading: false, wallets: $connection.wallets});
 	}
 
 	function getSignatureForPublicKeyPublication(): Promise<`0x${string}`> {
@@ -716,6 +817,17 @@ export function createConnection(settings: {
 		throw new Error(`no saved public key publication signature for ${account.address}`);
 	}
 
+	async function unlock() {
+		if (!$connection.wallet) {
+			throw new Error(`invali state`);
+		}
+
+		const wallet = $connection.wallet;
+
+		// TODO unlocking state
+		await wallet.provider.request({method: 'eth_requestAccounts'}).then(onAccountChanged);
+	}
+
 	async function switchWalletChain(
 		chainId: string,
 		config?: {
@@ -730,7 +842,7 @@ export function createConnection(settings: {
 			};
 		},
 	) {
-		if ($connection.step !== 'SignedIn' || !$connection.wallet) {
+		if (!$connection.wallet) {
 			throw new Error(`invali state`);
 		}
 
@@ -891,6 +1003,7 @@ export function createConnection(settings: {
 		disconnect,
 		getSignatureForPublicKeyPublication,
 		switchWalletChain,
+		unlock,
 		provider: alwaysOnProvider,
 	};
 }

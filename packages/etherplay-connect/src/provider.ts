@@ -27,20 +27,21 @@ export function createProvider(params: {
 
 	let walletProvider: EIP1193WindowWalletProvider | undefined;
 
-	function setWalletProvider(walletProvider: EIP1193WindowWalletProvider | undefined) {
-		walletProvider = walletProvider;
+	function setWalletProvider(newWalletProvider: EIP1193WindowWalletProvider | undefined) {
+		walletProvider = newWalletProvider;
 	}
 
 	const provider = {
-		request(req: {method: string; params?: any[]}) {
+		async request(req: {method: string; params?: any[]}) {
 			if (walletProvider) {
 				const signingMethod =
 					signerMethods.includes(req.method) ||
 					connectedAccountMethods.includes(req.method) ||
 					walletOnlyMethods.includes(req.method) ||
 					req.method.indexOf('sign') != -1;
+
 				if (prioritizeWalletProvider || signingMethod) {
-					const currentChainIdAsHex = walletProvider.request({
+					const currentChainIdAsHex = await walletProvider.request({
 						method: 'eth_chainId',
 					});
 					const currentChainId = Number(currentChainIdAsHex).toString();
@@ -64,5 +65,6 @@ export function createProvider(params: {
 		},
 	} as unknown as EIP1193WalletProvider;
 
-	return {...createCurriedJSONRPC<Methods>(provider as any, {requestsPerSecond}), setWalletProvider, chainId};
+	const curriedRPC = createCurriedJSONRPC<Methods>(provider as any, {requestsPerSecond});
+	return {...curriedRPC, setWalletProvider, chainId};
 }

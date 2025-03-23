@@ -122,8 +122,8 @@ importers:
         specifier: ^1.5.4
         version: 1.5.4
       remote-procedure-call:
-        specifier: ^0.0.15
-        version: 0.0.15(@types/node@22.13.8)(jsdom@25.0.1)(sass@1.86.0)(terser@5.39.0)
+        specifier: ^0.1.0
+        version: 0.1.0(@types/node@22.13.8)(jsdom@25.0.1)(sass@1.86.0)(terser@5.39.0)
       zustand:
         specifier: ^5.0.3
         version: 5.0.3(react@18.2.0)
@@ -3820,8 +3820,8 @@ packages:
     resolution: {integrity: sha512-cnE+y8bz4NhMjISKbgeVJtqNbtf5QpjZP+Bslo+UqkIt9QPnX9q095eiRRASJG1/tz6dlNr6Z5NsBiWYokp6EQ==}
     hasBin: true
 
-  remote-procedure-call@0.0.15:
-    resolution: {integrity: sha512-zM95e3m0q/x5hMlbtcolH18rRqx/HtbrUmvrPzW5sswH1FM8sNUHpYlzABLt6h9snZworm9wP6KYEERGAVHMYA==}
+  remote-procedure-call@0.1.0:
+    resolution: {integrity: sha512-QBeiEAkxb7JQWqcxqgD0WUG0QdXJXSxMK2brYaKTP5zyzVAWqWONaNA47J/tfCsqC1QWgCk2fEkfUvArFuJ42A==}
 
   require-directory@2.1.1:
     resolution: {integrity: sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q==}
@@ -4066,9 +4066,6 @@ packages:
   statuses@2.0.1:
     resolution: {integrity: sha512-RwNA9Z/7PrK06rYLIzFMlaF+l73iwpzsqRIFgbMLbTcLD6cOao82TaWefPXQvB2fOC4AjuYSEndS7N/mTCbkdQ==}
     engines: {node: '>= 0.8'}
-
-  std-env@3.8.0:
-    resolution: {integrity: sha512-Bc3YwwCB+OzldMxOXJIIvC6cPRWr/LxOp48CdQTOkPyk/t4JWWJbrilwBd7RJzKV8QW7tJkcgAmeuLLJugl5/w==}
 
   std-env@3.8.1:
     resolution: {integrity: sha512-vj5lIj3Mwf9D79hBkltk5qmkFI+biIKWS2IBxEyEU3AX1tUf7AoL8nSazCOiiqQsGKIq01SClsKEzweu34uwvA==}
@@ -8993,7 +8990,7 @@ snapshots:
     dependencies:
       jsesc: 3.0.2
 
-  remote-procedure-call@0.0.15(@types/node@22.13.8)(jsdom@25.0.1)(sass@1.86.0)(terser@5.39.0):
+  remote-procedure-call@0.1.0(@types/node@22.13.8)(jsdom@25.0.1)(sass@1.86.0)(terser@5.39.0):
     dependencies:
       named-logs: 0.2.4
       promise-throttle: 1.1.2
@@ -9282,8 +9279,6 @@ snapshots:
   statuses@1.5.0: {}
 
   statuses@2.0.1: {}
-
-  std-env@3.8.0: {}
 
   std-env@3.8.1: {}
 
@@ -9614,7 +9609,7 @@ snapshots:
       expect-type: 1.2.0
       magic-string: 0.30.17
       pathe: 1.1.2
-      std-env: 3.8.0
+      std-env: 3.8.1
       tinybench: 2.9.0
       tinyexec: 0.3.2
       tinypool: 1.0.2

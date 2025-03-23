@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.11
+
+### Patch Changes
+
+- requestSignatureAutomaticallyIfPossible + unlock + better handling of web3 wallet + fixes
+
 ## 0.0.10
 
 ### Patch Changes

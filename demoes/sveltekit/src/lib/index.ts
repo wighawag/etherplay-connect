@@ -1,3 +1,7 @@
+import { PUBLIC_WALLET_HOST } from '$env/static/public';
+import { createConnection } from '@etherplay/connect';
+import { get } from 'svelte/store';
+
 export const chainInfos = {
 	1: {
 		rpcUrls: ['https://eth.drpc.org'],
@@ -22,9 +26,6 @@ export const chainInfos = {
 	}
 };
 
-import { PUBLIC_WALLET_HOST } from '$env/static/public';
-import { createConnection } from '@etherplay/connect';
-
 export const chainId = '1';
 export const chainInfo = chainInfos[chainId];
 export const connection = createConnection({
@@ -33,9 +34,14 @@ export const connection = createConnection({
 		chainId,
 		url: chainInfo.rpcUrls[0],
 		prioritizeWalletProvider: true
-	}
+	},
+	// requestSignatureAutomaticallyIfPossible: true,
+	autoConnect: true
 });
 
 connection.subscribe((c) =>
 	console.log(c.step, (c as any).loading, (c as any).walletAccountChanged)
 );
+
+(globalThis as any).connection = connection;
+(globalThis as any).get = get;
