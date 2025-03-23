@@ -1,5 +1,11 @@
 # @etherplay/alchemy
 
+## 0.0.8
+
+### Patch Changes
+
+- provide a always on provider + allow switching chain on wallet provider
+
 ## 0.0.7
 
 ### Patch Changes
