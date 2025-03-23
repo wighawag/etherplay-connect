@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.13
+
+### Patch Changes
+
+- show invalid chain as long as we get wallet connected
+
 ## 0.0.12
 
 ### Patch Changes

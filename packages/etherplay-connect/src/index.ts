@@ -399,12 +399,7 @@ export function createConnection(settings: {
 		if (_wallet) {
 			_wallet.chainId = chainId;
 		}
-		if (
-			$connection.step === 'SignedIn' &&
-			$connection.mechanism.type === 'wallet' &&
-			$connection.wallet &&
-			$connection.wallet.chainId != chainId
-		) {
+		if ($connection.wallet && $connection.wallet.chainId != chainId) {
 			set({
 				...$connection,
 				wallet: {
