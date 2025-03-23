@@ -21,10 +21,10 @@
 	},
 	"devDependencies": {
 		"as-soon": "^0.0.11",
-		"eip-1193": "^0.6.1",
+		"eip-1193": "^0.6.3",
 		"ldenv": "^0.3.12",
 		"prettier": "^3.5.3",
-		"svelte": "^5.0.0",
+		"svelte": "^5.25.2",
 		"typescript": "^5.8.2"
 	},
 	"pnpm": {
@@ -39,6 +39,7 @@
 		"@noble/hashes": "^1.7.1",
 		"@scure/bip32": "^1.6.2",
 		"@scure/bip39": "^1.5.4",
+		"remote-procedure-call": "^0.0.15",
 		"zustand": "^5.0.3"
 	},
 	"scripts": {

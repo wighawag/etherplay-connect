@@ -1,7 +1,7 @@
 import type {AlchemyMechanism, OriginAccount} from '@etherplay/alchemy';
 import {writable} from 'svelte/store';
 import {createPopupLauncher, type PopupPromise} from './popup.js';
-import type {EIP1193WindowWalletProvider} from 'eip-1193';
+import type {EIP1193ChainId, EIP1193WindowWalletProvider} from 'eip-1193';
 import {
 	fromEntropyKeyToMnemonic,
 	fromMnemonicToFirstAccount,
@@ -10,6 +10,7 @@ import {
 	originPublicKeyPublicationMessage,
 } from '@etherplay/alchemy';
 import {hashMessage} from './utils.js';
+import {createProvider} from './provider.js';
 
 export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage};
 export type {OriginAccount};
@@ -84,6 +85,7 @@ export type Connection = {
 				provider: EIP1193WindowWalletProvider;
 				accountChanged?: `0x${string}`;
 				chainId: string;
+				invalidChainId: boolean;
 			};
 	  }
 );
@@ -106,7 +108,18 @@ export interface EIP6963AnnounceProviderEvent extends CustomEvent {
 }
 
 const storageAccountKey = '__origin_account';
-export function createConnection(settings: {walletHost: string; autoConnect?: boolean}) {
+export function createConnection(settings: {
+	walletHost: string;
+	autoConnect?: boolean;
+	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
+}) {
+	const alwaysOnChainId = settings.node.chainId;
+	const alwaysOnProvider = createProvider({
+		endpoint: settings.node.url,
+		chainId: settings.node.chainId,
+		prioritizeWalletProvider: settings.node.prioritizeWalletProvider,
+		requestsPerSecond: settings.node.requestsPerSecond,
+	});
 	let autoConnect = true;
 	if (typeof settings.autoConnect !== 'undefined') {
 		autoConnect = settings.autoConnect;
@@ -190,6 +203,7 @@ export function createConnection(settings: {walletHost: string; autoConnect?: bo
 									const chainIdAsHex = await walletProvider.request({method: 'eth_chainId'});
 									const chainId = Number(chainIdAsHex).toString();
 									_wallet = {provider: walletProvider, chainId};
+									alwaysOnProvider.setWalletProvider(walletProvider);
 									watchForChainIdChange(_wallet.provider);
 									set({
 										step: 'SignedIn',
@@ -200,6 +214,7 @@ export function createConnection(settings: {walletHost: string; autoConnect?: bo
 											provider: walletProvider,
 											accountChanged: undefined,
 											chainId,
+											invalidChainId: alwaysOnChainId != chainId,
 										},
 									});
 									walletProvider.request({method: 'eth_accounts'}).then(onAccountChanged);
@@ -319,6 +334,7 @@ export function createConnection(settings: {walletHost: string; autoConnect?: bo
 				chainId,
 				provider: provider,
 				accountChanged: undefined, // TODO check account list
+				invalidChainId: alwaysOnChainId != chainId,
 			},
 		});
 		if (remember) {
@@ -349,6 +365,7 @@ export function createConnection(settings: {walletHost: string; autoConnect?: bo
 				wallet: {
 					...$connection.wallet,
 					chainId,
+					invalidChainId: alwaysOnChainId != chainId,
 				},
 			});
 		}
@@ -420,6 +437,7 @@ export function createConnection(settings: {walletHost: string; autoConnect?: bo
 					const wallet = $connection.wallets.find((v) => v.info.name == walletName || v.info.uuid == walletName);
 					if (wallet) {
 						if (_wallet) {
+							alwaysOnProvider.setWalletProvider(undefined);
 							stopatchingForAccountChange(_wallet.provider);
 							stopatchingForChainIdChange(_wallet.provider);
 						}
@@ -441,6 +459,7 @@ export function createConnection(settings: {walletHost: string; autoConnect?: bo
 							chainId,
 							provider,
 						};
+						alwaysOnProvider.setWalletProvider(_wallet.provider);
 						watchForChainIdChange(_wallet.provider);
 						let accounts = await provider.request({method: 'eth_accounts'});
 						accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
@@ -580,6 +599,7 @@ export function createConnection(settings: {walletHost: string; autoConnect?: bo
 	function disconnect() {
 		deleteOriginAccount();
 		if (_wallet) {
+			alwaysOnProvider.setWalletProvider(undefined);
 			stopatchingForAccountChange(_wallet.provider);
 			stopatchingForChainIdChange(_wallet.provider);
 		}
@@ -693,6 +713,103 @@ export function createConnection(settings: {walletHost: string; autoConnect?: bo
 		throw new Error(`no saved public key publication signature for ${account.address}`);
 	}
 
+	async function switchWalletChain(
+		chainId: string,
+		config?: {
+			readonly rpcUrls?: readonly string[];
+			readonly blockExplorerUrls?: readonly string[];
+			readonly chainName?: string;
+			readonly iconUrls?: readonly string[];
+			readonly nativeCurrency?: {
+				name: string;
+				symbol: string;
+				decimals: number;
+			};
+		},
+	) {
+		const wallet = _wallet;
+
+		if (!wallet) {
+			throw new Error(`no wallet connected`);
+		}
+
+		try {
+			// attempt to switch...
+			const result = await wallet.provider.request({
+				method: 'wallet_switchEthereumChain',
+				params: [
+					{
+						chainId: ('0x' + parseInt(chainId).toString(16)) as EIP1193ChainId,
+					},
+				],
+			});
+			if (!result) {
+				// logger.info(`wallet_switchEthereumChain: complete`);
+				// this will be taken care with `chainChanged` (but maybe it should be done there ?)
+				// handleNetwork(chainId);
+			} else {
+				// logger.info(`wallet_switchEthereumChain: a non-undefinded result means an error`, result);
+				throw result;
+			}
+		} catch (err) {
+			if ((err as any).code === 4001) {
+				// logger.info(`wallet_addEthereumChain: failed but error code === 4001, we ignore as user rejected it`, err);
+				return;
+			}
+			// if ((err as any).code === 4902) {
+			else if (config && config.rpcUrls && config.rpcUrls.length > 0) {
+				// logger.info(`wallet_switchEthereumChain: could not switch, try adding the chain via "wallet_addEthereumChain"`);
+				try {
+					const result = await wallet.provider.request({
+						method: 'wallet_addEthereumChain',
+						params: [
+							{
+								chainId: ('0x' + parseInt(chainId).toString(16)) as EIP1193ChainId,
+								rpcUrls: config.rpcUrls,
+								chainName: config.chainName,
+								blockExplorerUrls: config.blockExplorerUrls,
+								iconUrls: config.iconUrls,
+								nativeCurrency: config.nativeCurrency,
+							},
+						],
+					});
+					if (!result) {
+						// this will be taken care with `chainChanged` (but maybe it should be done there ?)
+						// handleNetwork(chainId);
+					} else {
+						// logger.info(`wallet_addEthereumChain: a non-undefinded result means an error`, result);
+						throw result;
+					}
+				} catch (err) {
+					if ((err as any).code !== 4001) {
+						// logger.info(`wallet_addEthereumChain: failed`, err);
+						// TODO ?
+						// set({
+						// 	error: {message: `Failed to add new chain`, cause: err},
+						// });
+						// for now:
+						throw err;
+					} else {
+						// logger.info(`wallet_addEthereumChain: failed but error code === 4001, we ignore as user rejected it`, err);
+						return;
+					}
+				}
+			} else {
+				// logger.info(`cannot call wallet_addEthereumChain as we do not have network details`);
+				// TODO
+				// set({
+				// 	error: {
+				// 		message: `Chain "${config?.chainName || `with chainId = ${chainId}`} " is not available on your wallet.`,
+				// 	},
+				// });
+				// for now
+				throw new Error(
+					`Chain "${config?.chainName || `with chainId = ${chainId}`} " is not available on your wallet.`,
+				);
+			}
+		}
+	}
+
 	return {
 		subscribe: _store.subscribe,
 		connect,
@@ -702,5 +819,9 @@ export function createConnection(settings: {walletHost: string; autoConnect?: bo
 		connectOnCurrentWalletAccount,
 		disconnect,
 		getSignatureForPublicKeyPublication,
+		switchWalletChain,
+		provider: alwaysOnProvider,
 	};
 }
+
+export type ConnectionStore = ReturnType<typeof createConnection>;

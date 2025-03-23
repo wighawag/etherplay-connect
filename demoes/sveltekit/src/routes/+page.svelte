@@ -1,14 +1,5 @@
 <script lang="ts">
-	import { PUBLIC_WALLET_HOST } from '$env/static/public';
-	import { createConnection } from '@etherplay/connect';
-
-	const connection = createConnection({
-		walletHost: PUBLIC_WALLET_HOST
-	});
-
-	connection.subscribe((c) =>
-		console.log(c.step, (c as any).loading, (c as any).walletAccountChanged)
-	);
+	import { chainInfo, connection } from '$lib';
 
 	let connectionAsAny = $derived($connection as any);
 
@@ -129,7 +120,16 @@
 	{#if accountChanged}
 		<button
 			style="margin-right: 2rem;"
-			onclick={() => connection.connectOnCurrentWalletAccount(accountChanged)}>switch</button
+			onclick={() => connection.connectOnCurrentWalletAccount(accountChanged)}
+			>switch account</button
+		>
+	{/if}
+	{@const invalidChain = $connection.wallet?.invalidChainId}
+	{#if invalidChain}
+		<button
+			style="margin-right: 2rem;"
+			onclick={() => connection.switchWalletChain(connection.provider.chainId, chainInfo)}
+			>switch chain</button
 		>
 	{/if}
 {:else}
