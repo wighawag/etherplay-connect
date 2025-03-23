@@ -1,5 +1,11 @@
 # @etherplay/alchemy
 
+## 0.0.9
+
+### Patch Changes
+
+- forgot to build?
+
 ## 0.0.8
 
 ### Patch Changes
