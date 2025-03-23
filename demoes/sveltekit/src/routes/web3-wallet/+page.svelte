@@ -8,7 +8,13 @@
 	{#if $connection.loading}
 		loading...
 	{:else}
-		<button onclick={() => connection.connect({ type: 'wallet' })}>connect</button>
+		<button
+			onclick={() =>
+				connection.connect(
+					{ type: 'wallet' },
+					{ requireUserConfirmationBeforeSignatureRequest: true }
+				)}>connect</button
+		>
 	{/if}
 {:else if $connection.step == 'WalletConnected' || ($connection.step == 'SignedIn' && $connection.wallet)}
 	you are signed-in: {$connection.mechanism.address}
@@ -45,8 +51,12 @@
 		<button onclick={() => connection.back('Idle')}>back</button>
 	{:else}
 		{#each $connection.wallets as wallet}
-			<button onclick={() => connection.connect({ type: 'wallet', name: wallet.info.name })}
-				>{wallet.info.name}</button
+			<button
+				onclick={() =>
+					connection.connect(
+						{ type: 'wallet', name: wallet.info.name },
+						{ requireUserConfirmationBeforeSignatureRequest: true }
+					)}>{wallet.info.name}</button
 			>
 		{/each}
 		<button onclick={() => connection.back('Idle')}>back</button>

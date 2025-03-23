@@ -35,7 +35,7 @@ export const connection = createConnection({
 		url: chainInfo.rpcUrls[0],
 		prioritizeWalletProvider: true
 	},
-	// requestSignatureAutomaticallyIfPossible: true,
+	requestSignatureAutomaticallyIfPossible: true,
 	autoConnect: true
 });
 

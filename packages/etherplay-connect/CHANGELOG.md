@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.14
+
+### Patch Changes
+
+- save last wallet + disconnected support for metamask
+
 ## 0.0.13
 
 ### Patch Changes
