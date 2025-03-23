@@ -86,6 +86,7 @@ export type Connection = {
 				accountChanged?: `0x${string}`;
 				chainId: string;
 				invalidChainId: boolean;
+				switchingChain: 'addingChain' | 'switchingChain' | false;
 			};
 	  }
 );
@@ -215,6 +216,7 @@ export function createConnection(settings: {
 											accountChanged: undefined,
 											chainId,
 											invalidChainId: alwaysOnChainId != chainId,
+											switchingChain: false,
 										},
 									});
 									walletProvider.request({method: 'eth_accounts'}).then(onAccountChanged);
@@ -335,6 +337,7 @@ export function createConnection(settings: {
 				provider: provider,
 				accountChanged: undefined, // TODO check account list
 				invalidChainId: alwaysOnChainId != chainId,
+				switchingChain: false,
 			},
 		});
 		if (remember) {
@@ -727,14 +730,21 @@ export function createConnection(settings: {
 			};
 		},
 	) {
-		const wallet = _wallet;
-
-		if (!wallet) {
-			throw new Error(`no wallet connected`);
+		if ($connection.step !== 'SignedIn' || !$connection.wallet) {
+			throw new Error(`invali state`);
 		}
+
+		const wallet = $connection.wallet;
+		// if (!wallet) {
+		// 	throw new Error(`no wallet`);
+		// }
 
 		try {
 			// attempt to switch...
+			set({
+				...$connection,
+				wallet: {...$connection.wallet, switchingChain: 'switchingChain'},
+			});
 			const result = await wallet.provider.request({
 				method: 'wallet_switchEthereumChain',
 				params: [
@@ -744,20 +754,48 @@ export function createConnection(settings: {
 				],
 			});
 			if (!result) {
+				if ($connection.wallet) {
+					set({
+						...$connection,
+						wallet: {...$connection.wallet, switchingChain: false},
+					});
+				}
+
 				// logger.info(`wallet_switchEthereumChain: complete`);
 				// this will be taken care with `chainChanged` (but maybe it should be done there ?)
 				// handleNetwork(chainId);
 			} else {
-				// logger.info(`wallet_switchEthereumChain: a non-undefinded result means an error`, result);
+				if ($connection.wallet) {
+					set({
+						...$connection,
+						wallet: {...$connection.wallet, switchingChain: false},
+						error: {
+							message: `Failed to switch to ${config?.chainName || `chain with id = ${chainId}`}`,
+							cause: result,
+						},
+					});
+				}
 				throw result;
 			}
 		} catch (err) {
 			if ((err as any).code === 4001) {
 				// logger.info(`wallet_addEthereumChain: failed but error code === 4001, we ignore as user rejected it`, err);
+				if ($connection.wallet) {
+					set({
+						...$connection,
+						wallet: {...$connection.wallet, switchingChain: false},
+					});
+				}
 				return;
 			}
 			// if ((err as any).code === 4902) {
 			else if (config && config.rpcUrls && config.rpcUrls.length > 0) {
+				if ($connection.wallet) {
+					set({
+						...$connection,
+						wallet: {...$connection.wallet, switchingChain: 'addingChain'},
+					});
+				}
 				// logger.info(`wallet_switchEthereumChain: could not switch, try adding the chain via "wallet_addEthereumChain"`);
 				try {
 					const result = await wallet.provider.request({
@@ -774,14 +812,40 @@ export function createConnection(settings: {
 						],
 					});
 					if (!result) {
+						if ($connection.wallet) {
+							set({
+								...$connection,
+								wallet: {...$connection.wallet, switchingChain: false},
+							});
+						}
 						// this will be taken care with `chainChanged` (but maybe it should be done there ?)
 						// handleNetwork(chainId);
 					} else {
+						if ($connection.wallet) {
+							set({
+								...$connection,
+								wallet: {...$connection.wallet, switchingChain: false},
+								error: {
+									message: `Failed to add new chain: ${config?.chainName || `chain with id = ${chainId}`}`,
+									cause: result,
+								},
+							});
+						}
 						// logger.info(`wallet_addEthereumChain: a non-undefinded result means an error`, result);
 						throw result;
 					}
 				} catch (err) {
 					if ((err as any).code !== 4001) {
+						if ($connection.wallet) {
+							set({
+								...$connection,
+								wallet: {...$connection.wallet, switchingChain: false},
+								error: {
+									message: `Failed to add new chain: ${config?.chainName || `chain with id = ${chainId}`}`,
+									cause: err,
+								},
+							});
+						}
 						// logger.info(`wallet_addEthereumChain: failed`, err);
 						// TODO ?
 						// set({
@@ -790,22 +854,29 @@ export function createConnection(settings: {
 						// for now:
 						throw err;
 					} else {
+						if ($connection.wallet) {
+							set({
+								...$connection,
+								wallet: {...$connection.wallet, switchingChain: false},
+							});
+						}
 						// logger.info(`wallet_addEthereumChain: failed but error code === 4001, we ignore as user rejected it`, err);
 						return;
 					}
 				}
 			} else {
-				// logger.info(`cannot call wallet_addEthereumChain as we do not have network details`);
-				// TODO
-				// set({
-				// 	error: {
-				// 		message: `Chain "${config?.chainName || `with chainId = ${chainId}`} " is not available on your wallet.`,
-				// 	},
-				// });
-				// for now
-				throw new Error(
-					`Chain "${config?.chainName || `with chainId = ${chainId}`} " is not available on your wallet.`,
-				);
+				const errorMessage = `Chain "${config?.chainName || `with chainId = ${chainId}`} " is not available on your wallet`;
+				if ($connection.wallet) {
+					set({
+						...$connection,
+						wallet: {...$connection.wallet, switchingChain: false},
+						error: {
+							message: errorMessage,
+						},
+					});
+				}
+
+				throw new Error(errorMessage);
 			}
 		}
 	}

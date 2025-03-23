@@ -25,7 +25,7 @@ export const chainInfos = {
 import { PUBLIC_WALLET_HOST } from '$env/static/public';
 import { createConnection } from '@etherplay/connect';
 
-export const chainId = '1';
+export const chainId = '8453';
 export const chainInfo = chainInfos[chainId];
 export const connection = createConnection({
 	walletHost: PUBLIC_WALLET_HOST,

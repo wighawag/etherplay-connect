@@ -129,7 +129,7 @@
 		<button
 			style="margin-right: 2rem;"
 			onclick={() => connection.switchWalletChain(connection.provider.chainId, chainInfo)}
-			>switch chain</button
+			disabled={!!$connection.wallet?.switchingChain}>switch chain</button
 		>
 	{/if}
 {:else}
