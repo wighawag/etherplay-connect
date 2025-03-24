@@ -1,5 +1,19 @@
 <script lang="ts">
-	import { chainInfo, connection } from '$lib';
+	import { PUBLIC_WALLET_HOST } from '$env/static/public';
+	import { chainInfo, chainId } from '$lib';
+	import { createConnection } from '@etherplay/connect';
+
+	const connection = createConnection({
+		walletHost: PUBLIC_WALLET_HOST,
+		node: {
+			chainId,
+			url: chainInfo.rpcUrls[0],
+			prioritizeWalletProvider: true
+		},
+		requestSignatureAutomaticallyIfPossible: false,
+		alwaysUseCurrentAccount: true,
+		autoConnect: true
+	});
 
 	let connectionAsAny = $derived($connection as any);
 </script>
@@ -8,13 +22,7 @@
 	{#if $connection.loading}
 		loading...
 	{:else}
-		<button
-			onclick={() =>
-				connection.connect(
-					{ type: 'wallet' },
-					{ requireUserConfirmationBeforeSignatureRequest: true }
-				)}>connect</button
-		>
+		<button onclick={() => connection.connect({ type: 'wallet' })}>connect</button>
 	{/if}
 {:else if $connection.step == 'WalletConnected' || ($connection.step == 'SignedIn' && $connection.wallet)}
 	you are signed-in: {$connection.mechanism.address}
@@ -22,12 +30,8 @@
 
 	{@const accountChanged = $connection.wallet?.accountChanged}
 	{#if accountChanged}
-		<button
-			style="margin-right: 2rem;"
-			onclick={() =>
-				connection.connecToAddress(accountChanged, {
-					requireUserConfirmationBeforeSignatureRequest: true
-				})}>switch</button
+		<button style="margin-right: 2rem;" onclick={() => connection.connecToAddress(accountChanged)}
+			>switch</button
 		>
 	{/if}
 	{@const invalidChain = $connection.wallet?.invalidChainId}
@@ -53,12 +57,7 @@
 	Wallet connection requested...
 {:else if $connection.step == 'ChooseWalletAccount'}
 	{#each $connection.wallet.accounts as account}
-		<button
-			onclick={() =>
-				connection.connecToAddress(account, {
-					requireUserConfirmationBeforeSignatureRequest: true
-				})}>{account}</button
-		>
+		<button onclick={() => connection.connecToAddress(account)}>{account}</button>
 	{/each}
 	<button onclick={() => connection.back('WalletToChoose')}>back</button>
 {:else if $connection.step == 'WalletToChoose'}
@@ -72,12 +71,8 @@
 		<button onclick={() => connection.back('Idle')}>back</button>
 	{:else}
 		{#each $connection.wallets as wallet}
-			<button
-				onclick={() =>
-					connection.connect(
-						{ type: 'wallet', name: wallet.info.name },
-						{ requireUserConfirmationBeforeSignatureRequest: true }
-					)}>{wallet.info.name}</button
+			<button onclick={() => connection.connect({ type: 'wallet', name: wallet.info.name })}
+				>{wallet.info.name}</button
 			>
 		{/each}
 		<button onclick={() => connection.back('Idle')}>back</button>

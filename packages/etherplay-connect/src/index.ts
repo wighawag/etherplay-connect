@@ -140,6 +140,7 @@ export function createConnection(settings: {
 	autoConnect?: boolean;
 	autoConnectWallet?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
+	alwaysUseCurrentAccount?: boolean;
 	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
 }) {
 	const alwaysOnChainId = settings.node.chainId;
@@ -603,7 +604,10 @@ export function createConnection(settings: {
 							accounts = await provider.request({method: 'eth_requestAccounts'});
 							accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 							if (accounts.length > 0) {
-								const nextStep = !specificAddress && accounts.length > 1 ? 'ChooseWalletAccount' : 'WalletConnected';
+								const nextStep =
+									!settings?.alwaysUseCurrentAccount && !specificAddress && accounts.length > 1
+										? 'ChooseWalletAccount'
+										: 'WalletConnected';
 								let account = accounts[0];
 								if (specificAddress) {
 									if (accounts.find((v) => v === specificAddress)) {
@@ -648,7 +652,11 @@ export function createConnection(settings: {
 													switchingChain: false,
 												},
 											};
-								if (newState.step === 'WalletConnected' && options?.requestSignatureRightAway) {
+								if (
+									newState.step === 'WalletConnected' &&
+									(requestSignatureAutomaticallyIfPossible || options?.requestSignatureRightAway) &&
+									!options?.requireUserConfirmationBeforeSignatureRequest
+								) {
 									watchForAccountChange(_wallet.provider);
 
 									set(newState);
@@ -682,7 +690,10 @@ export function createConnection(settings: {
 									throw new Error(`could not find address ${specificAddress}`);
 								}
 							}
-							const nextStep = !specificAddress && accounts.length > 1 ? 'ChooseWalletAccount' : 'WalletConnected';
+							const nextStep =
+								!settings?.alwaysUseCurrentAccount && !specificAddress && accounts.length > 1
+									? 'ChooseWalletAccount'
+									: 'WalletConnected';
 							const newState: Connection =
 								nextStep === 'ChooseWalletAccount'
 									? {
@@ -718,7 +729,7 @@ export function createConnection(settings: {
 										};
 							if (
 								newState.step === 'WalletConnected' &&
-								requestSignatureAutomaticallyIfPossible &&
+								(requestSignatureAutomaticallyIfPossible || options?.requestSignatureRightAway) &&
 								!options?.requireUserConfirmationBeforeSignatureRequest
 							) {
 								set(newState);
