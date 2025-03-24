@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.16
+
+### Patch Changes
+
+- 40a0c5c: accounts list choice
+
 ## 0.0.15
 
 ### Patch Changes
