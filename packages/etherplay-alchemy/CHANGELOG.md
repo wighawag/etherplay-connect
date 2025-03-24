@@ -1,5 +1,11 @@
 # @etherplay/alchemy
 
+## 0.0.10
+
+### Patch Changes
+
+- update deps
+
 ## 0.0.9
 
 ### Patch Changes

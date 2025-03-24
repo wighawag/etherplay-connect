@@ -1,6 +1,6 @@
 {
 	"name": "@etherplay/connect",
-	"version": "0.0.19",
+	"version": "0.0.20",
 	"license": "MIT",
 	"publishConfig": {
 		"access": "public"
@@ -24,7 +24,7 @@
 		"eip-1193": "^0.6.3",
 		"ldenv": "^0.3.12",
 		"prettier": "^3.5.3",
-		"svelte": "^5.25.2",
+		"svelte": "^5.25.3",
 		"typescript": "^5.8.2"
 	},
 	"pnpm": {
@@ -39,7 +39,7 @@
 		"@noble/hashes": "^1.7.1",
 		"@scure/bip32": "^1.6.2",
 		"@scure/bip39": "^1.5.4",
-		"remote-procedure-call": "^0.1.0",
+		"remote-procedure-call": "^0.1.1",
 		"zustand": "^5.0.3"
 	},
 	"scripts": {
