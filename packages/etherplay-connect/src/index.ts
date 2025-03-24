@@ -32,7 +32,7 @@ export type FullfilledMechanism = AlchemyMechanism | WalletMechanism<string, `0x
 
 export type WalletState = {
 	provider: EIP1193WindowWalletProvider;
-
+	accounts: `0x${string}`[];
 	accountChanged?: `0x${string}`;
 	chainId: string;
 	invalidChainId: boolean;
@@ -77,7 +77,13 @@ export type Connection = {
 			wallet: undefined;
 			mechanism: WalletMechanism<string, undefined>;
 	  }
-	// TODO? add another state : 'ChooseWalletAccount'
+	// Once the wallet is connected, if multiple account are connected to the site
+	// the user can choose which one to connect to
+	| {
+			step: 'ChooseWalletAccount';
+			mechanism: WalletMechanism<string, undefined>;
+			wallet: WalletState;
+	  }
 	// Once the wallet is connected, the system will need a signature
 	// this state represent the fact and require another user interaction to request the signature
 	| {
@@ -236,6 +242,12 @@ export function createConnection(settings: {
 									_wallet = {provider: walletProvider, chainId};
 									alwaysOnProvider.setWalletProvider(walletProvider);
 									watchForChainIdChange(_wallet.provider);
+									let accounts: `0x${string}`[] = [];
+									// try {
+									accounts = await walletProvider.request({method: 'eth_accounts'});
+									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
+									// } catch {}
+									// // TODO try catch ? and use logic of onAccountChanged
 									set({
 										step: 'SignedIn',
 										account: existingAccount,
@@ -243,6 +255,7 @@ export function createConnection(settings: {
 										wallets: $connection.wallets,
 										wallet: {
 											provider: walletProvider,
+											accounts,
 											status: 'connected',
 											accountChanged: undefined,
 											chainId,
@@ -250,7 +263,9 @@ export function createConnection(settings: {
 											switchingChain: false,
 										},
 									});
-									walletProvider.request({method: 'eth_accounts'}).then(onAccountChanged);
+									alwaysOnProvider.setWalletStatus('connected');
+									// TODO use the same logic before hand
+									onAccountChanged(accounts);
 									watchForAccountChange(walletProvider);
 								})
 								.catch((err) => {
@@ -280,12 +295,20 @@ export function createConnection(settings: {
 									_wallet = {provider: walletProvider, chainId};
 									alwaysOnProvider.setWalletProvider(walletProvider);
 									watchForChainIdChange(_wallet.provider);
+
+									let accounts: `0x${string}`[] = [];
+									// try {
+									accounts = await walletProvider.request({method: 'eth_accounts'});
+									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
+									// } catch {}
+									// // TODO try catch ? and use logic of onAccountChanged
 									set({
 										step: 'WalletConnected',
 										mechanism: lastWallet,
 										wallets: $connection.wallets,
 										wallet: {
 											provider: walletProvider,
+											accounts,
 											status: 'connected',
 											accountChanged: undefined,
 											chainId,
@@ -293,7 +316,9 @@ export function createConnection(settings: {
 											switchingChain: false,
 										},
 									});
-									walletProvider.request({method: 'eth_accounts'}).then(onAccountChanged);
+									alwaysOnProvider.setWalletStatus('connected');
+									// TODO use the same logic before hand
+									onAccountChanged(accounts);
 									watchForAccountChange(walletProvider);
 								})
 								.catch((err) => {
@@ -352,12 +377,7 @@ export function createConnection(settings: {
 			throw new Error(`invalid step: ${$connection.step}, needs to be WalletConnected`);
 		}
 
-		if (!_wallet) {
-			// TODO error ?
-			throw new Error(`no wallet provided initialised`);
-		}
-		const provider = _wallet.provider;
-		const chainId = _wallet.chainId;
+		const provider = $connection.wallet.provider;
 		const message = originKeyMessage(origin);
 		const msg = hashMessage(message);
 
@@ -408,33 +428,26 @@ export function createConnection(settings: {
 		set({
 			...$connection,
 			step: 'SignedIn',
-			mechanism: {
-				type: 'wallet',
-				name: $connection.mechanism.name,
-				address: $connection.mechanism.address,
-			},
 			account,
-			wallet: {
-				chainId,
-				provider: provider,
-				status: 'connected',
-				accountChanged: undefined, // TODO check account list
-				invalidChainId: alwaysOnChainId != chainId,
-				switchingChain: false,
-			},
+			wallet: $connection.wallet,
 		});
 		if (remember) {
 			saveOriginAccount(account);
 		}
 	}
 
-	function connectOnCurrentWalletAccount(address: `0x${string}`) {
+	function connecToAddress(address: `0x${string}`, options?: {requireUserConfirmationBeforeSignatureRequest: boolean}) {
 		if ($connection.wallet) {
-			connect({
-				type: 'wallet',
-				address,
-				name: $connection.mechanism.name,
-			});
+			connect(
+				{
+					type: 'wallet',
+					address,
+					name: $connection.mechanism.name,
+				},
+				{
+					requireUserConfirmationBeforeSignatureRequest: options?.requireUserConfirmationBeforeSignatureRequest,
+				},
+			);
 		} else {
 			throw new Error(`need to be using a wallet`);
 		}
@@ -474,6 +487,7 @@ export function createConnection(settings: {
 						unlocking: false,
 					},
 				});
+				alwaysOnProvider.setWalletStatus('locked');
 			} else {
 				const disconnected = accountsFormated.find((v) => v == addressSignedIn) ? false : true;
 
@@ -486,6 +500,7 @@ export function createConnection(settings: {
 							connecting: false,
 						},
 					});
+					alwaysOnProvider.setWalletStatus('disconnected');
 				} else {
 					set({
 						...$connection,
@@ -494,6 +509,7 @@ export function createConnection(settings: {
 							status: 'connected',
 						},
 					});
+					alwaysOnProvider.setWalletStatus('connected');
 				}
 			}
 
@@ -543,6 +559,7 @@ export function createConnection(settings: {
 		remember = !(options?.doNotStoreLocally || false);
 		if (mechanism) {
 			if (mechanism.type === 'wallet') {
+				const specificAddress = mechanism.address;
 				const walletName =
 					mechanism.name || ($connection.wallets.length == 1 ? $connection.wallets[0].info.name : undefined);
 				if (walletName) {
@@ -554,14 +571,14 @@ export function createConnection(settings: {
 							stopatchingForChainIdChange(_wallet.provider);
 						}
 
-						const mechanism: WalletMechanism<string, undefined> = {
+						const mechanismToSave: WalletMechanism<string, undefined> = {
 							type: 'wallet',
 							name: walletName,
 						};
 
 						set({
 							step: 'WaitingForWalletConnection', // TODO FetchingAccounts
-							mechanism,
+							mechanism: mechanismToSave,
 							wallets: $connection.wallets,
 							wallet: undefined,
 						});
@@ -579,50 +596,72 @@ export function createConnection(settings: {
 						if (accounts.length === 0) {
 							set({
 								step: 'WaitingForWalletConnection', // TODO add another step to unlock ?
-								mechanism,
+								mechanism: mechanismToSave,
 								wallets: $connection.wallets,
 								wallet: undefined,
 							});
 							accounts = await provider.request({method: 'eth_requestAccounts'});
 							accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 							if (accounts.length > 0) {
-								const walletMechanism = {
-									...mechanism,
-									address: accounts[0],
-								};
-								if (options?.requestSignatureRightAway) {
+								const nextStep = !specificAddress && accounts.length > 1 ? 'ChooseWalletAccount' : 'WalletConnected';
+								let account = accounts[0];
+								if (specificAddress) {
+									if (accounts.find((v) => v === specificAddress)) {
+										account = specificAddress;
+									} else {
+										// TODO error
+										throw new Error(`could not find address ${specificAddress}`);
+									}
+								}
+
+								const newState: Connection =
+									nextStep === 'ChooseWalletAccount'
+										? {
+												step: nextStep,
+												mechanism: mechanismToSave,
+												wallets: $connection.wallets,
+
+												wallet: {
+													provider: _wallet.provider,
+													accounts,
+													status: 'connected',
+													accountChanged: undefined,
+													chainId,
+													invalidChainId: alwaysOnChainId != chainId,
+													switchingChain: false,
+												},
+											}
+										: {
+												step: nextStep,
+												mechanism: {
+													...mechanismToSave,
+													address: account,
+												},
+												wallets: $connection.wallets,
+												wallet: {
+													provider: _wallet.provider,
+													accounts,
+													status: 'connected',
+													accountChanged: undefined,
+													chainId,
+													invalidChainId: alwaysOnChainId != chainId,
+													switchingChain: false,
+												},
+											};
+								if (newState.step === 'WalletConnected' && options?.requestSignatureRightAway) {
 									watchForAccountChange(_wallet.provider);
 
-									set({
-										step: 'WalletConnected',
-										mechanism: walletMechanism,
-										wallets: $connection.wallets,
-										wallet: {
-											provider: _wallet.provider,
-											status: 'connected',
-											accountChanged: undefined,
-											chainId,
-											invalidChainId: alwaysOnChainId != chainId,
-											switchingChain: false,
-										},
-									});
-									saveLastWallet(walletMechanism);
+									set(newState);
+									alwaysOnProvider.setWalletStatus('connected');
+									saveLastWallet(newState.mechanism);
 									await requestSignature();
 								} else {
-									set({
-										step: 'WalletConnected',
-										mechanism: walletMechanism,
-										wallets: $connection.wallets,
-										wallet: {
-											provider: _wallet.provider,
-											status: 'connected',
-											accountChanged: undefined,
-											chainId,
-											invalidChainId: alwaysOnChainId != chainId,
-											switchingChain: false,
-										},
-									});
-									saveLastWallet(walletMechanism);
+									set(newState);
+									alwaysOnProvider.setWalletStatus('connected');
+									if (newState.step === 'WalletConnected') {
+										saveLastWallet(newState.mechanism);
+									}
+
 									watchForAccountChange(_wallet.provider);
 								}
 							} else {
@@ -634,43 +673,66 @@ export function createConnection(settings: {
 								});
 							}
 						} else {
-							const walletMechanism = {
-								...mechanism,
-								address: accounts[0],
-							};
-							if (!requestSignatureAutomaticallyIfPossible || options?.requireUserConfirmationBeforeSignatureRequest) {
-								set({
-									step: 'WalletConnected',
-									mechanism: walletMechanism,
-									wallets: $connection.wallets,
-									wallet: {
-										provider: _wallet.provider,
-										status: 'connected',
-										accountChanged: undefined,
-										chainId,
-										invalidChainId: alwaysOnChainId != chainId,
-										switchingChain: false,
-									},
-								});
-								saveLastWallet(walletMechanism);
+							let account = accounts[0];
+							if (specificAddress) {
+								if (accounts.find((v) => v === specificAddress)) {
+									account = specificAddress;
+								} else {
+									// TODO error
+									throw new Error(`could not find address ${specificAddress}`);
+								}
+							}
+							const nextStep = !specificAddress && accounts.length > 1 ? 'ChooseWalletAccount' : 'WalletConnected';
+							const newState: Connection =
+								nextStep === 'ChooseWalletAccount'
+									? {
+											step: nextStep,
+											mechanism: mechanismToSave,
+											wallets: $connection.wallets,
+											wallet: {
+												provider: _wallet.provider,
+												accounts,
+												status: 'connected',
+												accountChanged: undefined,
+												chainId,
+												invalidChainId: alwaysOnChainId != chainId,
+												switchingChain: false,
+											},
+										}
+									: {
+											step: nextStep,
+											mechanism: {
+												...mechanismToSave,
+												address: account,
+											},
+											wallets: $connection.wallets,
+											wallet: {
+												provider: _wallet.provider,
+												accounts,
+												status: 'connected',
+												accountChanged: undefined,
+												chainId,
+												invalidChainId: alwaysOnChainId != chainId,
+												switchingChain: false,
+											},
+										};
+							if (
+								newState.step === 'WalletConnected' &&
+								requestSignatureAutomaticallyIfPossible &&
+								!options?.requireUserConfirmationBeforeSignatureRequest
+							) {
+								set(newState);
+								alwaysOnProvider.setWalletStatus('connected');
+								saveLastWallet(newState.mechanism);
 								watchForAccountChange(_wallet.provider);
+								await requestSignature();
 							} else {
 								watchForAccountChange(_wallet.provider);
-								set({
-									step: 'WalletConnected',
-									mechanism: walletMechanism,
-									wallets: $connection.wallets,
-									wallet: {
-										provider: _wallet.provider,
-										status: 'connected',
-										accountChanged: undefined,
-										chainId,
-										invalidChainId: alwaysOnChainId != chainId,
-										switchingChain: false,
-									},
-								});
-								saveLastWallet(walletMechanism);
-								await requestSignature();
+								set(newState);
+								alwaysOnProvider.setWalletStatus('connected');
+								if (newState.step === 'WalletConnected') {
+									saveLastWallet(newState.mechanism);
+								}
 							}
 						}
 					} else {
@@ -1065,7 +1127,7 @@ export function createConnection(settings: {
 		cancel,
 		back,
 		requestSignature,
-		connectOnCurrentWalletAccount,
+		connecToAddress,
 		disconnect,
 		getSignatureForPublicKeyPublication,
 		switchWalletChain,

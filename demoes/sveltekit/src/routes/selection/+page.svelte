@@ -62,6 +62,11 @@
 	{/if}
 {:else if $connection.step == 'WaitingForWalletConnection'}
 	Wallet connection requested...
+{:else if $connection.step == 'ChooseWalletAccount'}
+	{#each $connection.wallet.accounts as account}
+		<button onclick={() => connection.connecToAddress(account)}>{account}</button>
+	{/each}
+	<button onclick={() => connection.back('WalletToChoose')}>back</button>
 {:else if $connection.step == 'WalletToChoose'}
 	{#if $connection.wallets.length == 0}
 		No wallet found. Download <a
@@ -85,9 +90,8 @@
 
 	{@const accountChanged = $connection.wallet?.accountChanged}
 	{#if accountChanged}
-		<button
-			style="margin-right: 2rem;"
-			onclick={() => connection.connectOnCurrentWalletAccount(accountChanged)}>switch</button
+		<button style="margin-right: 2rem;" onclick={() => connection.connecToAddress(accountChanged)}
+			>switch</button
 		>
 	{/if}
 	{@const invalidChain = $connection.wallet?.invalidChainId}

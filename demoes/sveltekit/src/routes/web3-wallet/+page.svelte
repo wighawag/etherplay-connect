@@ -24,7 +24,10 @@
 	{#if accountChanged}
 		<button
 			style="margin-right: 2rem;"
-			onclick={() => connection.connectOnCurrentWalletAccount(accountChanged)}>switch</button
+			onclick={() =>
+				connection.connecToAddress(accountChanged, {
+					requireUserConfirmationBeforeSignatureRequest: true
+				})}>switch</button
 		>
 	{/if}
 	{@const invalidChain = $connection.wallet?.invalidChainId}
@@ -48,6 +51,16 @@
 	{/if}
 {:else if $connection.step == 'WaitingForWalletConnection'}
 	Wallet connection requested...
+{:else if $connection.step == 'ChooseWalletAccount'}
+	{#each $connection.wallet.accounts as account}
+		<button
+			onclick={() =>
+				connection.connecToAddress(account, {
+					requireUserConfirmationBeforeSignatureRequest: true
+				})}>{account}</button
+		>
+	{/each}
+	<button onclick={() => connection.back('WalletToChoose')}>back</button>
 {:else if $connection.step == 'WalletToChoose'}
 	{#if $connection.wallets.length == 0}
 		No wallet found. Download <a

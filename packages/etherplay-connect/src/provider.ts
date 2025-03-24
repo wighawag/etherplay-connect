@@ -19,7 +19,10 @@ export function createProvider(params: {
 	chainId: string;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
-}): CurriedRPC<Methods> & {setWalletProvider: (walletProvider: EIP1193WindowWalletProvider | undefined) => void} & {
+}): CurriedRPC<Methods> & {
+	setWalletProvider: (walletProvider: EIP1193WindowWalletProvider | undefined) => void;
+	setWalletStatus: (newStatus: 'connected' | 'locked' | 'disconnected') => void;
+} & {
 	chainId: string;
 } {
 	const {endpoint, chainId, prioritizeWalletProvider, requestsPerSecond} = params;
@@ -79,5 +82,5 @@ export function createProvider(params: {
 	} as unknown as EIP1193WalletProvider;
 
 	const curriedRPC = createCurriedJSONRPC<Methods>(provider as any, {requestsPerSecond});
-	return {...curriedRPC, setWalletProvider, chainId};
+	return {...curriedRPC, setWalletProvider, setWalletStatus, chainId};
 }
