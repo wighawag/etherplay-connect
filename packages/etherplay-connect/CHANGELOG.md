@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.19
+
+### Patch Changes
+
+- ensureConnect WalletConnected option type
+
 ## 0.0.18
 
 ### Patch Changes

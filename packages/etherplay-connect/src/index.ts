@@ -838,7 +838,10 @@ export function createConnection(settings: {
 		options?: ConnectionOptions,
 	) {
 		const step = typeof stepOrMechanism === 'string' ? stepOrMechanism : undefined;
-		const mechanism = typeof stepOrMechanism === 'string' ? (mechanismOrOptions as Mechanism) : stepOrMechanism;
+		let mechanism = typeof stepOrMechanism === 'string' ? (mechanismOrOptions as Mechanism) : stepOrMechanism;
+		if (!mechanism && step === 'WalletConnected') {
+			mechanism = {type: 'wallet'};
+		}
 		options = typeof stepOrMechanism === 'string' ? options : (mechanismOrOptions as ConnectionOptions);
 		const promise = new Promise<Step extends 'WalletConnected' ? WalletConnected : SignedIn>((resolve, reject) => {
 			if ($connection.step == step) {
