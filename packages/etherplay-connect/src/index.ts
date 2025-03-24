@@ -30,6 +30,15 @@ export type Mechanism = AlchemyMechanism | WalletMechanism<string | undefined, `
 
 export type FullfilledMechanism = AlchemyMechanism | WalletMechanism<string, `0x${string}`>;
 
+export type WalletState = {
+	provider: EIP1193WindowWalletProvider;
+
+	accountChanged?: `0x${string}`;
+	chainId: string;
+	invalidChainId: boolean;
+	switchingChain: 'addingChain' | 'switchingChain' | false;
+} & ({status: 'connected'} | {status: 'locked'; unlocking: boolean} | {status: 'disconnected'; connecting: boolean});
+
 export type Connection = {
 	// The connection can have an error in every state.
 	// a banner or other mechanism to show error should be used.
@@ -68,34 +77,19 @@ export type Connection = {
 			wallet: undefined;
 			mechanism: WalletMechanism<string, undefined>;
 	  }
+	// TODO? add another state : 'ChooseWalletAccount'
 	// Once the wallet is connected, the system will need a signature
 	// this state represent the fact and require another user interaction to request the signature
 	| {
 			step: 'WalletConnected';
 			mechanism: WalletMechanism<string, `0x${string}`>;
-			wallet: {
-				provider: EIP1193WindowWalletProvider;
-				locked: boolean;
-				disconnected: boolean;
-				accountChanged?: `0x${string}`;
-				chainId: string;
-				invalidChainId: boolean;
-				switchingChain: 'addingChain' | 'switchingChain' | false;
-			};
+			wallet: WalletState;
 	  }
 	// This state is triggered once the signature is requested, the user will have to confirm with its wallet
 	| {
 			step: 'WaitingForSignature';
 			mechanism: WalletMechanism<string, `0x${string}`>;
-			wallet: {
-				provider: EIP1193WindowWalletProvider;
-				locked: boolean;
-				disconnected: boolean;
-				accountChanged?: `0x${string}`;
-				chainId: string;
-				invalidChainId: boolean;
-				switchingChain: 'addingChain' | 'switchingChain' | false;
-			};
+			wallet: WalletState;
 	  }
 	// Finally the user is fully signed in
 	// wallet?.accountChanged if set, represent the fact that the user has changed its web3-wallet accounnt.
@@ -112,15 +106,7 @@ export type Connection = {
 			step: 'SignedIn';
 			mechanism: WalletMechanism<string, `0x${string}`>;
 			account: OriginAccount;
-			wallet: {
-				provider: EIP1193WindowWalletProvider;
-				locked: boolean;
-				disconnected: boolean;
-				accountChanged?: `0x${string}`;
-				chainId: string;
-				invalidChainId: boolean;
-				switchingChain: 'addingChain' | 'switchingChain' | false;
-			};
+			wallet: WalletState;
 	  }
 );
 
@@ -257,8 +243,7 @@ export function createConnection(settings: {
 										wallets: $connection.wallets,
 										wallet: {
 											provider: walletProvider,
-											locked: false, // TODO should fetch eth_account first
-											disconnected: false, // TODO should fetch eth_account first
+											status: 'connected',
 											accountChanged: undefined,
 											chainId,
 											invalidChainId: alwaysOnChainId != chainId,
@@ -301,8 +286,7 @@ export function createConnection(settings: {
 										wallets: $connection.wallets,
 										wallet: {
 											provider: walletProvider,
-											locked: false, // TODO should fetch eth_account first
-											disconnected: false, // TODO should fetch eth_account first
+											status: 'connected',
 											accountChanged: undefined,
 											chainId,
 											invalidChainId: alwaysOnChainId != chainId,
@@ -433,8 +417,7 @@ export function createConnection(settings: {
 			wallet: {
 				chainId,
 				provider: provider,
-				locked: false,
-				disconnected: false,
+				status: 'connected',
 				accountChanged: undefined, // TODO check account list
 				invalidChainId: alwaysOnChainId != chainId,
 				switchingChain: false,
@@ -446,14 +429,14 @@ export function createConnection(settings: {
 	}
 
 	function connectOnCurrentWalletAccount(address: `0x${string}`) {
-		if ($connection.step === 'SignedIn' && $connection.mechanism.type === 'wallet') {
+		if ($connection.wallet) {
 			connect({
 				type: 'wallet',
 				address,
 				name: $connection.mechanism.name,
 			});
 		} else {
-			throw new Error(`need to be using a mechanism of type wallet and be SignedIN`);
+			throw new Error(`need to be using a wallet`);
 		}
 	}
 
@@ -487,23 +470,31 @@ export function createConnection(settings: {
 					...$connection,
 					wallet: {
 						...$connection.wallet,
-						locked: true,
+						status: 'locked',
+						unlocking: false,
 					},
 				});
 			} else {
 				const disconnected = accountsFormated.find((v) => v == addressSignedIn) ? false : true;
 
-				if ($connection.wallet.locked) {
+				if (disconnected) {
 					set({
 						...$connection,
 						wallet: {
 							...$connection.wallet,
-							locked: false,
-							disconnected,
+							status: 'disconnected',
+							connecting: false,
+						},
+					});
+				} else {
+					set({
+						...$connection,
+						wallet: {
+							...$connection.wallet,
+							status: 'connected',
 						},
 					});
 				}
-				// TODO disconnected ?
 			}
 
 			if (accountsFormated.length > 0 && accountsFormated[0] != $connection.mechanism.address) {
@@ -552,7 +543,8 @@ export function createConnection(settings: {
 		remember = !(options?.doNotStoreLocally || false);
 		if (mechanism) {
 			if (mechanism.type === 'wallet') {
-				const walletName = mechanism.name;
+				const walletName =
+					mechanism.name || ($connection.wallets.length == 1 ? $connection.wallets[0].info.name : undefined);
 				if (walletName) {
 					const wallet = $connection.wallets.find((v) => v.info.name == walletName || v.info.uuid == walletName);
 					if (wallet) {
@@ -607,8 +599,7 @@ export function createConnection(settings: {
 										wallets: $connection.wallets,
 										wallet: {
 											provider: _wallet.provider,
-											locked: false,
-											disconnected: false,
+											status: 'connected',
 											accountChanged: undefined,
 											chainId,
 											invalidChainId: alwaysOnChainId != chainId,
@@ -624,8 +615,7 @@ export function createConnection(settings: {
 										wallets: $connection.wallets,
 										wallet: {
 											provider: _wallet.provider,
-											locked: false,
-											disconnected: false,
+											status: 'connected',
 											accountChanged: undefined,
 											chainId,
 											invalidChainId: alwaysOnChainId != chainId,
@@ -655,8 +645,7 @@ export function createConnection(settings: {
 									wallets: $connection.wallets,
 									wallet: {
 										provider: _wallet.provider,
-										locked: false,
-										disconnected: false,
+										status: 'connected',
 										accountChanged: undefined,
 										chainId,
 										invalidChainId: alwaysOnChainId != chainId,
@@ -673,8 +662,7 @@ export function createConnection(settings: {
 									wallets: $connection.wallets,
 									wallet: {
 										provider: _wallet.provider,
-										locked: false,
-										disconnected: false,
+										status: 'connected',
 										accountChanged: undefined,
 										chainId,
 										invalidChainId: alwaysOnChainId != chainId,
@@ -880,14 +868,30 @@ export function createConnection(settings: {
 	}
 
 	async function unlock() {
-		if (!$connection.wallet) {
+		const wallet = $connection.wallet;
+		if (!wallet || wallet.status !== 'locked') {
 			throw new Error(`invalid state`);
 		}
 
-		const wallet = $connection.wallet;
+		set({
+			...$connection,
+			wallet: {
+				...wallet,
+				unlocking: true,
+			},
+		});
 
-		// TODO unlocking state
-		await wallet.provider.request({method: 'eth_requestAccounts'}).then(onAccountChanged);
+		try {
+			await wallet.provider.request({method: 'eth_requestAccounts'}).then(onAccountChanged);
+		} catch {
+			set({
+				...$connection,
+				wallet: {
+					...wallet,
+					unlocking: false,
+				},
+			});
+		}
 	}
 
 	async function switchWalletChain(

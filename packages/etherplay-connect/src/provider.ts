@@ -26,32 +26,41 @@ export function createProvider(params: {
 	const jsonRPC = createCurriedJSONRPC(endpoint);
 
 	let walletProvider: EIP1193WindowWalletProvider | undefined;
+	let status: 'connected' | 'locked' | 'disconnected' = 'disconnected';
 
 	function setWalletProvider(newWalletProvider: EIP1193WindowWalletProvider | undefined) {
 		walletProvider = newWalletProvider;
 	}
+	function setWalletStatus(newStatus: 'connected' | 'locked' | 'disconnected') {
+		status = newStatus;
+	}
 
 	const provider = {
 		async request(req: {method: string; params?: any[]}) {
-			if (walletProvider) {
-				const signingMethod =
-					signerMethods.includes(req.method) ||
-					connectedAccountMethods.includes(req.method) ||
-					walletOnlyMethods.includes(req.method) ||
-					req.method.indexOf('sign') != -1;
+			const signingMethod =
+				signerMethods.includes(req.method) ||
+				connectedAccountMethods.includes(req.method) ||
+				walletOnlyMethods.includes(req.method) ||
+				req.method.indexOf('sign') != -1;
 
+			if (walletProvider) {
 				if (prioritizeWalletProvider || signingMethod) {
+					if (signingMethod) {
+						if (status !== 'connected') {
+							return Promise.reject({message: 'wallet provider is not connected', code: 4001});
+						}
+					}
+
 					const currentChainIdAsHex = await walletProvider.request({
 						method: 'eth_chainId',
 					});
 					const currentChainId = Number(currentChainIdAsHex).toString();
 					if (chainId !== currentChainId) {
 						if (signingMethod) {
-							return Promise.reject(
-								new Error(
-									`wallet provider is connected to a different chain, expected ${chainId} but got ${currentChainId}`,
-								),
-							);
+							return Promise.reject({
+								message: `wallet provider is connected to a different chain, expected ${chainId} but got ${currentChainId}`,
+								code: 4001,
+							});
 						} else {
 							// we fallback on jsonRPc if invalid chain and not a signing method
 							return jsonRPC.request(req);
@@ -60,6 +69,10 @@ export function createProvider(params: {
 					return walletProvider.request(req as any);
 				}
 			}
+
+			// if (signingMethod) {
+			// 	return Promise.reject(new Error('wallet provider is not connected'));
+			// }
 
 			return jsonRPC.request(req);
 		},

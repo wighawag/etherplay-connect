@@ -35,8 +35,16 @@
 			disabled={!!$connection.wallet?.switchingChain}>switch chain</button
 		>
 	{/if}
-	{#if $connection.wallet.locked}
-		<button style="margin-right: 2rem;" onclick={() => connection.unlock()}>unlock</button>
+	{#if $connection.wallet.status == 'locked'}
+		<button
+			style="margin-right: 2rem;"
+			disabled={$connection.wallet.unlocking}
+			onclick={() => connection.unlock()}>unlock</button
+		>
+	{:else if $connection.wallet.status == 'disconnected'}
+		<p style="color: oklch(0.637 0.237 25.331);">
+			The account has been disconnected, reconnect it to continue. or disconnect
+		</p>
 	{/if}
 {:else if $connection.step == 'WaitingForWalletConnection'}
 	Wallet connection requested...
