@@ -39,6 +39,26 @@ export type WalletState = {
 	switchingChain: 'addingChain' | 'switchingChain' | false;
 } & ({status: 'connected'} | {status: 'locked'; unlocking: boolean} | {status: 'disconnected'; connecting: boolean});
 
+type WalletConnected = {
+	step: 'WaitingForSignature';
+	mechanism: WalletMechanism<string, `0x${string}`>;
+	wallet: WalletState;
+};
+
+type SignedIn =
+	| {
+			step: 'SignedIn';
+			mechanism: AlchemyMechanism;
+			account: OriginAccount;
+			wallet: undefined;
+	  }
+	| {
+			step: 'SignedIn';
+			mechanism: WalletMechanism<string, `0x${string}`>;
+			account: OriginAccount;
+			wallet: WalletState;
+	  };
+
 export type Connection = {
 	// The connection can have an error in every state.
 	// a banner or other mechanism to show error should be used.
@@ -92,28 +112,13 @@ export type Connection = {
 			wallet: WalletState;
 	  }
 	// This state is triggered once the signature is requested, the user will have to confirm with its wallet
-	| {
-			step: 'WaitingForSignature';
-			mechanism: WalletMechanism<string, `0x${string}`>;
-			wallet: WalletState;
-	  }
+	| WalletConnected
 	// Finally the user is fully signed in
 	// wallet?.accountChanged if set, represent the fact that the user has changed its web3-wallet accounnt.
 	// wallet?.invalidChainId if set, represent the fact that the wallet is connected to a different chain.
 	// wallet?.switchingChain if set, represent the fact that the user is currently switching chain.
 	// a notification could be shown to the user so that he can switch the app to use that other account.
-	| {
-			step: 'SignedIn';
-			mechanism: AlchemyMechanism;
-			account: OriginAccount;
-			wallet: undefined;
-	  }
-	| {
-			step: 'SignedIn';
-			mechanism: WalletMechanism<string, `0x${string}`>;
-			account: OriginAccount;
-			wallet: WalletState;
-	  }
+	| SignedIn
 );
 
 interface EIP6963ProviderInfo {
@@ -548,15 +553,14 @@ export function createConnection(settings: {
 		walletProvider.removeListener('chainChanged', onChainChanged);
 	}
 
+	type ConnectionOptions = {
+		requireUserConfirmationBeforeSignatureRequest?: boolean;
+		doNotStoreLocally?: boolean;
+		requestSignatureRightAway?: boolean;
+	};
+
 	let remember: boolean = false;
-	async function connect(
-		mechanism?: Mechanism,
-		options?: {
-			requireUserConfirmationBeforeSignatureRequest?: boolean;
-			doNotStoreLocally?: boolean;
-			requestSignatureRightAway?: boolean;
-		},
-	) {
+	async function connect(mechanism?: Mechanism, options?: ConnectionOptions) {
 		remember = !(options?.doNotStoreLocally || false);
 		if (mechanism) {
 			if (mechanism.type === 'wallet') {
@@ -819,6 +823,48 @@ export function createConnection(settings: {
 				wallet: undefined,
 			});
 		}
+	}
+
+	function ensureConnected(
+		step: 'WalletConnected',
+		mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
+		options?: ConnectionOptions,
+	): Promise<WalletConnected>;
+	function ensureConnected(step: 'SignedIn', mechanism?: Mechanism, options?: ConnectionOptions): Promise<SignedIn>;
+	function ensureConnected(mechanism?: Mechanism, options?: ConnectionOptions): Promise<SignedIn>;
+	async function ensureConnected<Step extends 'WalletConnected' | 'SignedIn' = 'SignedIn'>(
+		stepOrMechanism?: Step | Mechanism,
+		mechanismOrOptions?: Mechanism | ConnectionOptions,
+		options?: ConnectionOptions,
+	) {
+		const step = typeof stepOrMechanism === 'string' ? stepOrMechanism : undefined;
+		const mechanism = typeof stepOrMechanism === 'string' ? (mechanismOrOptions as Mechanism) : stepOrMechanism;
+		options = typeof stepOrMechanism === 'string' ? options : (mechanismOrOptions as ConnectionOptions);
+		const promise = new Promise<Step extends 'WalletConnected' ? WalletConnected : SignedIn>((resolve, reject) => {
+			if ($connection.step == step) {
+				resolve($connection as any);
+				return;
+			}
+			let idlePassed = $connection.step != 'Idle';
+			if (!idlePassed) {
+				connect(mechanism, options);
+			}
+			const unsubscribe = _store.subscribe((connection) => {
+				if (connection.step === 'Idle' && idlePassed) {
+					unsubscribe();
+					reject();
+				}
+				if (!idlePassed && connection.step !== 'Idle') {
+					idlePassed = true;
+				}
+				if (connection.step === step) {
+					unsubscribe();
+					resolve(connection as any);
+				}
+			});
+		});
+
+		return promise;
 	}
 
 	function disconnect() {
@@ -1143,6 +1189,7 @@ export function createConnection(settings: {
 		getSignatureForPublicKeyPublication,
 		switchWalletChain,
 		unlock,
+		ensureConnected,
 		provider: alwaysOnProvider,
 	};
 }

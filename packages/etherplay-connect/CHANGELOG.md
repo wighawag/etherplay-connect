@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.18
+
+### Patch Changes
+
+- ensureConnected
+
 ## 0.0.17
 
 ### Patch Changes

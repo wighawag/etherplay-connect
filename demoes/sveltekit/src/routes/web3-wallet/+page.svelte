@@ -16,6 +16,14 @@
 	});
 
 	let connectionAsAny = $derived($connection as any);
+
+	function purchase() {
+		connection.ensureConnected('WalletConnected', { type: 'wallet' }).then(($connection) => {
+			connection.provider.call('eth_sendTransaction')([
+				{ from: $connection.mechanism.address, to: $connection.mechanism.address, value: '0x0' }
+			]);
+		});
+	}
 </script>
 
 {#if $connection.step === 'Idle'}
@@ -80,3 +88,5 @@
 {:else if $connection.step == 'SignedIn'}{:else}
 	{JSON.stringify({ step: connectionAsAny.step, error: connectionAsAny.error }, null, 2)}
 {/if}
+
+<button onclick={purchase}>purchase</button>

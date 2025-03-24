@@ -4,6 +4,18 @@
 	let connectionAsAny = $derived($connection as any);
 
 	let email: string = $state('');
+
+	function purchase() {
+		connection.ensureConnected().then(($connection) => {
+			if ($connection.wallet) {
+				connection.provider.call('eth_sendTransaction')([
+					{ from: $connection.mechanism.address, to: $connection.mechanism.address, value: '0x0' }
+				]);
+			} else {
+				console.error(`show QR code ?`);
+			}
+		});
+	}
 </script>
 
 {#if $connection.step === 'Idle'}
@@ -138,3 +150,5 @@
 {:else}
 	{JSON.stringify({ step: connectionAsAny.step, error: connectionAsAny.error }, null, 2)}
 {/if}
+
+<button onclick={purchase}>purchase</button>
