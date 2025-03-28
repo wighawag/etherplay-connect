@@ -10,10 +10,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ],
-    "overrides": {
-      "remote-procedure-call": "link:../remote-procedure-call"
-    }
+    ]
   },
   "scripts": {
     "prepare": "set-defaults .vscode && pnpm build:packages",
