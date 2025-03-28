@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.21
+
+### Patch Changes
+
+- handle timeout + signature rerequest
+
 ## 0.0.20
 
 ### Patch Changes

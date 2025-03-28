@@ -96,6 +96,7 @@
 	Wallet connected
 	<button onclick={() => connection.requestSignature()}>sign-in private account</button>
 	<button onclick={() => connection.back('MechanismToChoose')}>back</button>
+	<button onclick={() => connection.disconnect()}>disconnect</button>
 {:else if $connection.step == 'PopupLaunched'}
 	{#if $connection.popupClosed}
 		Popup seems to be closed.
@@ -106,6 +107,10 @@
 	{/if}
 {:else if $connection.step == 'WaitingForWalletConnection'}
 	Wallet connection requested...
+{:else if $connection.step == 'WaitingForSignature'}
+	<!-- Waiting for signature Did the wallet not ask ? -->
+	<!-- <button onclick={() => connection.requestSignature()}>sign</button> -->
+	<!-- <button onclick={() => connection.back('WalletToChoose')}>back</button> -->
 {:else if $connection.step == 'ChooseWalletAccount'}
 	{#each $connection.wallet.accounts as account}
 		<button onclick={() => connection.connecToAddress(account)}>{account}</button>

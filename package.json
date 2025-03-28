@@ -10,7 +10,10 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "remote-procedure-call": "link:../remote-procedure-call"
+    }
   },
   "scripts": {
     "prepare": "set-defaults .vscode && pnpm build:packages",
@@ -23,5 +26,8 @@
     "build-and-merge": "pnpm build:demo && pnpm build:web && cp -r ./demoes/sveltekit/build web/dist/demo",
     "start": "zellij-launcher --layout zellij.kdl a $npm_package_name || zellij --layout zellij.kdl -s $npm_package_name",
     "dev": "pnpm run --parallel -r dev"
+  },
+  "dependencies": {
+    "remote-procedure-call": "link:../remote-procedure-call"
   }
 }

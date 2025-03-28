@@ -9,7 +9,7 @@ import {
 	originKeyMessage,
 	originPublicKeyPublicationMessage,
 } from '@etherplay/alchemy';
-import {hashMessage} from './utils.js';
+import {hashMessage, withTimeout} from './utils.js';
 import {createProvider} from './provider.js';
 
 export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage};
@@ -243,14 +243,14 @@ export function createConnection(settings: {
 							waitForWallet(walletMechanism.name)
 								.then(async (walletDetails: EIP6963ProviderDetail) => {
 									const walletProvider = walletDetails.provider;
-									const chainIdAsHex = await walletProvider.request({method: 'eth_chainId'});
+									const chainIdAsHex = await withTimeout(walletProvider.request({method: 'eth_chainId'}));
 									const chainId = Number(chainIdAsHex).toString();
 									_wallet = {provider: walletProvider, chainId};
 									alwaysOnProvider.setWalletProvider(walletProvider);
 									watchForChainIdChange(_wallet.provider);
 									let accounts: `0x${string}`[] = [];
 									// try {
-									accounts = await walletProvider.request({method: 'eth_accounts'});
+									accounts = await withTimeout(walletProvider.request({method: 'eth_accounts'}));
 									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
 									// } catch {}
 									// // TODO try catch ? and use logic of onAccountChanged
@@ -296,7 +296,7 @@ export function createConnection(settings: {
 							waitForWallet(lastWallet.name)
 								.then(async (walletDetails: EIP6963ProviderDetail) => {
 									const walletProvider = walletDetails.provider;
-									const chainIdAsHex = await walletProvider.request({method: 'eth_chainId'});
+									const chainIdAsHex = await withTimeout(walletProvider.request({method: 'eth_chainId'}));
 									const chainId = Number(chainIdAsHex).toString();
 									_wallet = {provider: walletProvider, chainId};
 									alwaysOnProvider.setWalletProvider(walletProvider);
@@ -304,7 +304,7 @@ export function createConnection(settings: {
 
 									let accounts: `0x${string}`[] = [];
 									// try {
-									accounts = await walletProvider.request({method: 'eth_accounts'});
+									accounts = await withTimeout(walletProvider.request({method: 'eth_accounts'}));
 									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
 									// } catch {}
 									// // TODO try catch ? and use logic of onAccountChanged
@@ -378,8 +378,52 @@ export function createConnection(settings: {
 		localStorage.removeItem(storageKeyLastWallet);
 	}
 
+	let signaturePending: {reject: (error: unknown) => void; id: number} | undefined = undefined;
+	let signatureCounter = 0;
+	function _requestSignature(provider: EIP1193WindowWalletProvider, msg: `0x${string}`, address: `0x${string}`) {
+		const id = ++signatureCounter;
+		if (signaturePending) {
+			const tmp = signaturePending;
+			signaturePending = undefined;
+			tmp.reject(new Error('signature request replaced', {cause: {code: 111111}}));
+		}
+		return new Promise<`0x${string}`>((resolve, reject) => {
+			signaturePending = {reject, id};
+
+			// console.log(`check for timeout...`);
+			// this step ensure timeout
+			// await withTimeout(
+			// 	provider.request({
+			// 		method: 'eth_chainId',
+			// 	}),
+			// );
+			// await withTimeout(
+			// 	provider.request({
+			// 		method: 'eth_accounts',
+			// 	}),
+			// );
+			provider
+				.request({
+					method: 'personal_sign',
+					params: [msg, address],
+				})
+				.then((signature) => {
+					if (signaturePending?.id === id) {
+						signaturePending = undefined;
+						resolve(signature);
+					}
+				})
+				.catch((err) => {
+					if (signaturePending?.id === id) {
+						signaturePending = undefined;
+						reject(err);
+					}
+				});
+		});
+	}
+
 	async function requestSignature() {
-		if ($connection.step !== 'WalletConnected') {
+		if ($connection.step !== 'WalletConnected' && $connection.step !== 'WaitingForSignature') {
 			throw new Error(`invalid step: ${$connection.step}, needs to be WalletConnected`);
 		}
 
@@ -394,12 +438,13 @@ export function createConnection(settings: {
 
 		let signature: `0x${string}`;
 		try {
-			// TODO timeout
-			signature = await provider.request({
-				method: 'personal_sign',
-				params: [msg, $connection.mechanism.address],
-			});
+			signature = await _requestSignature(provider, msg, $connection.mechanism.address);
 		} catch (err) {
+			console.error(err);
+			if ((err as any)?.cause?.code === 111111) {
+				// We ignore replaced signature request
+				return;
+			}
 			// TODO handle rejection (code: 4001 ?)
 			set({
 				...$connection,
@@ -588,7 +633,7 @@ export function createConnection(settings: {
 							wallet: undefined,
 						});
 						const provider = wallet.provider;
-						const chainIdAsHex = await provider.request({method: 'eth_chainId'});
+						const chainIdAsHex = await withTimeout(provider.request({method: 'eth_chainId'}));
 						const chainId = Number(chainIdAsHex).toString();
 						_wallet = {
 							chainId,
@@ -596,7 +641,7 @@ export function createConnection(settings: {
 						};
 						alwaysOnProvider.setWalletProvider(_wallet.provider);
 						watchForChainIdChange(_wallet.provider);
-						let accounts = await provider.request({method: 'eth_accounts'});
+						let accounts = await withTimeout(provider.request({method: 'eth_accounts'}));
 						accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 						if (accounts.length === 0) {
 							set({

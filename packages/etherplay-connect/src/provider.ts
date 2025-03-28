@@ -1,5 +1,6 @@
 import type {EIP1193WalletProvider, EIP1193WindowWalletProvider, Methods} from 'eip-1193';
 import {createCurriedJSONRPC, CurriedRPC} from 'remote-procedure-call';
+import {withTimeout} from './utils.js';
 
 const signerMethods = [
 	'eth_accounts',
@@ -54,9 +55,22 @@ export function createProvider(params: {
 						}
 					}
 
-					const currentChainIdAsHex = await walletProvider.request({
-						method: 'eth_chainId',
-					});
+					let currentChainIdAsHex: string;
+					try {
+						currentChainIdAsHex = await withTimeout(
+							walletProvider.request({
+								method: 'eth_chainId',
+							}),
+						);
+					} catch (err) {
+						if (signingMethod) {
+							return Promise.reject(err);
+						} else {
+							// we fallback on jsonRPc if error while getting  chain and not a signing method
+							return jsonRPC.request(req);
+						}
+					}
+
 					const currentChainId = Number(currentChainIdAsHex).toString();
 					if (chainId !== currentChainId) {
 						if (signingMethod) {
@@ -73,9 +87,9 @@ export function createProvider(params: {
 				}
 			}
 
-			// if (signingMethod) {
-			// 	return Promise.reject(new Error('wallet provider is not connected'));
-			// }
+			if (signingMethod) {
+				return Promise.reject(new Error('wallet provider is not connected'));
+			}
 
 			return jsonRPC.request(req);
 		},
