@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.22
+
+### Patch Changes
+
+- try catch some connection error
+
 ## 0.0.21
 
 ### Patch Changes

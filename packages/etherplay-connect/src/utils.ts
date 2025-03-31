@@ -41,7 +41,7 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 5000, ti
 	const timeoutPromise = new Promise<never>((_, reject) => {
 		id = setTimeout(() => {
 			if (id) {
-				console.log(`time out reached`);
+				// console.log(`time out reached`);
 				clearTimeout(id);
 				id = undefined;
 				reject(new Error(timeoutMessage || `Promise timed out after ${timeoutMs}ms`));
@@ -53,9 +53,9 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 5000, ti
 		if (id) {
 			clearTimeout(id);
 			id = undefined;
-			console.log(`promise resolved in time`, result);
+			// console.log(`promise resolved in time`, result);
 		} else {
-			console.log(`promise resolved too late`);
+			// console.log(`promise resolved too late`);
 		}
 	});
 
