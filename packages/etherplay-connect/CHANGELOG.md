@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.23
+
+### Patch Changes
+
+- cancel remove last wallet
+
 ## 0.0.22
 
 ### Patch Changes

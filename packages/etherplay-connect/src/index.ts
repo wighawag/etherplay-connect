@@ -1014,6 +1014,7 @@ export function createConnection(settings: {
 
 	function cancel() {
 		popup?.cancel();
+		deleteLastWallet();
 		set({step: 'Idle', wallet: undefined, loading: false, wallets: $connection.wallets});
 	}
 
