@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.24
+
+### Patch Changes
+
+- keep updating accounts list
+
 ## 0.0.23
 
 ### Patch Changes

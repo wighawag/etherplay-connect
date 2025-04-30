@@ -570,6 +570,7 @@ export function createConnection(settings: {
 					wallet: {
 						...$connection.wallet,
 						accountChanged: accountsFormated[0],
+						accounts: accountsFormated,
 					},
 				});
 			} else {
@@ -578,6 +579,7 @@ export function createConnection(settings: {
 					wallet: {
 						...$connection.wallet,
 						accountChanged: undefined,
+						accounts: accountsFormated,
 					},
 				});
 			}
