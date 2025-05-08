@@ -2,3 +2,6 @@
 - [ ] allow multiple originAccount in localstorage/ indexed by addresss. so they can be retriebed (useful only for wallet signing)
 - [ ] fixes arround error and popup closing, seems to not always detect
 - [ ] handle window.opener == null with encryption and app domain page that would act as intermediary to then use broadcast channel or localstorage to communicate back to the app
+
+- [ ] WalletConnected
+  - [] auto logout on disconnected / lock ? (an option ? , only when Installed Web3 Wallet used ?)

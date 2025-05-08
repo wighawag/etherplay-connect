@@ -834,7 +834,7 @@ export function createConnection(settings: {
 								step: 'MechanismToChoose',
 								wallets: $connection.wallets,
 								wallet: undefined,
-								error: {message: `failed toconnect to wallet`, cause: err},
+								error: {message: `failed to connect to wallet`, cause: err},
 							});
 						}
 					} else {
