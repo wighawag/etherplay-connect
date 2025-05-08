@@ -487,7 +487,10 @@ export function createConnection(settings: {
 		}
 	}
 
-	function connecToAddress(address: `0x${string}`, options?: {requireUserConfirmationBeforeSignatureRequest: boolean}) {
+	function connectToAddress(
+		address: `0x${string}`,
+		options?: {requireUserConfirmationBeforeSignatureRequest: boolean},
+	) {
 		if ($connection.wallet) {
 			connect(
 				{
@@ -565,14 +568,18 @@ export function createConnection(settings: {
 			}
 
 			if (accountsFormated.length > 0 && accountsFormated[0] != $connection.mechanism.address) {
-				set({
-					...$connection,
-					wallet: {
-						...$connection.wallet,
-						accountChanged: accountsFormated[0],
-						accounts: accountsFormated,
-					},
-				});
+				if ($connection.wallet && settings?.alwaysUseCurrentAccount) {
+					connectToAddress(accountsFormated[0]);
+				} else {
+					set({
+						...$connection,
+						wallet: {
+							...$connection.wallet,
+							accountChanged: accountsFormated[0],
+							accounts: accountsFormated,
+						},
+					});
+				}
 			} else {
 				set({
 					...$connection,
@@ -1244,7 +1251,7 @@ export function createConnection(settings: {
 		cancel,
 		back,
 		requestSignature,
-		connecToAddress,
+		connectToAddress,
 		disconnect,
 		getSignatureForPublicKeyPublication,
 		switchWalletChain,

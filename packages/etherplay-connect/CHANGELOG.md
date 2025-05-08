@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.25
+
+### Patch Changes
+
+- alwaysUseCurrentAccount auto switch account
+
 ## 0.0.24
 
 ### Patch Changes

@@ -38,7 +38,7 @@
 
 	{@const accountChanged = $connection.wallet?.accountChanged}
 	{#if accountChanged}
-		<button style="margin-right: 2rem;" onclick={() => connection.connecToAddress(accountChanged)}
+		<button style="margin-right: 2rem;" onclick={() => connection.connectToAddress(accountChanged)}
 			>switch</button
 		>
 	{/if}
@@ -65,7 +65,7 @@
 	Wallet connection requested...
 {:else if $connection.step == 'ChooseWalletAccount'}
 	{#each $connection.wallet.accounts as account}
-		<button onclick={() => connection.connecToAddress(account)}>{account}</button>
+		<button onclick={() => connection.connectToAddress(account)}>{account}</button>
 	{/each}
 	<button onclick={() => connection.back('WalletToChoose')}>back</button>
 {:else if $connection.step == 'WalletToChoose'}
