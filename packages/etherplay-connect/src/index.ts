@@ -525,7 +525,8 @@ export function createConnection(settings: {
 	}
 
 	function onAccountChanged(accounts: `0x${string}`[]) {
-		console.log('account changed', accounts);
+		// TODO lastAccount
+		// console.log('account changed', accounts);
 		const accountsFormated = accounts.map((a) => a.toLowerCase()) as `0x${string}`[];
 
 		if ($connection.wallet) {
@@ -593,17 +594,40 @@ export function createConnection(settings: {
 		}
 	}
 
+	// TODO lastAccounts
+	let lockCheckInterval: number | undefined;
+	async function checkLockStatus() {
+		try {
+			const provider = $connection.wallet?.provider;
+			if (provider) {
+				let accounts = await withTimeout(provider.request({method: 'eth_accounts'}));
+				if (accounts.length == 0) {
+					onAccountChanged(accounts);
+				}
+			}
+		} catch {}
+	}
 	function watchForAccountChange(walletProvider: EIP1193WindowWalletProvider) {
 		walletProvider.on('accountsChanged', onAccountChanged);
+		// we also poll accounts for checking lock status as Metamask does not notify it
+		if (lockCheckInterval) {
+			clearInterval(lockCheckInterval);
+			lockCheckInterval = undefined;
+		}
+		lockCheckInterval = setInterval(checkLockStatus, 1000);
 	}
-	function stopatchingForAccountChange(walletProvider: EIP1193WindowWalletProvider) {
+	function stopWatchingForAccountChange(walletProvider: EIP1193WindowWalletProvider) {
 		walletProvider.removeListener('accountsChanged', onAccountChanged);
+		if (lockCheckInterval) {
+			clearInterval(lockCheckInterval);
+			lockCheckInterval = undefined;
+		}
 	}
 
 	function watchForChainIdChange(walletProvider: EIP1193WindowWalletProvider) {
 		walletProvider.on('chainChanged', onChainChanged);
 	}
-	function stopatchingForChainIdChange(walletProvider: EIP1193WindowWalletProvider) {
+	function stopWatchingForChainIdChange(walletProvider: EIP1193WindowWalletProvider) {
 		walletProvider.removeListener('chainChanged', onChainChanged);
 	}
 
@@ -626,8 +650,8 @@ export function createConnection(settings: {
 					if (wallet) {
 						if (_wallet) {
 							alwaysOnProvider.setWalletProvider(undefined);
-							stopatchingForAccountChange(_wallet.provider);
-							stopatchingForChainIdChange(_wallet.provider);
+							stopWatchingForAccountChange(_wallet.provider);
+							stopWatchingForChainIdChange(_wallet.provider);
 						}
 
 						const mechanismToSave: WalletMechanism<string, undefined> = {
@@ -861,7 +885,7 @@ export function createConnection(settings: {
 				});
 				try {
 					const result = await popup;
-					console.log({result});
+					// console.log({result});
 					set({
 						step: 'SignedIn',
 						account: result,
@@ -873,7 +897,7 @@ export function createConnection(settings: {
 						saveOriginAccount(result);
 					}
 				} catch (err) {
-					console.log({error: err});
+					console.error({error: err});
 					set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 				} finally {
 					unsubscribe();
@@ -907,12 +931,20 @@ export function createConnection(settings: {
 		}
 		options = typeof stepOrMechanism === 'string' ? options : (mechanismOrOptions as ConnectionOptions);
 		const promise = new Promise<Step extends 'WalletConnected' ? WalletConnected : SignedIn>((resolve, reject) => {
-			if ($connection.step == step) {
+			let forceConnect = false;
+			if (
+				$connection.step == 'WalletConnected' &&
+				($connection.wallet.status == 'locked' || $connection.wallet.status === 'disconnected')
+			) {
+				// console.log(`locked / disconnected : we assume it needs reconnection`);
+				forceConnect = true;
+				mechanism = $connection.mechanism; // we reuse existing mechanism as we just want to reconnect
+			} else if ($connection.step == step) {
 				resolve($connection as any);
 				return;
 			}
 			let idlePassed = $connection.step != 'Idle';
-			if (!idlePassed) {
+			if (!idlePassed || forceConnect) {
 				connect(mechanism, options);
 			}
 			const unsubscribe = _store.subscribe((connection) => {
@@ -938,8 +970,8 @@ export function createConnection(settings: {
 		deleteLastWallet();
 		if (_wallet) {
 			alwaysOnProvider.setWalletProvider(undefined);
-			stopatchingForAccountChange(_wallet.provider);
-			stopatchingForChainIdChange(_wallet.provider);
+			stopWatchingForAccountChange(_wallet.provider);
+			stopWatchingForChainIdChange(_wallet.provider);
 		}
 		_wallet = undefined;
 		set({

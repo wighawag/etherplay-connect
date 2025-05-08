@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.26
+
+### Patch Changes
+
+- watch for lock + unlock
+
 ## 0.0.25
 
 ### Patch Changes
