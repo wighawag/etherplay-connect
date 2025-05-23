@@ -1,5 +1,13 @@
 # @etherplay/connect
 
+## 0.0.27
+
+### Patch Changes
+
+- debug pass through
+- Updated dependencies
+  - @etherplay/alchemy@0.0.11
+
 ## 0.0.26
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @etherplay/alchemy
 
+## 0.0.11
+
+### Patch Changes
+
+- debug pass through
+
 ## 0.0.10
 
 ### Patch Changes
