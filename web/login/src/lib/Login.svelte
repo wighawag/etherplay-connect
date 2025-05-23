@@ -6,6 +6,7 @@
 	import Mnemonic from './mechanism/Mnemonic.svelte';
 	import {get} from 'svelte/store';
 	import Loading from './Loading.svelte';
+	import {debug} from './state';
 
 	let {
 		alchemy,
@@ -20,9 +21,6 @@
 			canCloseAutomatically: boolean;
 		};
 	} = $props();
-
-	// TODO
-	let debug = false;
 
 	function cancelOnClose() {
 		_cancel();
@@ -122,9 +120,9 @@
 				if (state?.step === 'SignedIn') {
 					// TODO
 					const result = alchemy.generateOriginAccount(from.origin, state.account);
-					// if (debug) {
-					// 	console.log('postMessage', {result, id: requestID}, orig);
-					// }
+					if (debug) {
+						console.log('postMessage', {result, id: from.requestID}, {targetOrigin: from.origin});
+					}
 					from.source.postMessage({result, id: from.requestID}, {targetOrigin: from.origin});
 					resultPosted = true;
 				} else {
@@ -241,8 +239,9 @@
 		width: 100%;
 		height: 100%;
 		line-height: 1.5;
-		font-family: system-ui, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, Helvetica, Arial, 'Helvetica Neue',
-			sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+		font-family:
+			system-ui, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, Helvetica, Arial, 'Helvetica Neue', sans-serif,
+			'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
 		display: flex;
 		justify-content: center;
 	}

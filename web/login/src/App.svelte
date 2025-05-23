@@ -9,5 +9,5 @@
 {:else if alchemy}
 	<Login alchemy={alchemy.connection} from={alchemy.from} />
 {:else}
-	<CriticalError errors={[{message: 'no alchemy'}]} />
+	<CriticalError errors={[{message: 'no alchemy', canClose: false}]} />
 {/if}

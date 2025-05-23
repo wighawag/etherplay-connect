@@ -1043,8 +1043,11 @@ export function createConnection(settings: {
 		if (currentURL.searchParams.has('eruda')) {
 			entriesToAdd.push(['eruda', currentURL.searchParams.get('eruda') || '']);
 		}
-		if (currentURL.searchParams.has('eruda')) {
-			entriesToAdd.push(['eruda', currentURL.searchParams.get('eruda') || '']);
+		if (currentURL.searchParams.has('debug')) {
+			entriesToAdd.push(['debug', currentURL.searchParams.get('debug') || '']);
+		}
+		if (currentURL.searchParams.has('log')) {
+			entriesToAdd.push(['log', currentURL.searchParams.get('log') || '']);
 		}
 
 		for (const entryToAdd of entriesToAdd) {

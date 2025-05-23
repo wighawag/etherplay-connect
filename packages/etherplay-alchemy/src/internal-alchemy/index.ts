@@ -323,7 +323,17 @@ export function createAlchemyOnBoarding(settings: AlchemySettings, options?: {se
 				const value = currentURL.searchParams.get('eruda');
 				erudaStr = value ? `&eruda=${value}` : '&eruda';
 			}
-			const redirectUrl = `/login/?type=oauth-redirect&origin=${redirection.origin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${options?.orgId ? `&orgId=${options.orgId}` : ''}${erudaStr}`;
+			let debugStr = '';
+			if (currentURL.searchParams.has('debug')) {
+				const value = currentURL.searchParams.get('debug');
+				debugStr = value ? `&debug=${value}` : '&debug';
+			}
+			let logStr = '';
+			if (currentURL.searchParams.has('log')) {
+				const value = currentURL.searchParams.get('log');
+				logStr = value ? `&log=${value}` : '&log';
+			}
+			const redirectUrl = `/login/?type=oauth-redirect&origin=${redirection.origin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${options?.orgId ? `&orgId=${options.orgId}` : ''}${erudaStr}${debugStr}${logStr}`;
 			// console.log(`Alchemy: signer.authenticate(...) redirect &{ redirectUrl }`);
 			if (authProviderId === 'auth0') {
 				newUser = await signer.authenticate({

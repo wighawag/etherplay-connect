@@ -219,6 +219,10 @@ if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID 
 		canCloseAutomatically = true;
 	}
 
+	if (debug) {
+		canCloseAutomatically = false;
+	}
+
 	alchemy = {
 		connection: handle({
 			mechanism,
