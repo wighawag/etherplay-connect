@@ -19,7 +19,7 @@
 
 	function purchase() {
 		connection.ensureConnected('WalletConnected', { type: 'wallet' }).then(($connection) => {
-			connection.provider.underlyingProvider.call('eth_sendTransaction')([
+			connection.provider.call('eth_sendTransaction')([
 				{ from: $connection.mechanism.address, to: $connection.mechanism.address, value: '0x0' }
 			]);
 		});
