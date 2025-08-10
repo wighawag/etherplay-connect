@@ -30,7 +30,6 @@
 	},
 	"devDependencies": {
 		"as-soon": "^0.0.11",
-		"eip-1193": "^0.6.3",
 		"ldenv": "^0.3.12",
 		"prettier": "^3.5.3",
 		"svelte": "^5.25.12",

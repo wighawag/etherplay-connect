@@ -9,6 +9,16 @@ layout {
 				args "-c" "pnpm run --filter ./packages/etherplay-alchemy dev; cd ./packages/etherplay-alchemy; ${SHELL-bash}"
 			}
 		}
+
+		pane split_direction="vertical" {
+			pane name="WALLET_CONNECTOR" command="bash"  {
+				args "-c" "pnpm run --filter ./packages/etherplay-wallet-connector dev; cd ./packages/etherplay-wallet-connector; ${SHELL-bash}"
+			}
+
+			pane name="WALLET_CONNECTOR_ETHEREUM" command="bash"  {
+				args "-c" "pnpm run --filter ./packages/etherplay-wallet-connector-ethereum dev; cd ./packages/etherplay-wallet-connector-ethereum; ${SHELL-bash}"
+			}
+		}
 		
 		pane split_direction="vertical" {
 			pane name="WEB" command="bash"  {

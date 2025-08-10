@@ -1,7 +1,7 @@
 import type {AlchemyMechanism, OriginAccount} from '@etherplay/alchemy';
+import type {WalletConnector, WalletHandle, WalletInfo, WalletProvider} from '@etherplay/wallet-connector';
 import {writable} from 'svelte/store';
 import {createPopupLauncher, type PopupPromise} from './popup.js';
-import type {EIP1193ChainId, EIP1193WindowWalletProvider} from 'eip-1193';
 import {
 	fromEntropyKeyToMnemonic,
 	fromMnemonicToFirstAccount,
@@ -9,8 +9,7 @@ import {
 	originKeyMessage,
 	originPublicKeyPublicationMessage,
 } from '@etherplay/alchemy';
-import {hashMessage, withTimeout} from './utils.js';
-import {createProvider} from './provider.js';
+import {withTimeout} from './utils.js';
 
 export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage};
 export type {OriginAccount};
@@ -30,8 +29,8 @@ export type Mechanism = AlchemyMechanism | WalletMechanism<string | undefined, `
 
 export type FullfilledMechanism = AlchemyMechanism | WalletMechanism<string, `0x${string}`>;
 
-export type WalletState = {
-	provider: EIP1193WindowWalletProvider;
+export type WalletState<WalletProviderType> = {
+	provider: WalletProvider<WalletProviderType>;
 	accounts: `0x${string}`[];
 	accountChanged?: `0x${string}`;
 	chainId: string;
@@ -39,13 +38,13 @@ export type WalletState = {
 	switchingChain: 'addingChain' | 'switchingChain' | false;
 } & ({status: 'connected'} | {status: 'locked'; unlocking: boolean} | {status: 'disconnected'; connecting: boolean});
 
-type WalletConnected = {
+type WalletConnected<WalletProviderType> = {
 	step: 'WaitingForSignature';
 	mechanism: WalletMechanism<string, `0x${string}`>;
-	wallet: WalletState;
+	wallet: WalletState<WalletProviderType>;
 };
 
-type SignedIn =
+type SignedIn<WalletProviderType> =
 	| {
 			step: 'SignedIn';
 			mechanism: AlchemyMechanism;
@@ -56,16 +55,16 @@ type SignedIn =
 			step: 'SignedIn';
 			mechanism: WalletMechanism<string, `0x${string}`>;
 			account: OriginAccount;
-			wallet: WalletState;
+			wallet: WalletState<WalletProviderType>;
 	  };
 
-export type Connection = {
+export type Connection<WalletProviderType> = {
 	// The connection can have an error in every state.
 	// a banner or other mechanism to show error should be used.
 	// error should be dismissable
 	error?: {message: string; cause?: any};
 	// wallets represent the web3 wallet installed on the user browser
-	wallets: EIP6963ProviderDetail[];
+	wallets: WalletHandle<WalletProviderType>[];
 } & ( // loading can be true initially as the system will try to auto-login and fetch installed web3 wallet // Start in Idle
 	| {
 			step: 'Idle';
@@ -102,54 +101,39 @@ export type Connection = {
 	| {
 			step: 'ChooseWalletAccount';
 			mechanism: WalletMechanism<string, undefined>;
-			wallet: WalletState;
+			wallet: WalletState<WalletProviderType>;
 	  }
 	// Once the wallet is connected, the system will need a signature
 	// this state represent the fact and require another user interaction to request the signature
 	| {
 			step: 'WalletConnected';
 			mechanism: WalletMechanism<string, `0x${string}`>;
-			wallet: WalletState;
+			wallet: WalletState<WalletProviderType>;
 	  }
 	// This state is triggered once the signature is requested, the user will have to confirm with its wallet
-	| WalletConnected
+	| WalletConnected<WalletProviderType>
 	// Finally the user is fully signed in
 	// wallet?.accountChanged if set, represent the fact that the user has changed its web3-wallet accounnt.
 	// wallet?.invalidChainId if set, represent the fact that the wallet is connected to a different chain.
 	// wallet?.switchingChain if set, represent the fact that the user is currently switching chain.
 	// a notification could be shown to the user so that he can switch the app to use that other account.
-	| SignedIn
+	| SignedIn<WalletProviderType>
 );
-
-interface EIP6963ProviderInfo {
-	uuid: string;
-	name: string;
-	icon: string;
-	rdns: string;
-}
-
-interface EIP6963ProviderDetail {
-	info: EIP6963ProviderInfo;
-	provider: EIP1193WindowWalletProvider;
-}
-
-export interface EIP6963AnnounceProviderEvent extends CustomEvent {
-	type: 'eip6963:announceProvider';
-	detail: EIP6963ProviderDetail;
-}
 
 const storageKeyAccount = '__origin_account';
 const storageKeyLastWallet = '__last_wallet';
-export function createConnection(settings: {
+export function createConnection<WalletProviderType>(settings: {
 	walletHost: string;
 	autoConnect?: boolean;
 	autoConnectWallet?: boolean;
+	walletConnector: WalletConnector<WalletProviderType>;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
 	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
 }) {
+	const walletConnector = settings.walletConnector;
 	const alwaysOnChainId = settings.node.chainId;
-	const alwaysOnProvider = createProvider({
+	const alwaysOnProvider = walletConnector.createAlwaysOnProvider({
 		endpoint: settings.node.url,
 		chainId: settings.node.chainId,
 		prioritizeWalletProvider: settings.node.prioritizeWalletProvider,
@@ -165,9 +149,9 @@ export function createConnection(settings: {
 	}
 	const requestSignatureAutomaticallyIfPossible = settings.requestSignatureAutomaticallyIfPossible || false;
 
-	let $connection: Connection = {step: 'Idle', loading: true, wallet: undefined, wallets: []};
-	const _store = writable<Connection>($connection);
-	function set(connection: Connection) {
+	let $connection: Connection<WalletProviderType> = {step: 'Idle', loading: true, wallet: undefined, wallets: []};
+	const _store = writable<Connection<WalletProviderType>>($connection);
+	function set(connection: Connection<WalletProviderType>) {
 		$connection = connection;
 		_store.set($connection);
 		return $connection;
@@ -183,35 +167,23 @@ export function createConnection(settings: {
 		}
 	}
 
-	let _wallet: {provider: EIP1193WindowWalletProvider; chainId: string} | undefined;
+	let _wallet: {provider: WalletProvider<WalletProviderType>; chainId: string} | undefined;
 
 	let popup: PopupPromise<OriginAccount> | undefined;
 
 	function fetchWallets() {
-		if (typeof window !== 'undefined') {
-			// const defaultProvider = (window as any).ethereum;
-			// console.log(defaultProvider);
-			// TODO ?
-			(window as any).addEventListener('eip6963:announceProvider', (event: EIP6963AnnounceProviderEvent) => {
-				const {detail} = event;
-				// const { info, provider } = detail;
-				// const { uuid, name, icon, rdns } = info;
-				// console.log('provider', provider);
-				// console.log(`isDefault: ${provider === defaultProvider}`);
-				// console.log('info', info);
-				const existingWallets = $connection.wallets;
-				existingWallets.push(detail);
+		walletConnector.fetchWallets((detail) => {
+			const existingWallets = $connection.wallets;
+			existingWallets.push(detail);
 
-				set({
-					...$connection,
-					wallets: existingWallets,
-				});
+			set({
+				...$connection,
+				wallets: existingWallets,
 			});
-			window.dispatchEvent(new Event('eip6963:requestProvider'));
-		}
+		});
 	}
 
-	function waitForWallet(name: string): Promise<EIP6963ProviderDetail> {
+	function waitForWallet(name: string): Promise<WalletHandle<WalletProviderType>> {
 		return new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				clearInterval(interval);
@@ -241,16 +213,17 @@ export function createConnection(settings: {
 						if (mechanismUsed.type == 'wallet') {
 							const walletMechanism = mechanismUsed as WalletMechanism<string, `0x${string}`>;
 							waitForWallet(walletMechanism.name)
-								.then(async (walletDetails: EIP6963ProviderDetail) => {
-									const walletProvider = walletDetails.provider;
-									const chainIdAsHex = await withTimeout(walletProvider.request({method: 'eth_chainId'}));
+								.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
+									const walletProvider = walletDetails.walletProvider;
+									const chainIdAsHex = await withTimeout(walletProvider.getChainId());
 									const chainId = Number(chainIdAsHex).toString();
 									_wallet = {provider: walletProvider, chainId};
-									alwaysOnProvider.setWalletProvider(walletProvider);
+									// TODO
+									alwaysOnProvider.setWalletProvider(walletProvider.underlyingProvider);
 									watchForChainIdChange(_wallet.provider);
 									let accounts: `0x${string}`[] = [];
 									// try {
-									accounts = await withTimeout(walletProvider.request({method: 'eth_accounts'}));
+									accounts = await withTimeout(walletProvider.getAccounts());
 									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
 									// } catch {}
 									// // TODO try catch ? and use logic of onAccountChanged
@@ -294,17 +267,18 @@ export function createConnection(settings: {
 						const lastWallet = getLastWallet();
 						if (lastWallet) {
 							waitForWallet(lastWallet.name)
-								.then(async (walletDetails: EIP6963ProviderDetail) => {
-									const walletProvider = walletDetails.provider;
-									const chainIdAsHex = await withTimeout(walletProvider.request({method: 'eth_chainId'}));
+								.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
+									const walletProvider = walletDetails.walletProvider;
+									const chainIdAsHex = await withTimeout(walletProvider.getChainId());
 									const chainId = Number(chainIdAsHex).toString();
 									_wallet = {provider: walletProvider, chainId};
-									alwaysOnProvider.setWalletProvider(walletProvider);
+									// TODO
+									alwaysOnProvider.setWalletProvider(walletProvider.underlyingProvider);
 									watchForChainIdChange(_wallet.provider);
 
 									let accounts: `0x${string}`[] = [];
 									// try {
-									accounts = await withTimeout(walletProvider.request({method: 'eth_accounts'}));
+									accounts = await withTimeout(walletProvider.getAccounts());
 									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
 									// } catch {}
 									// // TODO try catch ? and use logic of onAccountChanged
@@ -380,7 +354,7 @@ export function createConnection(settings: {
 
 	let signaturePending: {reject: (error: unknown) => void; id: number} | undefined = undefined;
 	let signatureCounter = 0;
-	function _requestSignature(provider: EIP1193WindowWalletProvider, msg: `0x${string}`, address: `0x${string}`) {
+	function _requestSignature(provider: WalletProvider<WalletProviderType>, msg: string, address: `0x${string}`) {
 		const id = ++signatureCounter;
 		if (signaturePending) {
 			const tmp = signaturePending;
@@ -403,10 +377,7 @@ export function createConnection(settings: {
 			// 	}),
 			// );
 			provider
-				.request({
-					method: 'personal_sign',
-					params: [msg, address],
-				})
+				.signMessage(msg, address)
 				.then((signature) => {
 					if (signaturePending?.id === id) {
 						signaturePending = undefined;
@@ -429,7 +400,6 @@ export function createConnection(settings: {
 
 		const provider = $connection.wallet.provider;
 		const message = originKeyMessage(origin);
-		const msg = hashMessage(message);
 
 		set({
 			...$connection,
@@ -438,7 +408,7 @@ export function createConnection(settings: {
 
 		let signature: `0x${string}`;
 		try {
-			signature = await _requestSignature(provider, msg, $connection.mechanism.address);
+			signature = await _requestSignature(provider, message, $connection.mechanism.address);
 		} catch (err) {
 			console.error(err);
 			if ((err as any)?.cause?.code === 111111) {
@@ -600,15 +570,15 @@ export function createConnection(settings: {
 		try {
 			const provider = $connection.wallet?.provider;
 			if (provider) {
-				let accounts = await withTimeout(provider.request({method: 'eth_accounts'}));
+				let accounts = await withTimeout(provider.getAccounts());
 				if (accounts.length == 0) {
 					onAccountChanged(accounts);
 				}
 			}
 		} catch {}
 	}
-	function watchForAccountChange(walletProvider: EIP1193WindowWalletProvider) {
-		walletProvider.on('accountsChanged', onAccountChanged);
+	function watchForAccountChange(walletProvider: WalletProvider<WalletProviderType>) {
+		walletProvider.listenForAccountsChanged(onAccountChanged);
 		// we also poll accounts for checking lock status as Metamask does not notify it
 		if (lockCheckInterval) {
 			clearInterval(lockCheckInterval);
@@ -616,19 +586,19 @@ export function createConnection(settings: {
 		}
 		lockCheckInterval = setInterval(checkLockStatus, 1000);
 	}
-	function stopWatchingForAccountChange(walletProvider: EIP1193WindowWalletProvider) {
-		walletProvider.removeListener('accountsChanged', onAccountChanged);
+	function stopWatchingForAccountChange(walletProvider: WalletProvider<WalletProviderType>) {
+		walletProvider.stopListenForAccountsChanged(onAccountChanged);
 		if (lockCheckInterval) {
 			clearInterval(lockCheckInterval);
 			lockCheckInterval = undefined;
 		}
 	}
 
-	function watchForChainIdChange(walletProvider: EIP1193WindowWalletProvider) {
-		walletProvider.on('chainChanged', onChainChanged);
+	function watchForChainIdChange(walletProvider: WalletProvider<WalletProviderType>) {
+		walletProvider.listenForChainChanged(onChainChanged);
 	}
-	function stopWatchingForChainIdChange(walletProvider: EIP1193WindowWalletProvider) {
-		walletProvider.removeListener('chainChanged', onChainChanged);
+	function stopWatchingForChainIdChange(walletProvider: WalletProvider<WalletProviderType>) {
+		walletProvider.stopListenForChainChanged(onChainChanged);
 	}
 
 	type ConnectionOptions = {
@@ -666,16 +636,17 @@ export function createConnection(settings: {
 							wallet: undefined,
 						});
 						try {
-							const provider = wallet.provider;
-							const chainIdAsHex = await withTimeout(provider.request({method: 'eth_chainId'}));
+							const provider = wallet.walletProvider;
+							const chainIdAsHex = await withTimeout(provider.getChainId());
 							const chainId = Number(chainIdAsHex).toString();
 							_wallet = {
 								chainId,
 								provider,
 							};
-							alwaysOnProvider.setWalletProvider(_wallet.provider);
+							// TODO
+							alwaysOnProvider.setWalletProvider(_wallet.provider.underlyingProvider);
 							watchForChainIdChange(_wallet.provider);
-							let accounts = await withTimeout(provider.request({method: 'eth_accounts'}));
+							let accounts = await withTimeout(provider.getAccounts());
 							accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 							if (accounts.length === 0) {
 								set({
@@ -684,7 +655,7 @@ export function createConnection(settings: {
 									wallets: $connection.wallets,
 									wallet: undefined,
 								});
-								accounts = await provider.request({method: 'eth_requestAccounts'});
+								accounts = await provider.requestAccounts();
 								accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 								if (accounts.length > 0) {
 									const nextStep =
@@ -701,7 +672,7 @@ export function createConnection(settings: {
 										}
 									}
 
-									const newState: Connection =
+									const newState: Connection<WalletProviderType> =
 										nextStep === 'ChooseWalletAccount'
 											? {
 													step: nextStep,
@@ -777,7 +748,7 @@ export function createConnection(settings: {
 									!settings?.alwaysUseCurrentAccount && !specificAddress && accounts.length > 1
 										? 'ChooseWalletAccount'
 										: 'WalletConnected';
-								const newState: Connection =
+								const newState: Connection<WalletProviderType> =
 									nextStep === 'ChooseWalletAccount'
 										? {
 												step: nextStep,
@@ -916,9 +887,13 @@ export function createConnection(settings: {
 		step: 'WalletConnected',
 		mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
 		options?: ConnectionOptions,
-	): Promise<WalletConnected>;
-	function ensureConnected(step: 'SignedIn', mechanism?: Mechanism, options?: ConnectionOptions): Promise<SignedIn>;
-	function ensureConnected(mechanism?: Mechanism, options?: ConnectionOptions): Promise<SignedIn>;
+	): Promise<WalletConnected<WalletProviderType>>;
+	function ensureConnected(
+		step: 'SignedIn',
+		mechanism?: Mechanism,
+		options?: ConnectionOptions,
+	): Promise<SignedIn<WalletProviderType>>;
+	function ensureConnected(mechanism?: Mechanism, options?: ConnectionOptions): Promise<SignedIn<WalletProviderType>>;
 	async function ensureConnected<Step extends 'WalletConnected' | 'SignedIn' = 'SignedIn'>(
 		stepOrMechanism?: Step | Mechanism,
 		mechanismOrOptions?: Mechanism | ConnectionOptions,
@@ -930,7 +905,9 @@ export function createConnection(settings: {
 			mechanism = {type: 'wallet'};
 		}
 		options = typeof stepOrMechanism === 'string' ? options : (mechanismOrOptions as ConnectionOptions);
-		const promise = new Promise<Step extends 'WalletConnected' ? WalletConnected : SignedIn>((resolve, reject) => {
+		const promise = new Promise<
+			Step extends 'WalletConnected' ? WalletConnected<WalletProviderType> : SignedIn<WalletProviderType>
+		>((resolve, reject) => {
 			let forceConnect = false;
 			if (
 				$connection.step == 'WalletConnected' &&
@@ -1072,11 +1049,7 @@ export function createConnection(settings: {
 				throw new Error(`no provider`);
 			}
 			const message = originPublicKeyPublicationMessage(origin, account.signer.publicKey);
-			const msg = hashMessage(message);
-			return _wallet.provider.request({
-				method: 'personal_sign',
-				params: [msg, account.address],
-			});
+			return _wallet.provider.signMessage(message, account.address);
 		}
 
 		if (account.savedPublicKeyPublicationSignature) {
@@ -1103,7 +1076,7 @@ export function createConnection(settings: {
 		});
 
 		try {
-			await wallet.provider.request({method: 'eth_requestAccounts'}).then(onAccountChanged);
+			await wallet.provider.requestAccounts().then(onAccountChanged);
 		} catch {
 			set({
 				...$connection,
@@ -1144,14 +1117,7 @@ export function createConnection(settings: {
 				...$connection,
 				wallet: {...$connection.wallet, switchingChain: 'switchingChain'},
 			});
-			const result = await wallet.provider.request({
-				method: 'wallet_switchEthereumChain',
-				params: [
-					{
-						chainId: ('0x' + parseInt(chainId).toString(16)) as EIP1193ChainId,
-					},
-				],
-			});
+			const result = await wallet.provider.switchChain(('0x' + parseInt(chainId).toString(16)) as `0x${string}`);
 			if (!result) {
 				if ($connection.wallet) {
 					set({
@@ -1197,18 +1163,13 @@ export function createConnection(settings: {
 				}
 				// logger.info(`wallet_switchEthereumChain: could not switch, try adding the chain via "wallet_addEthereumChain"`);
 				try {
-					const result = await wallet.provider.request({
-						method: 'wallet_addEthereumChain',
-						params: [
-							{
-								chainId: ('0x' + parseInt(chainId).toString(16)) as EIP1193ChainId,
-								rpcUrls: config.rpcUrls,
-								chainName: config.chainName,
-								blockExplorerUrls: config.blockExplorerUrls,
-								iconUrls: config.iconUrls,
-								nativeCurrency: config.nativeCurrency,
-							},
-						],
+					const result = await wallet.provider.addChain({
+						chainId: ('0x' + parseInt(chainId).toString(16)) as `0x${string}`,
+						rpcUrls: config.rpcUrls,
+						chainName: config.chainName,
+						blockExplorerUrls: config.blockExplorerUrls,
+						iconUrls: config.iconUrls,
+						nativeCurrency: config.nativeCurrency,
 					});
 					if (!result) {
 						if ($connection.wallet) {

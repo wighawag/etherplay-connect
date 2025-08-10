@@ -1,6 +1,6 @@
 {
-	"name": "@etherplay/connect",
-	"version": "0.0.27",
+	"name": "@etherplay/wallet-connector",
+	"version": "0.0.1",
 	"license": "MIT",
 	"publishConfig": {
 		"access": "public"
@@ -16,31 +16,13 @@
 		"dist",
 		"src"
 	],
-	"peerDependencies": {
-		"svelte": "^5.0.0"
-	},
 	"devDependencies": {
 		"as-soon": "^0.0.11",
-		"eip-1193": "^0.6.3",
 		"ldenv": "^0.3.12",
 		"prettier": "^3.5.3",
-		"svelte": "^5.25.12",
 		"typescript": "^5.8.3"
 	},
-	"pnpm": {
-		"onlyBuiltDependencies": [
-			"esbuild"
-		]
-	},
-	"dependencies": {
-		"@account-kit/signer": "^4.13.0",
-		"@etherplay/alchemy": "workspace:*",
-		"@etherplay/wallet-connector": "workspace:*",
-		"@noble/curves": "^1.8.1",
-		"@scure/bip32": "^1.6.2",
-		"@scure/bip39": "^1.5.4",
-		"zustand": "^5.0.3"
-	},
+	"dependencies": {},
 	"scripts": {
 		"build": "tsc --project tsconfig.json",
 		"dev": "as-soon -w src pnpm build",
