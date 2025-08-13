@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      remote-procedure-call:
-        specifier: link:../remote-procedure-call
-        version: link:../remote-procedure-call
     devDependencies:
       '@changesets/cli':
         specifier: ^2.28.0
