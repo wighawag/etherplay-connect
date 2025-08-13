@@ -133,7 +133,7 @@ export function createConnection<WalletProviderType>(settings: {
 }) {
 	const walletConnector = settings.walletConnector;
 	const alwaysOnChainId = settings.node.chainId;
-	const alwaysOnProvider = walletConnector.createAlwaysOnProvider({
+	const alwaysOnProviderWrapper = walletConnector.createAlwaysOnProvider({
 		endpoint: settings.node.url,
 		chainId: settings.node.chainId,
 		prioritizeWalletProvider: settings.node.prioritizeWalletProvider,
@@ -219,7 +219,7 @@ export function createConnection<WalletProviderType>(settings: {
 									const chainId = Number(chainIdAsHex).toString();
 									_wallet = {provider: walletProvider, chainId};
 									// TODO
-									alwaysOnProvider.setWalletProvider(walletProvider.underlyingProvider);
+									alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
 									watchForChainIdChange(_wallet.provider);
 									let accounts: `0x${string}`[] = [];
 									// try {
@@ -242,7 +242,7 @@ export function createConnection<WalletProviderType>(settings: {
 											switchingChain: false,
 										},
 									});
-									alwaysOnProvider.setWalletStatus('connected');
+									alwaysOnProviderWrapper.setWalletStatus('connected');
 									// TODO use the same logic before hand
 									onAccountChanged(accounts);
 									watchForAccountChange(walletProvider);
@@ -273,7 +273,7 @@ export function createConnection<WalletProviderType>(settings: {
 									const chainId = Number(chainIdAsHex).toString();
 									_wallet = {provider: walletProvider, chainId};
 									// TODO
-									alwaysOnProvider.setWalletProvider(walletProvider.underlyingProvider);
+									alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
 									watchForChainIdChange(_wallet.provider);
 
 									let accounts: `0x${string}`[] = [];
@@ -296,7 +296,7 @@ export function createConnection<WalletProviderType>(settings: {
 											switchingChain: false,
 										},
 									});
-									alwaysOnProvider.setWalletStatus('connected');
+									alwaysOnProviderWrapper.setWalletStatus('connected');
 									// TODO use the same logic before hand
 									onAccountChanged(accounts);
 									watchForAccountChange(walletProvider);
@@ -512,7 +512,7 @@ export function createConnection<WalletProviderType>(settings: {
 						unlocking: false,
 					},
 				});
-				alwaysOnProvider.setWalletStatus('locked');
+				alwaysOnProviderWrapper.setWalletStatus('locked');
 			} else {
 				const disconnected = accountsFormated.find((v) => v == addressSignedIn) ? false : true;
 
@@ -525,7 +525,7 @@ export function createConnection<WalletProviderType>(settings: {
 							connecting: false,
 						},
 					});
-					alwaysOnProvider.setWalletStatus('disconnected');
+					alwaysOnProviderWrapper.setWalletStatus('disconnected');
 				} else {
 					set({
 						...$connection,
@@ -534,7 +534,7 @@ export function createConnection<WalletProviderType>(settings: {
 							status: 'connected',
 						},
 					});
-					alwaysOnProvider.setWalletStatus('connected');
+					alwaysOnProviderWrapper.setWalletStatus('connected');
 				}
 			}
 
@@ -619,7 +619,7 @@ export function createConnection<WalletProviderType>(settings: {
 					const wallet = $connection.wallets.find((v) => v.info.name == walletName || v.info.uuid == walletName);
 					if (wallet) {
 						if (_wallet) {
-							alwaysOnProvider.setWalletProvider(undefined);
+							alwaysOnProviderWrapper.setWalletProvider(undefined);
 							stopWatchingForAccountChange(_wallet.provider);
 							stopWatchingForChainIdChange(_wallet.provider);
 						}
@@ -644,7 +644,7 @@ export function createConnection<WalletProviderType>(settings: {
 								provider,
 							};
 							// TODO
-							alwaysOnProvider.setWalletProvider(_wallet.provider.underlyingProvider);
+							alwaysOnProviderWrapper.setWalletProvider(_wallet.provider.underlyingProvider);
 							watchForChainIdChange(_wallet.provider);
 							let accounts = await withTimeout(provider.getAccounts());
 							accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
@@ -714,12 +714,12 @@ export function createConnection<WalletProviderType>(settings: {
 										watchForAccountChange(_wallet.provider);
 
 										set(newState);
-										alwaysOnProvider.setWalletStatus('connected');
+										alwaysOnProviderWrapper.setWalletStatus('connected');
 										saveLastWallet(newState.mechanism);
 										await requestSignature();
 									} else {
 										set(newState);
-										alwaysOnProvider.setWalletStatus('connected');
+										alwaysOnProviderWrapper.setWalletStatus('connected');
 										if (newState.step === 'WalletConnected') {
 											saveLastWallet(newState.mechanism);
 										}
@@ -787,14 +787,14 @@ export function createConnection<WalletProviderType>(settings: {
 									!options?.requireUserConfirmationBeforeSignatureRequest
 								) {
 									set(newState);
-									alwaysOnProvider.setWalletStatus('connected');
+									alwaysOnProviderWrapper.setWalletStatus('connected');
 									saveLastWallet(newState.mechanism);
 									watchForAccountChange(_wallet.provider);
 									await requestSignature();
 								} else {
 									watchForAccountChange(_wallet.provider);
 									set(newState);
-									alwaysOnProvider.setWalletStatus('connected');
+									alwaysOnProviderWrapper.setWalletStatus('connected');
 									if (newState.step === 'WalletConnected') {
 										saveLastWallet(newState.mechanism);
 									}
@@ -946,7 +946,7 @@ export function createConnection<WalletProviderType>(settings: {
 		deleteOriginAccount();
 		deleteLastWallet();
 		if (_wallet) {
-			alwaysOnProvider.setWalletProvider(undefined);
+			alwaysOnProviderWrapper.setWalletProvider(undefined);
 			stopWatchingForAccountChange(_wallet.provider);
 			stopWatchingForChainIdChange(_wallet.provider);
 		}
@@ -1253,7 +1253,7 @@ export function createConnection<WalletProviderType>(settings: {
 		switchWalletChain,
 		unlock,
 		ensureConnected,
-		provider: alwaysOnProvider,
+		provider: alwaysOnProviderWrapper.provider,
 	};
 }
 

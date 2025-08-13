@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { chainInfo, connection } from '$lib';
+	import { chainId, chainInfo, connection } from '$lib';
 
 	let connectionAsAny = $derived($connection as any);
 
@@ -148,7 +148,7 @@
 	{#if invalidChain}
 		<button
 			style="margin-right: 2rem;"
-			onclick={() => connection.switchWalletChain(connection.provider.chainId, chainInfo)}
+			onclick={() => connection.switchWalletChain(chainId, chainInfo)}
 			disabled={!!$connection.wallet?.switchingChain}>switch chain</button
 		>
 	{/if}

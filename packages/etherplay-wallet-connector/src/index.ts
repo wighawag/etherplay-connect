@@ -23,7 +23,7 @@ export interface WalletConnector<UnderlyingProvider> {
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
-	}): AlwaysOnProvider<UnderlyingProvider>;
+	}): AlwaysOnProviderWrapper<UnderlyingProvider>;
 }
 
 export interface BasicWalletProvider<UnderlyingProvider> {
@@ -43,8 +43,16 @@ export interface WalletProvider<UnderlyingProvider> extends BasicWalletProvider<
 	addChain(chainInfo: ChainInfo): Promise<null | any>;
 }
 
-export interface AlwaysOnProvider<WalletProviderType> extends BasicWalletProvider<WalletProviderType> {
+export interface AlwaysOnProviderWrapper<WalletProviderType> {
 	setWalletProvider: (walletProvider: WalletProviderType | undefined) => void;
 	setWalletStatus: (newStatus: 'connected' | 'locked' | 'disconnected') => void;
+
+	// TODO replace with a ChainConnection type that expose the chainId and provider but also the full chainInfo ?
 	chainId: string;
+	provider: WalletProviderType;
+}
+
+export interface ChainConnection<WalletProviderType> {
+	chainId: string;
+	provider: WalletProviderType;
 }

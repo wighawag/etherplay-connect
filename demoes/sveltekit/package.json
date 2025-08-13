@@ -3,7 +3,8 @@
 	"private": true,
 	"type": "module",
 	"dependencies": {
-		"@etherplay/connect": "workspace:*"
+		"@etherplay/connect": "workspace:*",
+		"@etherplay/wallet-connector-ethereum": "workspace:*"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "^3.0.8",

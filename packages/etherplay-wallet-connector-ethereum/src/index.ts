@@ -4,7 +4,7 @@ import type {
 	WalletInfo,
 	WalletProvider,
 	WalletHandle,
-	AlwaysOnProvider,
+	AlwaysOnProviderWrapper,
 } from '@etherplay/wallet-connector';
 import type {EIP1193ChainId, EIP1193WalletProvider, EIP1193WindowWalletProvider, Methods} from 'eip-1193';
 import {hashMessage} from './utils.js';
@@ -44,7 +44,7 @@ export class EthereumWalletConnector implements WalletConnector<CurriedRPC<Metho
 				// console.log(`isDefault: ${provider === defaultProvider}`);
 				// console.log('info', info);
 				walletAnnounced({
-					walletProvider: new EthereumWalletProvider(createCurriedJSONRPC<Methods>(detail.provider as any)),
+					walletProvider: new EthereumWalletProvider(detail.provider),
 					info: detail.info,
 				});
 			});
@@ -57,14 +57,16 @@ export class EthereumWalletConnector implements WalletConnector<CurriedRPC<Metho
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
-	}): AlwaysOnProvider<CurriedRPC<Methods>> {
-		const underlyingProvider = createProvider(params);
-		return new EthereumWalletProvider(underlyingProvider);
+	}): AlwaysOnProviderWrapper<CurriedRPC<Methods>> {
+		return createProvider(params);
 	}
 }
 
 export class EthereumWalletProvider implements WalletProvider<CurriedRPC<Methods>> {
-	constructor(public underlyingProvider: CurriedRPC<Methods>) {}
+	public readonly underlyingProvider: CurriedRPC<Methods>;
+	constructor(protected windowProvider: EIP1193WindowWalletProvider) {
+		this.underlyingProvider = createCurriedJSONRPC<Methods>(windowProvider as any);
+	}
 	async signMessage(message: string, account: `0x${string}`): Promise<`0x${string}`> {
 		return this.underlyingProvider.request({
 			method: 'personal_sign',
@@ -73,20 +75,34 @@ export class EthereumWalletProvider implements WalletProvider<CurriedRPC<Methods
 	}
 
 	async getChainId(): Promise<`0x${string}`> {
-		return `0x` as `0x${string}`;
+		return this.underlyingProvider.request({
+			method: 'eth_chainId',
+		});
 	}
 
 	async getAccounts(): Promise<`0x${string}`[]> {
-		return [`0x` as `0x${string}`];
+		return this.underlyingProvider.request({
+			method: 'eth_accounts',
+		});
 	}
 	async requestAccounts(): Promise<`0x${string}`[]> {
-		return [`0x` as `0x${string}`];
+		return this.underlyingProvider.request({
+			method: 'eth_requestAccounts',
+		});
 	}
 
-	listenForAccountsChanged(handler: (accounts: `0x${string}`[]) => void) {}
-	stopListenForAccountsChanged(handler: (accounts: `0x${string}`[]) => void) {}
-	listenForChainChanged(handler: (chainId: `0x${string}`) => void) {}
-	stopListenForChainChanged(handler: (chainId: `0x${string}`) => void) {}
+	listenForAccountsChanged(handler: (accounts: `0x${string}`[]) => void) {
+		this.windowProvider.on('accountsChanged', handler);
+	}
+	stopListenForAccountsChanged(handler: (accounts: `0x${string}`[]) => void) {
+		this.windowProvider.removeListener('accountsChanged', handler);
+	}
+	listenForChainChanged(handler: (chainId: `0x${string}`) => void) {
+		this.windowProvider.on('chainChanged', handler);
+	}
+	stopListenForChainChanged(handler: (chainId: `0x${string}`) => void) {
+		this.windowProvider.removeListener('chainChanged', handler);
+	}
 	async switchChain(chainId: string): Promise<null | any> {
 		const result = await this.underlyingProvider.request({
 			method: 'wallet_switchEthereumChain',

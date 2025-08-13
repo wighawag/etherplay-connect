@@ -23,6 +23,9 @@ importers:
       '@etherplay/connect':
         specifier: workspace:*
         version: link:../../packages/etherplay-connect
+      '@etherplay/wallet-connector-ethereum':
+        specifier: workspace:*
+        version: link:../../packages/etherplay-wallet-connector-ethereum
     devDependencies:
       '@sveltejs/adapter-static':
         specifier: ^3.0.8
