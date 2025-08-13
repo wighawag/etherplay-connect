@@ -924,7 +924,7 @@ export function createConnection(settings: {
 		mechanismOrOptions?: Mechanism | ConnectionOptions,
 		options?: ConnectionOptions,
 	) {
-		const step = typeof stepOrMechanism === 'string' ? stepOrMechanism : undefined;
+		const step = typeof stepOrMechanism === 'string' ? stepOrMechanism : 'SignedIn';
 		let mechanism = typeof stepOrMechanism === 'string' ? (mechanismOrOptions as Mechanism) : stepOrMechanism;
 		if (!mechanism && step === 'WalletConnected') {
 			mechanism = {type: 'wallet'};
