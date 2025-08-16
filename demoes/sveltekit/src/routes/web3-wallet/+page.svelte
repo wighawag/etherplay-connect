@@ -2,9 +2,11 @@
 	import { PUBLIC_WALLET_HOST } from '$env/static/public';
 	import { chainInfo, chainId } from '$lib';
 	import { createConnection } from '@etherplay/connect';
+	import { EthereumWalletConnector } from '@etherplay/wallet-connector-ethereum';
 
 	const connection = createConnection({
 		walletHost: PUBLIC_WALLET_HOST,
+		walletConnector: new EthereumWalletConnector(),
 		node: {
 			chainId,
 			url: chainInfo.rpcUrls[0],
@@ -46,7 +48,7 @@
 	{#if invalidChain}
 		<button
 			style="margin-right: 2rem;"
-			onclick={() => connection.switchWalletChain(connection.provider.chainId, chainInfo)}
+			onclick={() => connection.switchWalletChain(chainId, chainInfo)}
 			disabled={!!$connection.wallet?.switchingChain}>switch chain</button
 		>
 	{/if}

@@ -1,15 +1,75 @@
 import type {
 	WalletConnector,
 	ChainInfo,
-	WalletInfo,
 	WalletProvider,
 	WalletHandle,
 	AlwaysOnProviderWrapper,
+	AccountGenerator,
+	PrivateKeyAccount,
 } from '@etherplay/wallet-connector';
-import type {EIP1193ChainId, EIP1193WalletProvider, EIP1193WindowWalletProvider, Methods} from 'eip-1193';
+import type {EIP1193ChainId, EIP1193WindowWalletProvider, Methods} from 'eip-1193';
 import {hashMessage} from './utils.js';
 import {createProvider} from './provider.js';
 import {createCurriedJSONRPC, CurriedRPC} from 'remote-procedure-call';
+import {HDKey} from '@scure/bip32';
+import {mnemonicToSeedSync} from '@scure/bip39';
+import {bytesToHex} from '@noble/hashes/utils';
+import {secp256k1} from '@noble/curves/secp256k1';
+import {keccak_256} from '@noble/hashes/sha3';
+import {getPublicKey} from '@noble/secp256k1';
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// TAKEN FROM https://github.com/paulmillr/micro-eth-signer/
+///////////////////////////////////////////////////////////////////////////////////////////////////
+const ethHexStartRe = /^0[xX]/;
+export function strip0x(hex: string): string {
+	return hex.replace(ethHexStartRe, '');
+}
+export function add0x(hex: string): string {
+	return ethHexStartRe.test(hex) ? hex : `0x${hex}`;
+}
+
+export function astr(str: unknown) {
+	if (typeof str !== 'string') throw new Error('string expected');
+}
+
+const RE = /^(0[xX])?([0-9a-fA-F]{40})?$/;
+export function parse(address: string) {
+	astr(address);
+	const res = address.match(RE) || [];
+	const hasPrefix = res[1] != null;
+	const data = res[2];
+	if (!data) {
+		const len = hasPrefix ? 42 : 40;
+		throw new Error(`address must be ${len}-char hex, got ${address.length}-char ${address}`);
+	}
+	return {hasPrefix, data};
+}
+
+export function addChecksum(nonChecksummedAddress: string): string {
+	const low = parse(nonChecksummedAddress).data.toLowerCase();
+	const hash = bytesToHex(keccak_256(low));
+	let checksummed = '';
+	for (let i = 0; i < low.length; i++) {
+		const hi = Number.parseInt(hash[i], 16);
+		const li = low[i];
+		checksummed += hi <= 7 ? li : li.toUpperCase(); // if char is 9-f, upcase it
+	}
+	return add0x(checksummed);
+}
+
+export function fromPublicKey(key: string | Uint8Array): string {
+	if (!key) throw new Error('invalid public key: ' + key);
+	const pub65b = secp256k1.ProjectivePoint.fromHex(key).toRawBytes(false);
+	const hashed = keccak_256(pub65b.subarray(1, 65));
+	return addChecksum(bytesToHex(hashed).slice(24)); // slice 24..64
+}
+
+export function fromPrivateKey(key: string | Uint8Array): string {
+	if (typeof key === 'string') key = strip0x(key);
+	return fromPublicKey(secp256k1.getPublicKey(key, false));
+}
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
 export type UnderlyingEthereumProvider = CurriedRPC<Methods>;
 
@@ -31,6 +91,7 @@ export interface EIP6963AnnounceProviderEvent extends CustomEvent {
 }
 
 export class EthereumWalletConnector implements WalletConnector<CurriedRPC<Methods>> {
+	accountGenerator: AccountGenerator = new EthereumAccountGenerator();
 	fetchWallets(walletAnnounced: (walletInfo: WalletHandle<CurriedRPC<Methods>>) => void): void {
 		if (typeof window !== 'undefined') {
 			// const defaultProvider = (window as any).ethereum;
@@ -59,6 +120,76 @@ export class EthereumWalletConnector implements WalletConnector<CurriedRPC<Metho
 		requestsPerSecond?: number;
 	}): AlwaysOnProviderWrapper<CurriedRPC<Methods>> {
 		return createProvider(params);
+	}
+}
+
+function toHex(arr: Uint8Array): `0x${string}` {
+	let str = `0x`;
+	for (const element of arr) {
+		str += element.toString(16).padStart(2, '0');
+	}
+	return str as `0x${string}`;
+}
+
+export function concatUint8Arrays(values: readonly Uint8Array[]): Uint8Array {
+	let length = 0;
+	for (const arr of values) {
+		length += arr.length;
+	}
+	const result = new Uint8Array(length);
+	let offset = 0;
+	for (const arr of values) {
+		result.set(arr, offset);
+		offset += arr.length;
+	}
+	return result;
+}
+
+const EIP191MessagePrefix = '\x19Ethereum Signed Message:\n';
+const encoder = new TextEncoder();
+
+export function hashTextMessage(str: string): string {
+	const bytes = encoder.encode(str);
+	const prefixBytes = encoder.encode(`${EIP191MessagePrefix}${bytes.length}`);
+	const fullBytes = concatUint8Arrays([prefixBytes, bytes]);
+	return bytesToHex(keccak_256(fullBytes));
+}
+
+export function fromMnemonicToHDKey(mnemonic: string, index: number): HDKey {
+	const seed = mnemonicToSeedSync(mnemonic);
+	const hd = HDKey.fromMasterSeed(seed);
+	return hd.derive(`m/44'/60'/0'/0/${index}`);
+}
+
+export class EthereumAccountGenerator implements AccountGenerator {
+	type = 'ethereum';
+	fromMnemonicToAccount(mnemonic: string, index: number): PrivateKeyAccount {
+		const hdkey = fromMnemonicToHDKey(mnemonic, index);
+		if (!hdkey.privateKey) {
+			throw new Error(`invalid key`);
+		}
+		return {
+			address: fromPrivateKey(hdkey.privateKey).toLowerCase() as `0x${string}`,
+			privateKey: `0x${bytesToHex(hdkey.privateKey)}` as `0x${string}`,
+			publicKey: toHex(getPublicKey(hdkey.privateKey)),
+		};
+	}
+	signTextMessage(message: string, privateKey: `0x${string}`): `0x${string}` {
+		const hash = hashTextMessage(message);
+		const signature = secp256k1.sign(hash, privateKey.slice(2));
+		const r = signature.r;
+		const s = signature.s;
+		const v = signature.recovery ? 28n : 27n;
+		const yParity = signature.recovery;
+		let postfix = '';
+		if (v === 27n || yParity === 0) {
+			postfix = '1b';
+		} else if (v === 28n || yParity === 1) {
+			postfix = '1c';
+		} else {
+			throw new Error('Invalid v value');
+		}
+		return `0x${new secp256k1.Signature(r, s).toCompactHex()}${postfix}`;
 	}
 }
 

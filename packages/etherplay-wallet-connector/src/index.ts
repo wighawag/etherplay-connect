@@ -16,6 +16,14 @@ export type ChainInfo = Readonly<{
 	}>;
 }>;
 
+export type PrivateKeyAccount = {address: `0x${string}`; publicKey: `0x${string}`; privateKey: `0x${string}`};
+
+export interface AccountGenerator {
+	fromMnemonicToAccount(mnemonic: string, index: number): PrivateKeyAccount;
+	signTextMessage(message: string, privateKey: `0x${string}`): `0x${string}`;
+	type: string;
+}
+
 export interface WalletConnector<UnderlyingProvider> {
 	fetchWallets(walletAnnounced: (walletHandle: WalletHandle<UnderlyingProvider>) => void): void;
 	createAlwaysOnProvider(params: {
@@ -24,6 +32,7 @@ export interface WalletConnector<UnderlyingProvider> {
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
 	}): AlwaysOnProviderWrapper<UnderlyingProvider>;
+	accountGenerator: AccountGenerator;
 }
 
 export interface BasicWalletProvider<UnderlyingProvider> {

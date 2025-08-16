@@ -3,10 +3,7 @@ import {
 	AlchemyWebSigner,
 	createAlchemyOnBoarding,
 	fromEntropyKeyToMnemonic,
-	fromMnemonicToAccount,
-	fromMnemonicToFirstAccount,
 	fromSignatureToKey,
-	signTextMessage,
 	type AlchemySettings,
 	type SignerUser,
 	type User,
@@ -15,8 +12,9 @@ import {onDocumentLoaded} from './utils/web.js';
 import {mnemonicToEntropy} from '@scure/bip39';
 import {bytesToHex} from '@noble/hashes/utils';
 import {wordlist} from '@scure/bip39/wordlists/english';
+import {AccountGenerator} from '@etherplay/wallet-connector';
 
-export {fromEntropyKeyToMnemonic, fromMnemonicToAccount, fromMnemonicToFirstAccount, fromSignatureToKey};
+export {fromEntropyKeyToMnemonic, fromSignatureToKey};
 
 export type EmailMechanism<T extends string | undefined> = {
 	type: 'email';
@@ -75,6 +73,7 @@ export type EtherplayAccount = {
 		mechanismUsed: AlchemyMechanism;
 		user: AlchemyUser;
 	};
+	accountType: string;
 };
 
 export type OriginAccount = {
@@ -91,6 +90,7 @@ export type OriginAccount = {
 	};
 	mechanismUsed: AlchemyMechanism | {type: string};
 	savedPublicKeyPublicationSignature?: `0x${string}`;
+	accountType: string;
 };
 
 export type AlchemyConnection = {error?: {message: string; cause?: any}} & (
@@ -204,6 +204,7 @@ export function createAlchemyConnection(
 		alchemy: AlchemySettings;
 		autoInitialise?: boolean;
 		alwaysUsePopupForOAuth?: boolean;
+		accountGenerator: AccountGenerator;
 	},
 	// options?: {
 	// 	sessionKey?: string;
@@ -546,7 +547,7 @@ export function createAlchemyConnection(
 				const mnemonic = mechanism.mnemonic;
 				const index = mechanism.index;
 
-				const viemAccount = fromMnemonicToAccount(mnemonic, index);
+				const viemAccount = settings.accountGenerator.fromMnemonicToAccount(mnemonic, index);
 				const keyUint8Array = mnemonicToEntropy(mnemonic, wordlist);
 				const key = `0x${bytesToHex(keyUint8Array)}` as `0x${string}`;
 				const address = viemAccount.address.toLowerCase() as `0x${string}`;
@@ -565,6 +566,7 @@ export function createAlchemyConnection(
 							email: `${index}@mnemonic.id`,
 						},
 					},
+					accountType: settings.accountGenerator.type,
 				};
 
 				set({
@@ -596,7 +598,9 @@ export function createAlchemyConnection(
 		const mnemonic = fromEntropyKeyToMnemonic(key);
 		const etherplayAccount: EtherplayAccount = {
 			localAccount: {
-				address: fromMnemonicToFirstAccount(mnemonic).address,
+				// TODO should use the connector so it create an account matching the connector chain type (ethereum, fuel, starknet...)
+				// this way a user can leave Etherplay account and come back to the same account by providing the same mnemonic
+				address: settings.accountGenerator.fromMnemonicToAccount(mnemonic, 0).address,
 				index: 0,
 				key,
 			},
@@ -604,6 +608,7 @@ export function createAlchemyConnection(
 				mechanismUsed: mechanism,
 				user: signerUser.user,
 			},
+			accountType: settings.accountGenerator.type,
 		};
 
 		// TODO option ?
@@ -614,14 +619,19 @@ export function createAlchemyConnection(
 
 	function generateOriginAccount(origin: string, account: EtherplayAccount): OriginAccount {
 		const accountMnemonic = fromEntropyKeyToMnemonic(account.localAccount.key);
-		const accountObject = fromMnemonicToAccount(accountMnemonic, account.localAccount.index);
-		const originKeySignature = signTextMessage(originKeyMessage(origin), accountObject.privateKey);
+
+		const accountObject = settings.accountGenerator.fromMnemonicToAccount(accountMnemonic, account.localAccount.index);
+		const originKeySignature = settings.accountGenerator.signTextMessage(
+			originKeyMessage(origin),
+			accountObject.privateKey,
+		);
 
 		const originKey = fromSignatureToKey(originKeySignature);
 		const originMnemonic = fromEntropyKeyToMnemonic(originKey);
-		const originAccount = fromMnemonicToFirstAccount(originMnemonic);
 
-		const savedPublicKeyPublicationSignature = signTextMessage(
+		const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
+
+		const savedPublicKeyPublicationSignature = settings.accountGenerator.signTextMessage(
 			originPublicKeyPublicationMessage(origin, originAccount.publicKey),
 			accountObject.privateKey,
 		);
@@ -639,6 +649,7 @@ export function createAlchemyConnection(
 			},
 			mechanismUsed: account.signer.mechanismUsed,
 			savedPublicKeyPublicationSignature,
+			accountType: settings.accountGenerator.type,
 		};
 	}
 

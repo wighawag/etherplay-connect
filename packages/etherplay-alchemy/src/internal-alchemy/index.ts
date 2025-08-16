@@ -6,25 +6,13 @@ import {wordlist} from '@scure/bip39/wordlists/english';
 import {secp256k1} from '@noble/curves/secp256k1';
 import {keccak_256} from '@noble/hashes/sha3';
 import {HDKey} from '@scure/bip32';
-import {getPublicKey} from '@noble/secp256k1';
 import {retry} from '../utils/execution.js';
 
 const TURNKEY_IFRAME_CONTAINER_ID = 'turnkey-iframe-container';
 
-const EIP191MessagePrefix = '\x19Ethereum Signed Message:\n';
-const encoder = new TextEncoder();
-
 export {AlchemyWebSigner};
 
 export type {User};
-
-function toHex(arr: Uint8Array): `0x${string}` {
-	let str = `0x`;
-	for (const element of arr) {
-		str += element.toString(16).padStart(2, '0');
-	}
-	return str as `0x${string}`;
-}
 
 export function concatUint8Arrays(values: readonly Uint8Array[]): Uint8Array {
 	let length = 0;
@@ -40,33 +28,8 @@ export function concatUint8Arrays(values: readonly Uint8Array[]): Uint8Array {
 	return result;
 }
 
-export function hashTextMessage(str: string): string {
-	const bytes = encoder.encode(str);
-	const prefixBytes = encoder.encode(`${EIP191MessagePrefix}${bytes.length}`);
-	const fullBytes = concatUint8Arrays([prefixBytes, bytes]);
-	return bytesToHex(keccak_256(fullBytes));
-}
-
 export function fromEntropyKeyToMnemonic(entropyKey: `0x${string}`): string {
 	return entropyToMnemonic(hexToBytes(entropyKey.slice(2)), wordlist);
-}
-
-export function signTextMessage(str: string, privateKey: `0x${string}`): `0x${string}` {
-	const hash = hashTextMessage(str);
-	const signature = secp256k1.sign(hash, privateKey.slice(2));
-	const r = signature.r;
-	const s = signature.s;
-	const v = signature.recovery ? 28n : 27n;
-	const yParity = signature.recovery;
-	let postfix = '';
-	if (v === 27n || yParity === 0) {
-		postfix = '1b';
-	} else if (v === 28n || yParity === 1) {
-		postfix = '1c';
-	} else {
-		throw new Error('Invalid v value');
-	}
-	return `0x${new secp256k1.Signature(r, s).toCompactHex()}${postfix}`;
 }
 
 export type SignerUser = {
@@ -137,46 +100,6 @@ export function fromMnemonicToHDKey(mnemonic: string, index: number): HDKey {
 	const hd = HDKey.fromMasterSeed(seed);
 	return hd.derive(`m/44'/60'/0'/0/${index}`);
 }
-
-export function fromMnemonicToAccount(
-	mnemonic: string,
-	index: number,
-): {
-	address: `0x${string}`;
-	publicKey: `0x${string}`;
-	privateKey: `0x${string}`;
-} {
-	const hdkey = fromMnemonicToHDKey(mnemonic, index);
-	if (!hdkey.privateKey) {
-		throw new Error(`invalid key`);
-	}
-	return {
-		address: fromPrivateKey(hdkey.privateKey).toLowerCase() as `0x${string}`,
-		privateKey: `0x${bytesToHex(hdkey.privateKey)}` as `0x${string}`,
-		publicKey: toHex(getPublicKey(hdkey.privateKey)),
-	};
-}
-
-export function fromMnemonicToFirstAccount(mnemonic: string): {
-	address: `0x${string}`;
-	publicKey: `0x${string}`;
-	privateKey: `0x${string}`;
-} {
-	return fromMnemonicToAccount(mnemonic, 0);
-}
-
-// export function fromMnemonicSignToGenerateEntropyKey(
-// 	mnemonic: string,
-// 	accountIndex: number,
-// 	msg: string
-// ): `0x${string}` {
-// 	const account = fromMnemonicToHDKey(mnemonic, accountIndex);
-// 	if (!account.privateKey) {
-// 		throw new Error(`hd key do not generate account with private key`);
-// 	}
-// 	const signature = signTextMessage(msg, `0x${bytesToHex(account.privateKey)}`);
-// 	return fromSignatureToKey(signature);
-// }
 
 export type AlchemySettings = {rpcURL: string} | {apiKeyNotRecommended: string};
 

@@ -66,6 +66,9 @@ importers:
       '@account-kit/signer':
         specifier: ^4.13.0
         version: 4.14.0(@babel/core@7.26.9)(@babel/preset-env@7.26.9(@babel/core@7.26.9))(react@18.2.0)(typescript@5.8.3)(viem@2.23.14(typescript@5.8.3)(zod@3.24.2))
+      '@etherplay/wallet-connector':
+        specifier: workspace:*
+        version: link:../etherplay-wallet-connector
       '@noble/curves':
         specifier: ^1.8.1
         version: 1.8.1
@@ -164,9 +167,21 @@ importers:
       '@etherplay/wallet-connector':
         specifier: workspace:*
         version: link:../etherplay-wallet-connector
+      '@noble/curves':
+        specifier: 1.8.1
+        version: 1.8.1
       '@noble/hashes':
         specifier: ^1.7.1
         version: 1.7.1
+      '@noble/secp256k1':
+        specifier: ^2.2.3
+        version: 2.2.3
+      '@scure/bip32':
+        specifier: ^1.6.2
+        version: 1.6.2
+      '@scure/bip39':
+        specifier: ^1.5.4
+        version: 1.5.4
       remote-procedure-call:
         specifier: ^0.1.1
         version: 0.1.1(@types/node@22.13.8)(jsdom@25.0.1)(sass@1.86.3)(terser@5.39.0)

@@ -1,10 +1,9 @@
 import type {AlchemyMechanism, OriginAccount} from '@etherplay/alchemy';
-import type {WalletConnector, WalletHandle, WalletInfo, WalletProvider} from '@etherplay/wallet-connector';
+import type {WalletConnector, WalletHandle, WalletProvider} from '@etherplay/wallet-connector';
 import {writable} from 'svelte/store';
 import {createPopupLauncher, type PopupPromise} from './popup.js';
 import {
 	fromEntropyKeyToMnemonic,
-	fromMnemonicToFirstAccount,
 	fromSignatureToKey,
 	originKeyMessage,
 	originPublicKeyPublicationMessage,
@@ -431,7 +430,7 @@ export function createConnection<WalletProviderType>(settings: {
 
 		const originKey = fromSignatureToKey(signature);
 		const originMnemonic = fromEntropyKeyToMnemonic(originKey);
-		const originAccount = fromMnemonicToFirstAccount(originMnemonic);
+		const originAccount = walletConnector.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
 
 		const account = {
 			address: $connection.mechanism.address as `0x${string}`,
@@ -445,6 +444,7 @@ export function createConnection<WalletProviderType>(settings: {
 			metadata: {},
 			mechanismUsed: $connection.mechanism,
 			savedPublicKeyPublicationSignature: undefined,
+			accountType: settings.walletConnector.accountGenerator.type,
 		};
 		set({
 			...$connection,

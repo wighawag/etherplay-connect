@@ -26,6 +26,10 @@
 	"dependencies": {
 		"@etherplay/wallet-connector": "workspace:*",
 		"@noble/hashes": "^1.7.1",
+		"@scure/bip32": "^1.6.2",
+		"@scure/bip39": "^1.5.4",
+		"@noble/curves": "1.8.1",
+		"@noble/secp256k1": "^2.2.3",
 		"remote-procedure-call": "^0.1.1"
 	},
 	"scripts": {
