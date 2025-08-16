@@ -12,7 +12,7 @@ import {onDocumentLoaded} from './utils/web.js';
 import {mnemonicToEntropy} from '@scure/bip39';
 import {bytesToHex} from '@noble/hashes/utils';
 import {wordlist} from '@scure/bip39/wordlists/english';
-import {AccountGenerator} from '@etherplay/wallet-connector';
+import type {AccountGenerator} from '@etherplay/wallet-connector';
 
 export {fromEntropyKeyToMnemonic, fromSignatureToKey};
 
