@@ -1017,6 +1017,10 @@ export function createConnection<WalletProviderType>(settings: {
 			}
 		});
 
+		if (currentURL.searchParams.has('account-type')) {
+			entriesToAdd.push(['account-type', currentURL.searchParams.get('account-type') || '']);
+		}
+
 		if (currentURL.searchParams.has('eruda')) {
 			entriesToAdd.push(['eruda', currentURL.searchParams.get('eruda') || '']);
 		}

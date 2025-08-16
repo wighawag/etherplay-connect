@@ -45,6 +45,7 @@ const alchemyIdToken = searchParams.get('alchemy-id-token');
 const alchemyBundle = searchParams.get('alchemy-bundle');
 const alchemyError = searchParams.get('alchemy-error');
 const domainRedirectPublicKey = searchParams.get('domain-redirect-public-key') || undefined;
+const accountType = searchParams.get('account-type'); // TODO default to || 'ethereum';
 
 const rpcURL: string | null = searchParams.get('alchemy-api') || import.meta.env.VITE_ALCHEMY_RPC_URL;
 const apiKeyNotRecommended: string | null =
@@ -230,6 +231,7 @@ if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID 
 			apiKeyNotRecommended,
 			orig,
 			requestID,
+			accountType,
 		}),
 		from: {source, origin: orig, requestID: requestID, domainRedirectPublicKey, canCloseAutomatically},
 	};

@@ -240,23 +240,33 @@ export function createAlchemyOnBoarding(settings: AlchemySettings, options?: {se
 		let newUser: User | undefined;
 
 		if (redirection) {
-			let erudaStr = '';
 			const currentURL = new URL(location.href);
+
+			let accountTypeStr = '';
+			if (currentURL.searchParams.has('account-type')) {
+				const value = currentURL.searchParams.get('account-type');
+				accountTypeStr = value ? `&account-type=${value}` : '&account-type';
+			}
+
+			let erudaStr = '';
 			if (currentURL.searchParams.has('eruda')) {
 				const value = currentURL.searchParams.get('eruda');
 				erudaStr = value ? `&eruda=${value}` : '&eruda';
 			}
+
 			let debugStr = '';
 			if (currentURL.searchParams.has('debug')) {
 				const value = currentURL.searchParams.get('debug');
 				debugStr = value ? `&debug=${value}` : '&debug';
 			}
+
 			let logStr = '';
 			if (currentURL.searchParams.has('log')) {
 				const value = currentURL.searchParams.get('log');
 				logStr = value ? `&log=${value}` : '&log';
 			}
-			const redirectUrl = `/login/?type=oauth-redirect&origin=${redirection.origin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${options?.orgId ? `&orgId=${options.orgId}` : ''}${erudaStr}${debugStr}${logStr}`;
+
+			const redirectUrl = `/login/?type=oauth-redirect&origin=${redirection.origin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${options?.orgId ? `&orgId=${options.orgId}` : ''}${accountTypeStr}${erudaStr}${debugStr}${logStr}`;
 			// console.log(`Alchemy: signer.authenticate(...) redirect &{ redirectUrl }`);
 			if (authProviderId === 'auth0') {
 				newUser = await signer.authenticate({

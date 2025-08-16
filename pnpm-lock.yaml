@@ -207,6 +207,12 @@ importers:
       '@etherplay/alchemy':
         specifier: workspace:*
         version: link:../packages/etherplay-alchemy
+      '@etherplay/wallet-connector':
+        specifier: workspace:*
+        version: link:../packages/etherplay-wallet-connector
+      '@etherplay/wallet-connector-ethereum':
+        specifier: workspace:*
+        version: link:../packages/etherplay-wallet-connector-ethereum
       micro-eth-signer:
         specifier: ^0.13.3
         version: 0.13.3

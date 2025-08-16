@@ -1,22 +1,38 @@
 import {createAlchemyConnection} from '@etherplay/alchemy';
 import type {AlchemyConnectionStore, AlchemyMechanismIncludingRedirects} from '@etherplay/alchemy';
+import type {AccountGenerator} from '@etherplay/wallet-connector';
+import {EthereumAccountGenerator} from '@etherplay/wallet-connector-ethereum';
 
 export function handle(
 	params: ({rpcURL: string} | {apiKeyNotRecommended: string}) & {
 		orig: string;
 		requestID: string;
 		mechanism: AlchemyMechanismIncludingRedirects;
+		accountType: string;
 	}
 ) {
-	const {mechanism, orig, requestID} = params;
+	const {mechanism, orig, requestID, accountType} = params;
+
+	// TODO option to pass custom accountGenerator ?
+	let accountGenerator: AccountGenerator | undefined = undefined;
+	if (accountType === 'ethereum') {
+		accountGenerator = new EthereumAccountGenerator();
+	} else {
+		throw new Error(`Unsupported account type: ${accountType}`);
+	}
 
 	let alchemyConnection: AlchemyConnectionStore;
 	if ('rpcURL' in params) {
-		alchemyConnection = createAlchemyConnection({alchemy: {rpcURL: params.rpcURL}, autoInitialise: false});
+		alchemyConnection = createAlchemyConnection({
+			alchemy: {rpcURL: params.rpcURL},
+			autoInitialise: false,
+			accountGenerator,
+		});
 	} else {
 		alchemyConnection = createAlchemyConnection({
 			alchemy: {apiKeyNotRecommended: params.apiKeyNotRecommended},
 			autoInitialise: false,
+			accountGenerator,
 		});
 	}
 

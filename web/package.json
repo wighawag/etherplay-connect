@@ -24,6 +24,8 @@
   },
   "dependencies": {
     "@etherplay/alchemy": "workspace:*",
+    "@etherplay/wallet-connector": "workspace:*",
+    "@etherplay/wallet-connector-ethereum": "workspace:*",
     "micro-eth-signer": "^0.13.3",
     "viem": "^2.23.14"
   }
