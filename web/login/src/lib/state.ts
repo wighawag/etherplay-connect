@@ -209,7 +209,7 @@ if (!type) {
 	}
 }
 
-if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID && mechanism) {
+if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID && mechanism && accountType) {
 	console.log(`mechanism`, mechanism);
 	let canCloseAutomatically = false;
 	if (type === 'mnemonic') {
@@ -240,6 +240,9 @@ if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID 
 		(window as any).alchemy = alchemy;
 	}
 } else {
+	if (!accountType) {
+		errors.push({message: `account-type not provided`, canClose: true});
+	}
 	if (!type) {
 		errors.push({message: `type of flow not provided`, canClose: true});
 	}
