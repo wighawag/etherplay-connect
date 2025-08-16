@@ -1002,6 +1002,8 @@ export function createConnection<WalletProviderType>(settings: {
 			throw new Error(`mechanism ${(settings.mechanism as any).type} not supported`);
 		}
 
+		popupURL.searchParams.append('account-type', walletConnector.accountGenerator.type);
+
 		// if (settings.extraParams) {
 		// 	for (const [key, value] of Object.entries(settings.extraParams)) {
 		// 		popupURL.searchParams.append(`${key}`, value);
@@ -1016,10 +1018,6 @@ export function createConnection<WalletProviderType>(settings: {
 				entriesToAdd.push([key.slice(`renraku_`.length), value]);
 			}
 		});
-
-		if (currentURL.searchParams.has('account-type')) {
-			entriesToAdd.push(['account-type', currentURL.searchParams.get('account-type') || '']);
-		}
 
 		if (currentURL.searchParams.has('eruda')) {
 			entriesToAdd.push(['eruda', currentURL.searchParams.get('eruda') || '']);
