@@ -10,8 +10,8 @@ import type {
 
 import {Wallet, Fuel, FuelConnector} from 'fuels';
 import {defaultConnectors} from '@fuels/connectors';
-
-export type UnderlyingFuelProvider = FuelConnector;
+import {createProvider} from './provider.js';
+import {UnderlyingFuelProvider} from './types.js';
 
 async function _fetchWallets(
 	walletAnnounced: (walletHandle: WalletHandle<UnderlyingFuelProvider>) => void,
@@ -54,7 +54,7 @@ export class FuelWalletConnector implements WalletConnector<UnderlyingFuelProvid
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
 	}): AlwaysOnProviderWrapper<UnderlyingFuelProvider> {
-		throw new Error('Method not implemented.');
+		return createProvider(params);
 	}
 }
 
