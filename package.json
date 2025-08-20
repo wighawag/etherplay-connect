@@ -19,6 +19,7 @@
     "build:etherplay-connect": "pnpm run --filter @etherplay/connect build",
     "build:etherplay-wallet-connector": "pnpm run --filter @etherplay/wallet-connector build",
     "build:etherplay-wallet-connector-ethereum": "pnpm run --filter @etherplay/wallet-connector-ethereum build",
+    "build:etherplay-wallet-connector-fuel": "pnpm run --filter @etherplay/wallet-connector-fuel build",
     "build:web": "pnpm run --filter ./web build",
     "build": "pnpm '/^build:.*/'",
     "build:demo": "pnpm run build:packages && pnpm run --filter ./demoes/sveltekit build",
