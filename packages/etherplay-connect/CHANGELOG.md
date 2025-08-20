@@ -1,5 +1,15 @@
 # @etherplay/connect
 
+## 0.0.28
+
+### Patch Changes
+
+- support multiple blockchain wallet
+- Updated dependencies
+  - @etherplay/alchemy@0.0.12
+  - @etherplay/wallet-connector@0.0.2
+  - @etherplay/wallet-connector-ethereum@0.0.2
+
 ## 0.0.27
 
 ### Patch Changes
