@@ -1,5 +1,11 @@
 # @etherplay/wallet-connector-fuel
 
+## 0.0.4
+
+### Patch Changes
+
+- Fuel have 2 separate concept, connector and provider
+
 ## 0.0.3
 
 ### Patch Changes
