@@ -14,7 +14,7 @@
   },
   "scripts": {
     "prepare": "set-defaults .vscode && pnpm build:packages",
-    "build:packages": "pnpm build:etherplay-wallet-connector && pnpm build:etherplay-alchemy && pnpm build:etherplay-connect && pnpm build:etherplay-wallet-connector-ethereum",
+    "build:packages": "pnpm build:etherplay-wallet-connector && pnpm build:etherplay-wallet-connector-ethereum && pnpm build:etherplay-alchemy && pnpm build:etherplay-connect && pnpm build:etherplay-wallet-connector-ethereum",
     "build:etherplay-alchemy": "pnpm run --filter @etherplay/alchemy build",
     "build:etherplay-connect": "pnpm run --filter @etherplay/connect build",
     "build:etherplay-wallet-connector": "pnpm run --filter @etherplay/wallet-connector build",
