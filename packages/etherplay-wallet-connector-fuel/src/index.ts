@@ -8,11 +8,11 @@ import type {
 	PrivateKeyAccount,
 } from '@etherplay/wallet-connector';
 
-export type UnderlyingEthereumProvider = any; // TODO
+export type UnderlyingFuelProvider = any; // TODO
 
-export class EthereumWalletConnector implements WalletConnector<UnderlyingEthereumProvider> {
-	accountGenerator: AccountGenerator = new EthereumAccountGenerator();
-	fetchWallets(walletAnnounced: (walletInfo: WalletHandle<UnderlyingEthereumProvider>) => void): void {
+export class FuelWalletConnector implements WalletConnector<UnderlyingFuelProvider> {
+	accountGenerator: AccountGenerator = new FuelAccountGenerator();
+	fetchWallets(walletAnnounced: (walletInfo: WalletHandle<UnderlyingFuelProvider>) => void): void {
 		// TODO
 	}
 
@@ -21,12 +21,12 @@ export class EthereumWalletConnector implements WalletConnector<UnderlyingEthere
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
-	}): AlwaysOnProviderWrapper<UnderlyingEthereumProvider> {
+	}): AlwaysOnProviderWrapper<UnderlyingFuelProvider> {
 		throw new Error('Method not implemented.');
 	}
 }
 
-export class EthereumAccountGenerator implements AccountGenerator {
+export class FuelAccountGenerator implements AccountGenerator {
 	type = 'ethereum';
 	fromMnemonicToAccount(mnemonic: string, index: number): PrivateKeyAccount {
 		throw new Error('Method not implemented.');
@@ -36,8 +36,8 @@ export class EthereumAccountGenerator implements AccountGenerator {
 	}
 }
 
-export class EthereumWalletProvider implements WalletProvider<UnderlyingEthereumProvider> {
-	public readonly underlyingProvider: UnderlyingEthereumProvider;
+export class FuelWalletProvider implements WalletProvider<UnderlyingFuelProvider> {
+	public readonly underlyingProvider: UnderlyingFuelProvider;
 	constructor(protected windowProvider: any) {
 		// TODO any
 		this.underlyingProvider = windowProvider; // TODO
