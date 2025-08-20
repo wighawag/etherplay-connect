@@ -617,11 +617,11 @@ export function createAlchemyConnection(
 		return etherplayAccount;
 	}
 
-	function generateOriginAccount(origin: string, account: EtherplayAccount): OriginAccount {
+	async function generateOriginAccount(origin: string, account: EtherplayAccount): Promise<OriginAccount> {
 		const accountMnemonic = fromEntropyKeyToMnemonic(account.localAccount.key);
 
 		const accountObject = settings.accountGenerator.fromMnemonicToAccount(accountMnemonic, account.localAccount.index);
-		const originKeySignature = settings.accountGenerator.signTextMessage(
+		const originKeySignature = await settings.accountGenerator.signTextMessage(
 			originKeyMessage(origin),
 			accountObject.privateKey,
 		);
@@ -631,7 +631,7 @@ export function createAlchemyConnection(
 
 		const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
 
-		const savedPublicKeyPublicationSignature = settings.accountGenerator.signTextMessage(
+		const savedPublicKeyPublicationSignature = await settings.accountGenerator.signTextMessage(
 			originPublicKeyPublicationMessage(origin, originAccount.publicKey),
 			accountObject.privateKey,
 		);

@@ -1,5 +1,13 @@
 # @etherplay/alchemy
 
+## 0.0.13
+
+### Patch Changes
+
+- wip: fuel connector
+- Updated dependencies
+  - @etherplay/wallet-connector@0.0.3
+
 ## 0.0.12
 
 ### Patch Changes

@@ -20,7 +20,7 @@ export type PrivateKeyAccount = {address: `0x${string}`; publicKey: `0x${string}
 
 export interface AccountGenerator {
 	fromMnemonicToAccount(mnemonic: string, index: number): PrivateKeyAccount;
-	signTextMessage(message: string, privateKey: `0x${string}`): `0x${string}`;
+	signTextMessage(message: string, privateKey: `0x${string}`): Promise<`0x${string}`>;
 	type: string;
 }
 

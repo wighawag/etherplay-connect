@@ -99,7 +99,7 @@
 	}
 
 	async function continueAfterLogin() {
-		postResultIfNotAlreadyPosted();
+		await postResultIfNotAlreadyPosted();
 		if (debug) {
 			console.log('please close manually, in debug mode, we keep it open.');
 		} else {
@@ -110,7 +110,7 @@
 	}
 
 	let resultPosted = false;
-	function postResultIfNotAlreadyPosted(closeWindow = false) {
+	async function postResultIfNotAlreadyPosted(closeWindow = false) {
 		if (!from.source) {
 			throw new Error(`no source`);
 		}
@@ -119,7 +119,7 @@
 				const state = get(alchemy);
 				if (state?.step === 'SignedIn') {
 					// TODO
-					const result = alchemy.generateOriginAccount(from.origin, state.account);
+					const result = await alchemy.generateOriginAccount(from.origin, state.account);
 					if (debug) {
 						console.log('postMessage', {result, id: from.requestID}, {targetOrigin: from.origin});
 					}
@@ -239,9 +239,8 @@
 		width: 100%;
 		height: 100%;
 		line-height: 1.5;
-		font-family:
-			system-ui, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, Helvetica, Arial, 'Helvetica Neue', sans-serif,
-			'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+		font-family: system-ui, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, Helvetica, Arial, 'Helvetica Neue',
+			sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
 		display: flex;
 		justify-content: center;
 	}

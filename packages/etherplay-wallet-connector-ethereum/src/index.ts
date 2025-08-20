@@ -174,7 +174,7 @@ export class EthereumAccountGenerator implements AccountGenerator {
 			publicKey: toHex(getPublicKey(hdkey.privateKey)),
 		};
 	}
-	signTextMessage(message: string, privateKey: `0x${string}`): `0x${string}` {
+	async signTextMessage(message: string, privateKey: `0x${string}`): Promise<`0x${string}`> {
 		const hash = hashTextMessage(message);
 		const signature = secp256k1.sign(hash, privateKey.slice(2));
 		const r = signature.r;
