@@ -59,7 +59,7 @@ export class FuelWalletConnector implements WalletConnector<UnderlyingFuelProvid
 }
 
 export class FuelAccountGenerator implements AccountGenerator {
-	type = 'ethereum';
+	type = 'fuel';
 	fromMnemonicToAccount(mnemonic: string, index: number): PrivateKeyAccount {
 		const path = `m/44'/1179993420'/0'/0/${index}`;
 		const wallet = Wallet.fromMnemonic(mnemonic, path);
