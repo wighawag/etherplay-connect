@@ -36,6 +36,7 @@
 		"@account-kit/signer": "^4.13.0",
 		"@etherplay/alchemy": "workspace:*",
 		"@etherplay/wallet-connector": "workspace:*",
+		"@etherplay/wallet-connector-ethereum": "workspace:*",
 		"@noble/curves": "^1.8.1",
 		"@scure/bip32": "^1.6.2",
 		"@scure/bip39": "^1.5.4",

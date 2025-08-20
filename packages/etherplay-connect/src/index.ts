@@ -1,5 +1,6 @@
 import type {AlchemyMechanism, OriginAccount} from '@etherplay/alchemy';
 import type {WalletConnector, WalletHandle, WalletProvider} from '@etherplay/wallet-connector';
+import {EthereumWalletConnector, type UnderlyingEthereumProvider} from '@etherplay/wallet-connector-ethereum';
 import {writable} from 'svelte/store';
 import {createPopupLauncher, type PopupPromise} from './popup.js';
 import {
@@ -121,6 +122,73 @@ export type Connection<WalletProviderType> = {
 
 const storageKeyAccount = '__origin_account';
 const storageKeyLastWallet = '__last_wallet';
+
+export type ConnectionStore<WalletProviderType> = {
+	subscribe: (run: (value: Connection<WalletProviderType>) => void) => () => void;
+	connect: (
+		mechanism?: Mechanism,
+		options?: {
+			requireUserConfirmationBeforeSignatureRequest?: boolean;
+			doNotStoreLocally?: boolean;
+			requestSignatureRightAway?: boolean;
+		},
+	) => Promise<void>;
+	cancel: () => void;
+	back: (step: 'MechanismToChoose' | 'Idle' | 'WalletToChoose') => void;
+	requestSignature: () => Promise<void>;
+	connectToAddress: (
+		address: `0x${string}`,
+		options?: {requireUserConfirmationBeforeSignatureRequest: boolean},
+	) => void;
+	disconnect: () => void;
+	getSignatureForPublicKeyPublication: () => Promise<`0x${string}`>;
+	switchWalletChain: (
+		chainId: string,
+		config?: {
+			readonly rpcUrls?: readonly string[];
+			readonly blockExplorerUrls?: readonly string[];
+			readonly chainName?: string;
+			readonly iconUrls?: readonly string[];
+			readonly nativeCurrency?: {
+				name: string;
+				symbol: string;
+				decimals: number;
+			};
+		},
+	) => Promise<void>;
+	unlock: () => Promise<void>;
+	ensureConnected: {
+		(
+			step: 'WalletConnected',
+			mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
+			options?: {
+				requireUserConfirmationBeforeSignatureRequest?: boolean;
+				doNotStoreLocally?: boolean;
+				requestSignatureRightAway?: boolean;
+			},
+		): Promise<WalletConnected<WalletProviderType>>;
+		(
+			step: 'SignedIn',
+			mechanism?: Mechanism,
+			options?: {
+				requireUserConfirmationBeforeSignatureRequest?: boolean;
+				doNotStoreLocally?: boolean;
+				requestSignatureRightAway?: boolean;
+			},
+		): Promise<SignedIn<WalletProviderType>>;
+		(
+			mechanism?: Mechanism,
+			options?: {
+				requireUserConfirmationBeforeSignatureRequest?: boolean;
+				doNotStoreLocally?: boolean;
+				requestSignatureRightAway?: boolean;
+			},
+		): Promise<SignedIn<WalletProviderType>>;
+	};
+	provider: WalletProviderType;
+};
+
+// Function overloads for proper typing
 export function createConnection<WalletProviderType>(settings: {
 	walletHost: string;
 	autoConnect?: boolean;
@@ -129,8 +197,29 @@ export function createConnection<WalletProviderType>(settings: {
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
 	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
+}): ConnectionStore<WalletProviderType>;
+
+export function createConnection(settings: {
+	walletHost: string;
+	autoConnect?: boolean;
+	autoConnectWallet?: boolean;
+	walletConnector?: undefined;
+	requestSignatureAutomaticallyIfPossible?: boolean;
+	alwaysUseCurrentAccount?: boolean;
+	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
+}): ConnectionStore<UnderlyingEthereumProvider>;
+
+export function createConnection<WalletProviderType = UnderlyingEthereumProvider>(settings: {
+	walletHost: string;
+	autoConnect?: boolean;
+	autoConnectWallet?: boolean;
+	walletConnector?: WalletConnector<WalletProviderType>;
+	requestSignatureAutomaticallyIfPossible?: boolean;
+	alwaysUseCurrentAccount?: boolean;
+	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
 }) {
-	const walletConnector = settings.walletConnector;
+	const walletConnector =
+		settings.walletConnector || (new EthereumWalletConnector() as unknown as WalletConnector<WalletProviderType>);
 	const alwaysOnChainId = settings.node.chainId;
 	const alwaysOnProviderWrapper = walletConnector.createAlwaysOnProvider({
 		endpoint: settings.node.url,
@@ -444,7 +533,7 @@ export function createConnection<WalletProviderType>(settings: {
 			metadata: {},
 			mechanismUsed: $connection.mechanism,
 			savedPublicKeyPublicationSignature: undefined,
-			accountType: settings.walletConnector.accountGenerator.type,
+			accountType: walletConnector.accountGenerator.type,
 		};
 		set({
 			...$connection,
@@ -1258,5 +1347,3 @@ export function createConnection<WalletProviderType>(settings: {
 		provider: alwaysOnProviderWrapper.provider,
 	};
 }
-
-export type ConnectionStore = ReturnType<typeof createConnection>;
