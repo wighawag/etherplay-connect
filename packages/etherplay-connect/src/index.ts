@@ -14,6 +14,8 @@ import {withTimeout} from './utils.js';
 export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage};
 export type {OriginAccount};
 
+export type {UnderlyingEthereumProvider};
+
 export type PopupSettings = {
 	walletHost: string;
 	mechanism: AlchemyMechanism;
