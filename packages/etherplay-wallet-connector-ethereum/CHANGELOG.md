@@ -1,5 +1,11 @@
 # @etherplay/wallet-connector-ethereum
 
+## 0.0.4
+
+### Patch Changes
+
+- global wallet fetcher
+
 ## 0.0.3
 
 ### Patch Changes

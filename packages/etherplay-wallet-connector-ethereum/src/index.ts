@@ -85,6 +85,50 @@ interface EIP6963ProviderDetail {
 	provider: EIP1193WindowWalletProvider;
 }
 
+type WalletAnnouncementFunction = (walletInfo: WalletHandle<CurriedRPC<Methods>>) => void;
+function createWalletFetcher() {
+	const walletHandles: WalletHandle<CurriedRPC<Methods>>[] = [];
+	const walletAnnouncementFunctions: WalletAnnouncementFunction[] = [];
+	let requesting = false;
+
+	function onWalletAnnounced(event: EIP6963AnnounceProviderEvent) {
+		const {detail} = event;
+		// const { info, provider } = detail;
+		// const { uuid, name, icon, rdns } = info;
+		// console.log('provider', provider);
+		// console.log(`isDefault: ${provider === defaultProvider}`);
+		// console.log('info', info);
+		const walletHandle = {
+			walletProvider: new EthereumWalletProvider(detail.provider),
+			info: detail.info,
+		};
+		walletHandles.push(walletHandle);
+		for (const walletAnnounced of walletAnnouncementFunctions) {
+			walletAnnounced(walletHandle);
+		}
+	}
+	function fetchWallets(walletAnnounced: WalletAnnouncementFunction) {
+		walletAnnouncementFunctions.push(walletAnnounced);
+		if (requesting) {
+			for (const walletHandle of walletHandles) {
+				walletAnnounced(walletHandle);
+			}
+		} else if (typeof window !== 'undefined') {
+			requesting = true;
+			// const defaultProvider = (window as any).ethereum;
+			// console.log(defaultProvider);
+			// TODO ?
+			(window as any).addEventListener('eip6963:announceProvider', onWalletAnnounced);
+			window.dispatchEvent(new Event('eip6963:requestProvider'));
+		}
+	}
+	return {
+		fetchWallets,
+	};
+}
+
+const walletFetcher = createWalletFetcher();
+
 export interface EIP6963AnnounceProviderEvent extends CustomEvent {
 	type: 'eip6963:announceProvider';
 	detail: EIP6963ProviderDetail;
@@ -93,24 +137,7 @@ export interface EIP6963AnnounceProviderEvent extends CustomEvent {
 export class EthereumWalletConnector implements WalletConnector<CurriedRPC<Methods>> {
 	accountGenerator: AccountGenerator = new EthereumAccountGenerator();
 	fetchWallets(walletAnnounced: (walletInfo: WalletHandle<CurriedRPC<Methods>>) => void): void {
-		if (typeof window !== 'undefined') {
-			// const defaultProvider = (window as any).ethereum;
-			// console.log(defaultProvider);
-			// TODO ?
-			(window as any).addEventListener('eip6963:announceProvider', (event: EIP6963AnnounceProviderEvent) => {
-				const {detail} = event;
-				// const { info, provider } = detail;
-				// const { uuid, name, icon, rdns } = info;
-				// console.log('provider', provider);
-				// console.log(`isDefault: ${provider === defaultProvider}`);
-				// console.log('info', info);
-				walletAnnounced({
-					walletProvider: new EthereumWalletProvider(detail.provider),
-					info: detail.info,
-				});
-			});
-			window.dispatchEvent(new Event('eip6963:requestProvider'));
-		}
+		walletFetcher.fetchWallets(walletAnnounced);
 	}
 
 	createAlwaysOnProvider(params: {
