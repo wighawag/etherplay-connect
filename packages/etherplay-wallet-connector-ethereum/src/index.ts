@@ -90,8 +90,26 @@ export interface EIP6963AnnounceProviderEvent extends CustomEvent {
 	detail: EIP6963ProviderDetail;
 }
 
+export function EthereumWalletConnectorFactory(params: {
+	endpoint: string;
+	chainId: string;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
+}): WalletConnector<CurriedRPC<Methods>> {
+	return new EthereumWalletConnector(params);
+}
+
 export class EthereumWalletConnector implements WalletConnector<CurriedRPC<Methods>> {
 	accountGenerator: AccountGenerator = new EthereumAccountGenerator();
+	constructor(
+		private params: {
+			endpoint: string;
+			chainId: string;
+			prioritizeWalletProvider?: boolean;
+			requestsPerSecond?: number;
+		},
+	) {}
+
 	fetchWallets(walletAnnounced: (walletInfo: WalletHandle<CurriedRPC<Methods>>) => void): void {
 		if (typeof window !== 'undefined') {
 			// const defaultProvider = (window as any).ethereum;
@@ -113,13 +131,8 @@ export class EthereumWalletConnector implements WalletConnector<CurriedRPC<Metho
 		}
 	}
 
-	createAlwaysOnProvider(params: {
-		endpoint: string;
-		chainId: string;
-		prioritizeWalletProvider?: boolean;
-		requestsPerSecond?: number;
-	}): AlwaysOnProviderWrapper<CurriedRPC<Methods>> {
-		return createProvider(params);
+	createAlwaysOnProvider(): AlwaysOnProviderWrapper<CurriedRPC<Methods>> {
+		return createProvider(this.params);
 	}
 }
 

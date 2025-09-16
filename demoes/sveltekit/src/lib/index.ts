@@ -1,6 +1,5 @@
 import { PUBLIC_WALLET_HOST } from '$env/static/public';
 import { createConnection } from '@etherplay/connect';
-import { EthereumWalletConnector } from '@etherplay/wallet-connector-ethereum';
 import { get } from 'svelte/store';
 
 export const chainInfos = {
@@ -31,7 +30,6 @@ export const chainId = '1';
 export const chainInfo = chainInfos[chainId];
 export const connection = createConnection({
 	walletHost: PUBLIC_WALLET_HOST,
-	walletConnector: new EthereumWalletConnector(),
 	node: {
 		chainId,
 		url: chainInfo.rpcUrls[0],

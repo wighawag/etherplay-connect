@@ -1,6 +1,6 @@
 import type {AlchemyMechanism, OriginAccount} from '@etherplay/alchemy';
-import type {WalletConnector, WalletHandle, WalletProvider} from '@etherplay/wallet-connector';
-import {EthereumWalletConnector, type UnderlyingEthereumProvider} from '@etherplay/wallet-connector-ethereum';
+import type {WalletConnectorFactory, WalletHandle, WalletProvider} from '@etherplay/wallet-connector';
+import {EthereumWalletConnectorFactory, type UnderlyingEthereumProvider} from '@etherplay/wallet-connector-ethereum';
 import {writable} from 'svelte/store';
 import {createPopupLauncher, type PopupPromise} from './popup.js';
 import {
@@ -193,7 +193,7 @@ export function createConnection<WalletProviderType>(settings: {
 	walletHost: string;
 	autoConnect?: boolean;
 	autoConnectWallet?: boolean;
-	walletConnector: WalletConnector<WalletProviderType>;
+	walletConnectorFactory: WalletConnectorFactory<WalletProviderType>;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
 	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
@@ -203,7 +203,7 @@ export function createConnection(settings: {
 	walletHost: string;
 	autoConnect?: boolean;
 	autoConnectWallet?: boolean;
-	walletConnector?: undefined;
+	walletConnectorFactory?: undefined;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
 	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
@@ -213,20 +213,23 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	walletHost: string;
 	autoConnect?: boolean;
 	autoConnectWallet?: boolean;
-	walletConnector?: WalletConnector<WalletProviderType>;
+	walletConnectorFactory?: WalletConnectorFactory<WalletProviderType>;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
 	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
 }) {
-	const walletConnector =
-		settings.walletConnector || (new EthereumWalletConnector() as unknown as WalletConnector<WalletProviderType>);
-	const alwaysOnChainId = settings.node.chainId;
-	const alwaysOnProviderWrapper = walletConnector.createAlwaysOnProvider({
+	const walletConnectorFactory =
+		settings.walletConnectorFactory ||
+		(EthereumWalletConnectorFactory as unknown as WalletConnectorFactory<WalletProviderType>);
+
+	const walletConnector = walletConnectorFactory({
 		endpoint: settings.node.url,
 		chainId: settings.node.chainId,
 		prioritizeWalletProvider: settings.node.prioritizeWalletProvider,
 		requestsPerSecond: settings.node.requestsPerSecond,
 	});
+	const alwaysOnChainId = settings.node.chainId;
+	const alwaysOnProviderWrapper = walletConnector.createAlwaysOnProvider();
 	let autoConnect = true;
 	if (typeof settings.autoConnect !== 'undefined') {
 		autoConnect = settings.autoConnect;

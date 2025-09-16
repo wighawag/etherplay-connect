@@ -24,14 +24,16 @@ export interface AccountGenerator {
 	type: string;
 }
 
+export type WalletConnectorFactory<UnderlyingProvider> = (params: {
+	endpoint: string;
+	chainId: string;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
+}) => WalletConnector<UnderlyingProvider>;
+
 export interface WalletConnector<UnderlyingProvider> {
 	fetchWallets(walletAnnounced: (walletHandle: WalletHandle<UnderlyingProvider>) => void): void;
-	createAlwaysOnProvider(params: {
-		endpoint: string;
-		chainId: string;
-		prioritizeWalletProvider?: boolean;
-		requestsPerSecond?: number;
-	}): AlwaysOnProviderWrapper<UnderlyingProvider>;
+	createAlwaysOnProvider(): AlwaysOnProviderWrapper<UnderlyingProvider>;
 	accountGenerator: AccountGenerator;
 }
 

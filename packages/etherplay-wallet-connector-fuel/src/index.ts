@@ -8,13 +8,14 @@ import type {
 	PrivateKeyAccount,
 } from '@etherplay/wallet-connector';
 
-import {Wallet, Fuel, FuelConnector} from 'fuels';
+import {Wallet, Fuel, FuelConnector, Provider} from 'fuels';
 import {defaultConnectors} from '@fuels/connectors';
 import {createProvider} from './provider.js';
 import {UnderlyingFuelProvider} from './types.js';
 
 async function _fetchWallets(
 	walletAnnounced: (walletHandle: WalletHandle<UnderlyingFuelProvider>) => void,
+	endpoint: string,
 ): Promise<void> {
 	const fuel = new Fuel({
 		connectors: defaultConnectors({devMode: true}),
@@ -30,7 +31,7 @@ async function _fetchWallets(
 					: connector.metadata?.image || ''; // TODO image missing ?
 
 			walletAnnounced({
-				walletProvider: new FuelWalletProvider(connector),
+				walletProvider: new FuelWalletProvider(connector, endpoint),
 				info: {
 					uuid: connector.name,
 					name: connector.name,
@@ -42,19 +43,32 @@ async function _fetchWallets(
 	}
 }
 
+export function FuelWalletConnectorFactory(params: {
+	endpoint: string;
+	chainId: string;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
+}): WalletConnector<UnderlyingFuelProvider> {
+	return new FuelWalletConnector(params);
+}
+
 export class FuelWalletConnector implements WalletConnector<UnderlyingFuelProvider> {
 	accountGenerator: AccountGenerator = new FuelAccountGenerator();
+	constructor(
+		private params: {
+			endpoint: string;
+			chainId: string;
+			prioritizeWalletProvider?: boolean;
+			requestsPerSecond?: number;
+		},
+	) {}
+
 	fetchWallets(walletAnnounced: (walletInfo: WalletHandle<UnderlyingFuelProvider>) => void): void {
-		_fetchWallets(walletAnnounced);
+		_fetchWallets(walletAnnounced, this.params.endpoint);
 	}
 
-	createAlwaysOnProvider(params: {
-		endpoint: string;
-		chainId: string;
-		prioritizeWalletProvider?: boolean;
-		requestsPerSecond?: number;
-	}): AlwaysOnProviderWrapper<UnderlyingFuelProvider> {
-		return createProvider(params);
+	createAlwaysOnProvider(): AlwaysOnProviderWrapper<UnderlyingFuelProvider> {
+		return createProvider(this.params);
 	}
 }
 
@@ -81,9 +95,13 @@ export class FuelAccountGenerator implements AccountGenerator {
 
 export class FuelWalletProvider implements WalletProvider<UnderlyingFuelProvider> {
 	public readonly underlyingProvider: UnderlyingFuelProvider;
-	constructor(protected windowProvider: UnderlyingFuelProvider) {
-		// TODO any
+	protected readonly readonlyProvider: Provider;
+	constructor(
+		protected windowProvider: UnderlyingFuelProvider,
+		protected endpoint: string,
+	) {
 		this.underlyingProvider = windowProvider; // TODO
+		this.readonlyProvider = new Provider(this.endpoint);
 	}
 	async signMessage(message: string, account: `0x${string}`): Promise<`0x${string}`> {
 		const signature = await this.underlyingProvider.signMessage(message, account);
@@ -92,16 +110,20 @@ export class FuelWalletProvider implements WalletProvider<UnderlyingFuelProvider
 	}
 
 	async getChainId(): Promise<`0x${string}`> {
-		const network = await this.underlyingProvider.currentNetwork();
+		const chainId = await this.readonlyProvider.getChainId();
 		// TODO chainId are hex ?
-		return `0x${network.chainId.toString(16)}`;
+		return `0x${chainId.toString(16)}`;
 	}
 
 	async getAccounts(): Promise<`0x${string}`[]> {
-		const accounts = await this.underlyingProvider.accounts();
+		try {
+			const accounts = await this.underlyingProvider.accounts();
+			// TODO should we allow string or force `0x` prefixed string?
+			return accounts as `0x${string}`[];
+		} catch {}
 
 		// TODO should we allow string or force `0x` prefixed string?
-		return accounts as `0x${string}`[];
+		return [] as `0x${string}`[];
 	}
 	async requestAccounts(): Promise<`0x${string}`[]> {
 		const connected = await this.underlyingProvider.connect();
