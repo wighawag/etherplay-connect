@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.32
+
+### Patch Changes
+
+- fix ChainInfo, make it readonly
+
 ## 0.0.31
 
 ### Patch Changes

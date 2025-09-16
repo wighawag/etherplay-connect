@@ -18,30 +18,30 @@ export type {UnderlyingEthereumProvider};
 
 export type BasicChainInfo = {
 	id: number;
-	rpcUrls?: {
-		default: {
-			http: string[];
+	readonly rpcUrls?: {
+		readonly default: {
+			http: readonly string[];
 		};
 	};
-	blockExplorers?: {
-		default: {
+	readonly blockExplorers?: {
+		readonly default: {
 			url: string;
 		};
 	};
 	name?: string;
-	nativeCurrency?: {
+	readonly nativeCurrency?: {
 		decimals: number;
 		name: string;
 		symbol: string;
 	};
-	iconUrls?: string[];
+	iconUrls?: readonly string[];
 
 	chainType?: string;
 };
 export type ChainInfo = BasicChainInfo & {
-	rpcUrls: {
-		default: {
-			http: string[];
+	readonly rpcUrls: {
+		readonly default: {
+			http: readonly string[];
 		};
 	};
 };
