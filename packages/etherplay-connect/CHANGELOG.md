@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.31
+
+### Patch Changes
+
+- use viem chainInfo
+
 ## 0.0.30
 
 ### Patch Changes

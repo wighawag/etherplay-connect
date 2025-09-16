@@ -16,6 +16,36 @@ export type {OriginAccount};
 
 export type {UnderlyingEthereumProvider};
 
+export type BasicChainInfo = {
+	id: number;
+	rpcUrls?: {
+		default: {
+			http: string[];
+		};
+	};
+	blockExplorers?: {
+		default: {
+			url: string;
+		};
+	};
+	name?: string;
+	nativeCurrency?: {
+		decimals: number;
+		name: string;
+		symbol: string;
+	};
+	iconUrls?: string[];
+
+	chainType?: string;
+};
+export type ChainInfo = BasicChainInfo & {
+	rpcUrls: {
+		default: {
+			http: string[];
+		};
+	};
+};
+
 export type PopupSettings = {
 	walletHost: string;
 	mechanism: AlchemyMechanism;
@@ -122,6 +152,27 @@ export type Connection<WalletProviderType> = {
 	| SignedIn<WalletProviderType>
 );
 
+function viemChainInfoToSwitchChainInfo(chainInfo: BasicChainInfo): {
+	chainId: `0x${string}`;
+	readonly rpcUrls?: readonly string[];
+	readonly blockExplorerUrls?: readonly string[];
+	readonly chainName?: string;
+	readonly iconUrls?: readonly string[];
+	readonly nativeCurrency?: {
+		name: string;
+		symbol: string;
+		decimals: number;
+	};
+} {
+	return {
+		chainId: `0x${Number(chainInfo.id).toString(16)}`,
+		chainName: chainInfo.name,
+		nativeCurrency: chainInfo.nativeCurrency,
+		rpcUrls: chainInfo.rpcUrls ? [...chainInfo.rpcUrls.default.http] : [],
+		blockExplorerUrls: chainInfo.blockExplorers?.default?.url ? [chainInfo.blockExplorers.default.url] : undefined,
+	};
+}
+
 const storageKeyAccount = '__origin_account';
 const storageKeyLastWallet = '__last_wallet';
 
@@ -144,20 +195,7 @@ export type ConnectionStore<WalletProviderType> = {
 	) => void;
 	disconnect: () => void;
 	getSignatureForPublicKeyPublication: () => Promise<`0x${string}`>;
-	switchWalletChain: (
-		chainId: string,
-		config?: {
-			readonly rpcUrls?: readonly string[];
-			readonly blockExplorerUrls?: readonly string[];
-			readonly chainName?: string;
-			readonly iconUrls?: readonly string[];
-			readonly nativeCurrency?: {
-				name: string;
-				symbol: string;
-				decimals: number;
-			};
-		},
-	) => Promise<void>;
+	switchWalletChain: (chainInfo?: BasicChainInfo) => Promise<void>;
 	unlock: () => Promise<void>;
 	ensureConnected: {
 		(
@@ -188,6 +226,8 @@ export type ConnectionStore<WalletProviderType> = {
 		): Promise<SignedIn<WalletProviderType>>;
 	};
 	provider: WalletProviderType;
+	chainId: string;
+	chainInfo: ChainInfo;
 };
 
 // Function overloads for proper typing
@@ -198,7 +238,9 @@ export function createConnection<WalletProviderType>(settings: {
 	walletConnector: WalletConnector<WalletProviderType>;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
-	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
+	chainInfo: ChainInfo;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
 }): ConnectionStore<WalletProviderType>;
 
 export function createConnection(settings: {
@@ -208,7 +250,9 @@ export function createConnection(settings: {
 	walletConnector?: undefined;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
-	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
+	chainInfo: ChainInfo;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
 }): ConnectionStore<UnderlyingEthereumProvider>;
 
 export function createConnection<WalletProviderType = UnderlyingEthereumProvider>(settings: {
@@ -218,16 +262,19 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	walletConnector?: WalletConnector<WalletProviderType>;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
-	node: {url: string; chainId: string; prioritizeWalletProvider?: boolean; requestsPerSecond?: number};
+	chainInfo: ChainInfo;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
 }) {
+	const endpoint = settings.chainInfo.rpcUrls.default.http[0];
 	const walletConnector =
 		settings.walletConnector || (new EthereumWalletConnector() as unknown as WalletConnector<WalletProviderType>);
-	const alwaysOnChainId = settings.node.chainId;
+	const alwaysOnChainId = '' + settings.chainInfo.id;
 	const alwaysOnProviderWrapper = walletConnector.createAlwaysOnProvider({
-		endpoint: settings.node.url,
-		chainId: settings.node.chainId,
-		prioritizeWalletProvider: settings.node.prioritizeWalletProvider,
-		requestsPerSecond: settings.node.requestsPerSecond,
+		endpoint,
+		chainId: '' + settings.chainInfo.id,
+		prioritizeWalletProvider: settings.prioritizeWalletProvider,
+		requestsPerSecond: settings.requestsPerSecond,
 	});
 	let autoConnect = true;
 	if (typeof settings.autoConnect !== 'undefined') {
@@ -1181,23 +1228,17 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		}
 	}
 
-	async function switchWalletChain(
-		chainId: string,
-		config?: {
-			readonly rpcUrls?: readonly string[];
-			readonly blockExplorerUrls?: readonly string[];
-			readonly chainName?: string;
-			readonly iconUrls?: readonly string[];
-			readonly nativeCurrency?: {
-				name: string;
-				symbol: string;
-				decimals: number;
-			};
-		},
-	) {
+	async function switchWalletChain(chainInfo?: BasicChainInfo) {
 		if (!$connection.wallet) {
 			throw new Error(`invali state`);
 		}
+
+		const chainInfoToUse = chainInfo || settings.chainInfo;
+
+		const params = viemChainInfoToSwitchChainInfo(chainInfoToUse);
+
+		const chainId = '' + chainInfoToUse.id;
+		const chainIdAsHex = params.chainId;
 
 		const wallet = $connection.wallet;
 		// if (!wallet) {
@@ -1210,7 +1251,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				...$connection,
 				wallet: {...$connection.wallet, switchingChain: 'switchingChain'},
 			});
-			const result = await wallet.provider.switchChain(('0x' + parseInt(chainId).toString(16)) as `0x${string}`);
+			const result = await wallet.provider.switchChain(chainIdAsHex);
 			if (!result) {
 				if ($connection.wallet) {
 					set({
@@ -1228,7 +1269,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 						...$connection,
 						wallet: {...$connection.wallet, switchingChain: false},
 						error: {
-							message: `Failed to switch to ${config?.chainName || `chain with id = ${chainId}`}`,
+							message: `Failed to switch to ${params?.chainName || `chain with id = ${chainId}`}`,
 							cause: result,
 						},
 					});
@@ -1247,7 +1288,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				return;
 			}
 			// if ((err as any).code === 4902) {
-			else if (config && config.rpcUrls && config.rpcUrls.length > 0) {
+			else if (params && params.rpcUrls && params.rpcUrls.length > 0) {
 				if ($connection.wallet) {
 					set({
 						...$connection,
@@ -1257,12 +1298,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// logger.info(`wallet_switchEthereumChain: could not switch, try adding the chain via "wallet_addEthereumChain"`);
 				try {
 					const result = await wallet.provider.addChain({
-						chainId: ('0x' + parseInt(chainId).toString(16)) as `0x${string}`,
-						rpcUrls: config.rpcUrls,
-						chainName: config.chainName,
-						blockExplorerUrls: config.blockExplorerUrls,
-						iconUrls: config.iconUrls,
-						nativeCurrency: config.nativeCurrency,
+						chainId: chainIdAsHex,
+						rpcUrls: params.rpcUrls,
+						chainName: params.chainName,
+						blockExplorerUrls: params.blockExplorerUrls,
+						iconUrls: params.iconUrls,
+						nativeCurrency: params.nativeCurrency,
 					});
 					if (!result) {
 						if ($connection.wallet) {
@@ -1279,7 +1320,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								...$connection,
 								wallet: {...$connection.wallet, switchingChain: false},
 								error: {
-									message: `Failed to add new chain: ${config?.chainName || `chain with id = ${chainId}`}`,
+									message: `Failed to add new chain: ${params?.chainName || `chain with id = ${chainId}`}`,
 									cause: result,
 								},
 							});
@@ -1294,7 +1335,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								...$connection,
 								wallet: {...$connection.wallet, switchingChain: false},
 								error: {
-									message: `Failed to add new chain: ${config?.chainName || `chain with id = ${chainId}`}`,
+									message: `Failed to add new chain: ${params?.chainName || `chain with id = ${chainId}`}`,
 									cause: err,
 								},
 							});
@@ -1318,7 +1359,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					}
 				}
 			} else {
-				const errorMessage = `Chain "${config?.chainName || `with chainId = ${chainId}`} " is not available on your wallet`;
+				const errorMessage = `Chain "${params?.chainName || `with chainId = ${chainId}`} " is not available on your wallet`;
 				if ($connection.wallet) {
 					set({
 						...$connection,
@@ -1347,5 +1388,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		unlock,
 		ensureConnected,
 		provider: alwaysOnProviderWrapper.provider,
+		chainId: '' + settings.chainInfo.id,
+		chainInfo: settings.chainInfo,
 	};
 }

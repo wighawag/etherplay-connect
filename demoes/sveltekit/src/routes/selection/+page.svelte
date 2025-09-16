@@ -98,7 +98,7 @@
 	{#if invalidChain}
 		<button
 			style="margin-right: 2rem;"
-			onclick={() => connection.switchWalletChain(connection.provider.chainId, chainInfo)}
+			onclick={() => connection.switchWalletChain(connection.chainInfo)}
 			disabled={!!$connection.wallet?.switchingChain}>switch chain</button
 		>
 	{/if}
