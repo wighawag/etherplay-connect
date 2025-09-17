@@ -25,7 +25,8 @@ if ((!source || window.opener.closed) && navigator.userAgent.includes('MetaMaskM
 
 export const url = new URL(location.href);
 export const searchParams = url.searchParams;
-export const orig = searchParams.get('origin');
+export const windowOrigin = searchParams.get('origin');
+export const signingOrigin = searchParams.get('signingOrigin');
 export const requestID = searchParams.get('id');
 export const type = searchParams.get('type');
 
@@ -56,7 +57,8 @@ let alchemy:
 			connection: AlchemyConnectionStore;
 			from: {
 				source?: MessageEventSource;
-				origin: string;
+				windowOrigin: string;
+				signingOrigin: string;
 				requestID: string;
 				domainRedirectPublicKey?: string;
 				canCloseAutomatically: boolean;
@@ -81,7 +83,7 @@ if (!type) {
 	if (type === 'oauth') {
 		if (oauth === 'google' || oauth === 'facebook') {
 			if (oauthRedirection) {
-				if (!orig || !requestID) {
+				if (!windowOrigin || !requestID) {
 					// TODO errors.push
 					throw new Error(`no origin or requestID`);
 				}
@@ -102,7 +104,7 @@ if (!type) {
 				errors.push({message: `invalid oauthConnection: ${oauthConnection}`, canClose: true});
 			} else {
 				if (oauthRedirection) {
-					if (!orig || !requestID) {
+					if (!windowOrigin || !requestID) {
 						// TODO errors.push
 						throw new Error(`no origin or requestID`);
 					}
@@ -124,7 +126,7 @@ if (!type) {
 		}
 	} else if (type === 'oauth-redirect') {
 		if (alchemyError) {
-			if (!orig || !requestID) {
+			if (!windowOrigin || !requestID) {
 				// TODO errors.push
 				throw new Error(`no origin or requestID`);
 			}
@@ -134,7 +136,7 @@ if (!type) {
 					provider: {id: oauth},
 					error: alchemyError,
 					redirection: {
-						origin: orig,
+						origin: windowOrigin,
 						requestID,
 					},
 				};
@@ -147,7 +149,7 @@ if (!type) {
 						provider: {id: oauth, connection: oauthConnection},
 						error: alchemyError,
 						redirection: {
-							origin: orig,
+							origin: windowOrigin,
 							requestID,
 						},
 					};
@@ -156,7 +158,7 @@ if (!type) {
 				errors.push({message: `invalid oauthProviderUsed: ${oauth}`, canClose: true});
 			}
 		} else if (alchemyBundle && alchemyIdToken && alchemyOrgId && oauth) {
-			if (!orig || !requestID) {
+			if (!windowOrigin || !requestID) {
 				// TODO errors.push
 				throw new Error(`no origin or requestID`);
 			}
@@ -164,7 +166,7 @@ if (!type) {
 				mechanism = {
 					type: 'oauth-redirect',
 					provider: {id: oauth},
-					redirection: {origin: orig, requestID},
+					redirection: {origin: windowOrigin, requestID},
 					alchemyOrgId,
 					alchemyIdToken,
 					alchemyBundle,
@@ -176,7 +178,7 @@ if (!type) {
 					mechanism = {
 						type: 'oauth-redirect',
 						provider: {id: oauth, connection: oauthConnection},
-						redirection: {origin: orig, requestID},
+						redirection: {origin: windowOrigin, requestID},
 						alchemyOrgId,
 						alchemyIdToken,
 						alchemyBundle,
@@ -209,7 +211,7 @@ if (!type) {
 	}
 }
 
-if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID && mechanism && accountType) {
+if (errors.length == 0 && windowOrigin && (rpcURL || apiKeyNotRecommended) && requestID && mechanism && accountType) {
 	console.log(`mechanism`, mechanism);
 	let canCloseAutomatically = false;
 	if (type === 'mnemonic') {
@@ -224,16 +226,25 @@ if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID 
 		canCloseAutomatically = false;
 	}
 
+	const signingOriginToUse = signingOrigin || windowOrigin;
 	alchemy = {
 		connection: handle({
 			mechanism,
 			rpcURL,
 			apiKeyNotRecommended,
-			orig,
+			windowOrigin,
+			signingOrigin: signingOriginToUse,
 			requestID,
 			accountType,
 		}),
-		from: {source, origin: orig, requestID: requestID, domainRedirectPublicKey, canCloseAutomatically},
+		from: {
+			source,
+			windowOrigin,
+			signingOrigin: signingOriginToUse,
+			requestID: requestID,
+			domainRedirectPublicKey,
+			canCloseAutomatically,
+		},
 	};
 
 	if (typeof window !== 'undefined') {
@@ -252,7 +263,7 @@ if (errors.length == 0 && orig && (rpcURL || apiKeyNotRecommended) && requestID 
 	if (!requestID) {
 		errors.push({message: `no requestID provided`, canClose: true});
 	}
-	if (!orig) {
+	if (!windowOrigin) {
 		errors.push({message: `no origin provided`, canClose: true});
 	}
 	if (!rpcURL && !apiKeyNotRecommended) {

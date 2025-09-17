@@ -15,7 +15,8 @@
 		alchemy: AlchemyConnectionStore;
 		from: {
 			source?: MessageEventSource;
-			origin: string;
+			windowOrigin: string;
+			signingOrigin: string;
 			requestID: string;
 			domainRedirectPublicKey?: string;
 			canCloseAutomatically: boolean;
@@ -47,7 +48,7 @@
 			console.log(`error getting event`);
 		}
 
-		if (!from.source && event.origin === from.origin) {
+		if (!from.source && event.origin === from.windowOrigin) {
 			from.source = event.source || undefined;
 		}
 	}
@@ -77,9 +78,11 @@
 			if (v?.step === 'SignedIn') {
 				if (from.domainRedirectPublicKey) {
 					// TODO encrypt
-					window.location.href = `${from.origin}/_etherplay_accounts.html#myencryptedresult`;
+					window.location.href = `${from.windowOrigin}/_etherplay_accounts.html#myencryptedresult`;
 				} else {
-					postResultIfNotAlreadyPosted(from.canCloseAutomatically);
+					if (!v.requireOriginApproval || (v.requireOriginApproval && !v.requireOriginApproval.requestingAccess)) {
+						postResultIfNotAlreadyPosted(from.canCloseAutomatically);
+					}
 				}
 			}
 		});
@@ -99,6 +102,13 @@
 	}
 
 	async function continueAfterLogin() {
+		if ($alchemy?.step !== 'SignedIn') {
+			throw new Error(`not signed in`);
+		}
+
+		if ($alchemy.requireOriginApproval && $alchemy.requireOriginApproval.requestingAccess) {
+			throw new Error(`origin not approved`);
+		}
 		await postResultIfNotAlreadyPosted();
 		if (debug) {
 			console.log('please close manually, in debug mode, we keep it open.');
@@ -119,11 +129,11 @@
 				const state = get(alchemy);
 				if (state?.step === 'SignedIn') {
 					// TODO
-					const result = await alchemy.generateOriginAccount(from.origin, state.account);
+					const result = await alchemy.generateOriginAccount(from.signingOrigin, state.account);
 					if (debug) {
-						console.log('postMessage', {result, id: from.requestID}, {targetOrigin: from.origin});
+						console.log('postMessage', {result, id: from.requestID}, {targetOrigin: from.windowOrigin});
 					}
-					from.source.postMessage({result, id: from.requestID}, {targetOrigin: from.origin});
+					from.source.postMessage({result, id: from.requestID}, {targetOrigin: from.windowOrigin});
 					resultPosted = true;
 				} else {
 					throw new Error(`invalid step: ${state?.step}`);
@@ -145,9 +155,9 @@
 		}
 		if (error) {
 			if (debug) {
-				console.log('postMessage', {error, id: from.requestID}, from.origin);
+				console.log('postMessage', {error, id: from.requestID}, from.windowOrigin);
 			}
-			from.source.postMessage({error, id: from.requestID}, {targetOrigin: from.origin});
+			from.source.postMessage({error, id: from.requestID}, {targetOrigin: from.windowOrigin});
 		} else {
 			if (debug) {
 				console.log(
@@ -156,12 +166,12 @@
 						error: {message: 'canceled', type: 'cancelation'},
 						id: from.requestID,
 					},
-					from.origin,
+					from.windowOrigin,
 				);
 			}
 			from.source.postMessage(
 				{error: {message: 'canceled', type: 'cancelation'}, id: from.requestID},
-				{targetOrigin: from.origin},
+				{targetOrigin: from.windowOrigin},
 			);
 		}
 	}

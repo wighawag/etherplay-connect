@@ -14,6 +14,8 @@ export {AlchemyWebSigner};
 
 export type {User};
 
+export type Redirection = {windowOrigin: string; signingOrigin: string; id: string};
+
 export function concatUint8Arrays(values: readonly Uint8Array[]): Uint8Array {
 	let length = 0;
 	for (const arr of values) {
@@ -222,7 +224,7 @@ export function createAlchemyOnBoarding(settings: AlchemySettings, options?: {se
 
 	async function loginViaOAuth(
 		provider: {id: 'google'} | {id: 'facebook'} | {id: 'auth0'; connection: string},
-		redirection?: {origin: string; id: string},
+		redirection?: Redirection,
 	): Promise<SignerUser | null> {
 		if (!signer) {
 			throw new Error(`Alchemy Onboarding not initialised`);
@@ -266,7 +268,7 @@ export function createAlchemyOnBoarding(settings: AlchemySettings, options?: {se
 				logStr = value ? `&log=${value}` : '&log';
 			}
 
-			const redirectUrl = `/login/?type=oauth-redirect&origin=${redirection.origin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${options?.orgId ? `&orgId=${options.orgId}` : ''}${accountTypeStr}${erudaStr}${debugStr}${logStr}`;
+			const redirectUrl = `/login/?type=oauth-redirect&origin=${redirection.windowOrigin}&signingOrigin=${redirection.signingOrigin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${options?.orgId ? `&orgId=${options.orgId}` : ''}${accountTypeStr}${erudaStr}${debugStr}${logStr}`;
 			// console.log(`Alchemy: signer.authenticate(...) redirect &{ redirectUrl }`);
 			if (authProviderId === 'auth0') {
 				newUser = await signer.authenticate({

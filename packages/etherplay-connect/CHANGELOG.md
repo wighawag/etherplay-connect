@@ -1,5 +1,13 @@
 # @etherplay/connect
 
+## 0.0.34
+
+### Patch Changes
+
+- support different origin
+- Updated dependencies
+  - @etherplay/alchemy@0.0.14
+
 ## 0.0.33
 
 ### Patch Changes

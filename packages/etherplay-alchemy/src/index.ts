@@ -4,6 +4,7 @@ import {
 	createAlchemyOnBoarding,
 	fromEntropyKeyToMnemonic,
 	fromSignatureToKey,
+	Redirection,
 	type AlchemySettings,
 	type SignerUser,
 	type User,
@@ -180,6 +181,13 @@ export type AlchemyConnection = {error?: {message: string; cause?: any}} & (
 			mechanism: AlchemyMechanism;
 			signer: AlchemyWebSigner;
 			account: EtherplayAccount;
+			requireOriginApproval:
+				| false
+				| {
+						windowOrigin: string;
+						signingOrigin: string;
+						requestingAccess: boolean;
+				  };
 	  }
 );
 
@@ -205,6 +213,8 @@ export function createAlchemyConnection(
 		autoInitialise?: boolean;
 		alwaysUsePopupForOAuth?: boolean;
 		accountGenerator: AccountGenerator;
+		windowOrigin: string;
+		signingOrigin: string;
 	},
 	// options?: {
 	// 	sessionKey?: string;
@@ -314,6 +324,10 @@ export function createAlchemyConnection(
 				mechanism,
 				signer,
 				account,
+				requireOriginApproval:
+					settings.windowOrigin != settings.signingOrigin
+						? {windowOrigin: settings.windowOrigin, signingOrigin: settings.signingOrigin, requestingAccess: true}
+						: false,
 			});
 			if (emailPromise) {
 				emailPromise.resolve(account);
@@ -346,11 +360,7 @@ export function createAlchemyConnection(
 		}
 	}
 
-	async function confirmOAuth(data?: {
-		signer: AlchemyWebSigner;
-		mechanism: OauthMechanism;
-		redirection?: {origin: string; id: string};
-	}) {
+	async function confirmOAuth(data?: {signer: AlchemyWebSigner; mechanism: OauthMechanism; redirection?: Redirection}) {
 		let mechanism: OauthMechanism;
 		let signer: AlchemyWebSigner;
 		if (!data) {
@@ -404,6 +414,10 @@ export function createAlchemyConnection(
 				mechanism,
 				signer,
 				account,
+				requireOriginApproval:
+					settings.windowOrigin != settings.signingOrigin
+						? {windowOrigin: settings.windowOrigin, signingOrigin: settings.signingOrigin, requestingAccess: true}
+						: false,
 			});
 			return account;
 		} catch (err) {
@@ -418,7 +432,7 @@ export function createAlchemyConnection(
 	} | null = null;
 	async function connect(
 		mechanism?: AlchemyMechanism,
-		redirection?: {origin: string; id: string},
+		redirection?: Redirection,
 	): Promise<EtherplayAccount | undefined> {
 		if (mechanism) {
 			let signer: AlchemyWebSigner;
@@ -574,6 +588,10 @@ export function createAlchemyConnection(
 					mechanism,
 					signer,
 					account,
+					requireOriginApproval:
+						settings.windowOrigin != settings.signingOrigin
+							? {windowOrigin: settings.windowOrigin, signingOrigin: settings.signingOrigin, requestingAccess: true}
+							: false,
 				});
 				return account;
 			}
@@ -713,9 +731,26 @@ export function createAlchemyConnection(
 			mechanism,
 			signer,
 			account,
+			requireOriginApproval:
+				settings.windowOrigin != settings.signingOrigin
+					? {windowOrigin: settings.windowOrigin, signingOrigin: settings.signingOrigin, requestingAccess: true}
+					: false,
 		});
 
 		return account;
+	}
+
+	function confirmOriginAccess() {
+		if ($connection?.step !== 'SignedIn') {
+			throw new Error(`not signed in`);
+		}
+		if (!$connection.requireOriginApproval) {
+			throw new Error(`already confirmed`);
+		}
+		set({
+			...$connection,
+			requireOriginApproval: {...$connection.requireOriginApproval, requestingAccess: false},
+		});
 	}
 
 	return {
@@ -727,5 +762,6 @@ export function createAlchemyConnection(
 		provideMnemonicIndex,
 		generateOriginAccount,
 		completeOAuthWithBundle,
+		confirmOriginAccess,
 	};
 }

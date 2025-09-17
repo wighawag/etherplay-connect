@@ -5,13 +5,14 @@ import {EthereumAccountGenerator} from '@etherplay/wallet-connector-ethereum';
 
 export function handle(
 	params: ({rpcURL: string} | {apiKeyNotRecommended: string}) & {
-		orig: string;
+		windowOrigin: string;
+		signingOrigin: string;
 		requestID: string;
 		mechanism: AlchemyMechanismIncludingRedirects;
 		accountType: string;
 	}
 ) {
-	const {mechanism, orig, requestID, accountType} = params;
+	const {mechanism, windowOrigin, signingOrigin, requestID, accountType} = params;
 
 	// TODO option to pass custom accountGenerator ?
 	let accountGenerator: AccountGenerator | undefined = undefined;
@@ -27,12 +28,16 @@ export function handle(
 			alchemy: {rpcURL: params.rpcURL},
 			autoInitialise: false,
 			accountGenerator,
+			windowOrigin: params.windowOrigin,
+			signingOrigin: params.signingOrigin,
 		});
 	} else {
 		alchemyConnection = createAlchemyConnection({
 			alchemy: {apiKeyNotRecommended: params.apiKeyNotRecommended},
 			autoInitialise: false,
 			accountGenerator,
+			windowOrigin: params.windowOrigin,
+			signingOrigin: params.signingOrigin,
 		});
 	}
 
@@ -53,7 +58,7 @@ export function handle(
 		// TODO ?
 		// alchemyConnection.completeEmailLoginViaBundle(mechanism.bundle, mechanism.orgId);
 	} else if (mechanism.type === 'mnemonic' || mechanism.type === 'email' || mechanism.type === 'oauth') {
-		alchemyConnection.connect(mechanism, {origin: orig, id: requestID});
+		alchemyConnection.connect(mechanism, {windowOrigin, signingOrigin, id: requestID});
 	} else {
 		throw new Error(`Unknown mechanism type: ${(mechanism as any).type}`);
 	}

@@ -32,6 +32,7 @@ export const chainId = '1';
 export const chainInfo = chainInfos[chainId];
 export const connection = createConnection({
 	walletHost: PUBLIC_WALLET_HOST,
+	signingOrigin: 'conquest.game',
 	chainInfo,
 	prioritizeWalletProvider: true,
 	requestSignatureAutomaticallyIfPossible: true,

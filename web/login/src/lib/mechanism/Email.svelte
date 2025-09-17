@@ -140,7 +140,31 @@
 			<p>Email Verified, Please wait...</p>
 			<hr />
 		{:else if $alchemy.step === 'SignedIn'}
-			{#if continueAfterLogin}
+			{#if $alchemy.requireOriginApproval}
+				{#if $alchemy.requireOriginApproval.requestingAccess}
+					<p>
+						{$alchemy.requireOriginApproval.windowOrigin} is requesting access to account from {$alchemy
+							.requireOriginApproval.signingOrigin}
+					</p>
+					<button
+						onclick={() => {
+							alchemy.confirmOriginAccess();
+							if (continueAfterLogin) {
+								continueAfterLogin();
+							}
+						}}
+						id="origin-accept"
+						type="submit">Accept</button
+					>
+					<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
+				{:else if goingToRedirect}
+					<!-- TODO timeout-->
+					<p>Please wait...</p>
+				{:else}
+					<p>Could not log you in, due to redirection failure</p>
+					<button onclick={() => cancel()}>Return</button>
+				{/if}
+			{:else if continueAfterLogin}
 				<p>You are logged in!</p>
 				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
 			{:else if goingToRedirect}
@@ -238,6 +262,12 @@
 		width: 100%;
 		height: 50px;
 		margin-bottom: 1rem;
+	}
+
+	.deny {
+		border: 0.0625rem solid #c74a24;
+		background-color: #c74a24;
+		color: #fff;
 	}
 
 	p {

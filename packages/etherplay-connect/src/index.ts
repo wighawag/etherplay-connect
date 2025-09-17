@@ -232,6 +232,7 @@ export type ConnectionStore<WalletProviderType> = {
 
 // Function overloads for proper typing
 export function createConnection<WalletProviderType>(settings: {
+	signingOrigin?: string;
 	walletHost: string;
 	autoConnect?: boolean;
 	autoConnectWallet?: boolean;
@@ -244,6 +245,7 @@ export function createConnection<WalletProviderType>(settings: {
 }): ConnectionStore<WalletProviderType>;
 
 export function createConnection(settings: {
+	signingOrigin?: string;
 	walletHost: string;
 	autoConnect?: boolean;
 	autoConnectWallet?: boolean;
@@ -256,6 +258,7 @@ export function createConnection(settings: {
 }): ConnectionStore<UnderlyingEthereumProvider>;
 
 export function createConnection<WalletProviderType = UnderlyingEthereumProvider>(settings: {
+	signingOrigin?: string;
 	walletHost: string;
 	autoConnect?: boolean;
 	autoConnectWallet?: boolean;
@@ -266,6 +269,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 }) {
+	function originToSignWith() {
+		return settings.signingOrigin || origin;
+	}
+
 	const endpoint = settings.chainInfo.rpcUrls.default.http[0];
 	const walletConnector =
 		settings.walletConnector || (new EthereumWalletConnector() as unknown as WalletConnector<WalletProviderType>);
@@ -536,7 +543,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		}
 
 		const provider = $connection.wallet.provider;
-		const message = originKeyMessage(origin);
+		const message = originKeyMessage(originToSignWith());
 
 		set({
 			...$connection,
@@ -573,7 +580,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		const account = {
 			address: $connection.mechanism.address as `0x${string}`,
 			signer: {
-				origin,
+				origin: originToSignWith(),
 				address: originAccount.address,
 				publicKey: originAccount.publicKey,
 				privateKey: originAccount.privateKey,
@@ -1110,40 +1117,40 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 	const popupLauncher = createPopupLauncher<OriginAccount>();
 
-	function connectViaPopup(settings: PopupSettings) {
-		let popupURL = new URL(`${settings.walletHost}/login/`);
+	function connectViaPopup(popupSettings: PopupSettings) {
+		let popupURL = new URL(`${popupSettings.walletHost}/login/`);
 		let fullWindow = false;
-		if (settings.mechanism.type === 'mnemonic') {
+		if (popupSettings.mechanism.type === 'mnemonic') {
 			popupURL.searchParams.append('type', 'mnemonic');
-		} else if (settings.mechanism.type === 'email') {
+		} else if (popupSettings.mechanism.type === 'email') {
 			popupURL.searchParams.append('type', 'email');
-			if (settings.mechanism.email) {
-				popupURL.searchParams.append('email', encodeURIComponent(settings.mechanism.email));
+			if (popupSettings.mechanism.email) {
+				popupURL.searchParams.append('email', encodeURIComponent(popupSettings.mechanism.email));
 			}
-			if (settings.mechanism.mode) {
-				popupURL.searchParams.append('emailMode', settings.mechanism.mode);
+			if (popupSettings.mechanism.mode) {
+				popupURL.searchParams.append('emailMode', popupSettings.mechanism.mode);
 			}
-		} else if (settings.mechanism.type === 'oauth') {
+		} else if (popupSettings.mechanism.type === 'oauth') {
 			popupURL.searchParams.append('type', 'oauth');
 
-			if (settings.mechanism.provider.id === 'auth0') {
-				popupURL.searchParams.append('oauth-provider', settings.mechanism.provider.id);
-				popupURL.searchParams.append('oauth-connection', settings.mechanism.provider.connection);
+			if (popupSettings.mechanism.provider.id === 'auth0') {
+				popupURL.searchParams.append('oauth-provider', popupSettings.mechanism.provider.id);
+				popupURL.searchParams.append('oauth-connection', popupSettings.mechanism.provider.connection);
 			} else {
-				popupURL.searchParams.append('oauth-provider', settings.mechanism.provider.id);
+				popupURL.searchParams.append('oauth-provider', popupSettings.mechanism.provider.id);
 			}
 
-			if (!settings.mechanism.usePopup) {
+			if (!popupSettings.mechanism.usePopup) {
 				popupURL.searchParams.append('oauth-redirection', 'true');
 			}
 		} else {
-			throw new Error(`mechanism ${(settings.mechanism as any).type} not supported`);
+			throw new Error(`mechanism ${(popupSettings.mechanism as any).type} not supported`);
 		}
 
 		popupURL.searchParams.append('account-type', walletConnector.accountGenerator.type);
 
-		// if (settings.extraParams) {
-		// 	for (const [key, value] of Object.entries(settings.extraParams)) {
+		// if (popupSettings.extraParams) {
+		// 	for (const [key, value] of Object.entries(popupSettings.extraParams)) {
 		// 		popupURL.searchParams.append(`${key}`, value);
 		// 	}
 		// }
@@ -1167,6 +1174,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			entriesToAdd.push(['log', currentURL.searchParams.get('log') || '']);
 		}
 
+		if (settings.signingOrigin) {
+			entriesToAdd.push(['signingOrigin', settings.signingOrigin]);
+		}
+
 		for (const entryToAdd of entriesToAdd) {
 			popupURL.searchParams.append(entryToAdd[0], entryToAdd[1]);
 		}
@@ -1188,7 +1199,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			if (!_wallet) {
 				throw new Error(`no provider`);
 			}
-			const message = originPublicKeyPublicationMessage(origin, account.signer.publicKey);
+			const message = originPublicKeyPublicationMessage(originToSignWith(), account.signer.publicKey);
 			return _wallet.provider.signMessage(message, account.address);
 		}
 
