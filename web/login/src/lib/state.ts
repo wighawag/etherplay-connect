@@ -205,7 +205,7 @@ if (!type) {
 	} else if (type === 'mnemonic') {
 		mechanism = {
 			type: 'mnemonic',
-			mnemonic: 'test test test test test test test test test test test junk',
+			mnemonic: import.meta.env.VITE_DEV_MNEMONIC || 'test test test test test test test test test test test junk',
 			index: undefined,
 		};
 	}

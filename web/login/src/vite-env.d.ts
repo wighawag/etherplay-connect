@@ -4,6 +4,7 @@
 interface ImportMetaEnv {
 	VITE_ALCHEMY_RPC_URL: string;
 	VITE_ALCHEMY_API_KEY_NOT_RECOMMENDED: string;
+	VITE_DEV_MNEMONIC: string;
 	// Add other environment variables you're using
 }
 
