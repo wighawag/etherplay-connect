@@ -141,7 +141,7 @@ export class EthereumWalletConnector implements WalletConnector<CurriedRPC<Metho
 	}
 
 	createAlwaysOnProvider(params: {
-		endpoint: string;
+		endpoint: string | UnderlyingEthereumProvider;
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;

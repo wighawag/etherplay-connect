@@ -1,5 +1,13 @@
 # @etherplay/wallet-connector-ethereum
 
+## 0.0.5
+
+### Patch Changes
+
+- allow to pass a provider instead of an http endpoint
+- Updated dependencies
+  - @etherplay/wallet-connector@0.0.4
+
 ## 0.0.4
 
 ### Patch Changes

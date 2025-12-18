@@ -19,9 +19,6 @@ layout {
 				args "-c" "pnpm run --filter ./packages/etherplay-wallet-connector-ethereum dev; cd ./packages/etherplay-wallet-connector-ethereum; ${SHELL-bash}"
 			}
 
-			pane name="WALLET_CONNECTOR_FUEL" command="bash"  {
-				args "-c" "pnpm run --filter ./packages/etherplay-wallet-connector-fuel dev; cd ./packages/etherplay-wallet-connector-fuel; ${SHELL-bash}"
-			}
 		}
 		
 		pane split_direction="vertical" {

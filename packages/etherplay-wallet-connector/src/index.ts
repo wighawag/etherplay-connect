@@ -27,7 +27,7 @@ export interface AccountGenerator {
 export interface WalletConnector<UnderlyingProvider> {
 	fetchWallets(walletAnnounced: (walletHandle: WalletHandle<UnderlyingProvider>) => void): void;
 	createAlwaysOnProvider(params: {
-		endpoint: string;
+		endpoint: string | UnderlyingProvider;
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;

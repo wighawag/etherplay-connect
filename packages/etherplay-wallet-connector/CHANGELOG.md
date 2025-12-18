@@ -1,5 +1,11 @@
 # @etherplay/wallet-connector
 
+## 0.0.4
+
+### Patch Changes
+
+- allow to pass a provider instead of an http endpoint
+
 ## 0.0.3
 
 ### Patch Changes

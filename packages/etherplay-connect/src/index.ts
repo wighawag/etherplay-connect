@@ -38,13 +38,20 @@ export type BasicChainInfo = {
 
 	chainType?: string;
 };
-export type ChainInfo = BasicChainInfo & {
+
+type ChainInfoWithRPCUrl = BasicChainInfo & {
 	readonly rpcUrls: {
 		readonly default: {
 			http: readonly string[];
 		};
 	};
 };
+
+type ChainInfoWithProvider<WalletProviderType> = BasicChainInfo & {
+	provider: WalletProviderType;
+};
+
+export type ChainInfo<WalletProviderType> = ChainInfoWithRPCUrl | ChainInfoWithProvider<WalletProviderType>;
 
 export type PopupSettings = {
 	walletHost: string;
@@ -227,7 +234,7 @@ export type ConnectionStore<WalletProviderType> = {
 	};
 	provider: WalletProviderType;
 	chainId: string;
-	chainInfo: ChainInfo;
+	chainInfo: ChainInfo<WalletProviderType>;
 };
 
 // Function overloads for proper typing
@@ -239,7 +246,7 @@ export function createConnection<WalletProviderType>(settings: {
 	walletConnector: WalletConnector<WalletProviderType>;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
-	chainInfo: ChainInfo;
+	chainInfo: ChainInfo<WalletProviderType>;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 }): ConnectionStore<WalletProviderType>;
@@ -252,7 +259,7 @@ export function createConnection(settings: {
 	walletConnector?: undefined;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
-	chainInfo: ChainInfo;
+	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 }): ConnectionStore<UnderlyingEthereumProvider>;
@@ -265,7 +272,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	walletConnector?: WalletConnector<WalletProviderType>;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
-	chainInfo: ChainInfo;
+	chainInfo: ChainInfo<WalletProviderType>;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 }) {
@@ -273,12 +280,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		return settings.signingOrigin || origin;
 	}
 
-	const endpoint = settings.chainInfo.rpcUrls.default.http[0];
 	const walletConnector =
 		settings.walletConnector || (new EthereumWalletConnector() as unknown as WalletConnector<WalletProviderType>);
 	const alwaysOnChainId = '' + settings.chainInfo.id;
 	const alwaysOnProviderWrapper = walletConnector.createAlwaysOnProvider({
-		endpoint,
+		endpoint:
+			'provider' in settings.chainInfo ? settings.chainInfo.provider : settings.chainInfo.rpcUrls.default.http[0],
 		chainId: '' + settings.chainInfo.id,
 		prioritizeWalletProvider: settings.prioritizeWalletProvider,
 		requestsPerSecond: settings.requestsPerSecond,

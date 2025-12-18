@@ -2,6 +2,7 @@ import type {EIP1193Provider, EIP1193WalletProvider, EIP1193WindowWalletProvider
 import {createCurriedJSONRPC, CurriedRPC} from 'remote-procedure-call';
 import {withTimeout} from './utils.js';
 import {AlwaysOnProviderWrapper} from '@etherplay/wallet-connector';
+import {UnderlyingEthereumProvider} from './index.js';
 
 const signerMethods = [
 	'eth_accounts',
@@ -24,7 +25,7 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 	private status: 'connected' | 'locked' | 'disconnected' = 'disconnected';
 
 	constructor(params: {
-		endpoint: string;
+		endpoint: string | UnderlyingEthereumProvider;
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
@@ -102,7 +103,7 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 }
 
 export function createProvider(params: {
-	endpoint: string;
+	endpoint: string | UnderlyingEthereumProvider;
 	chainId: string;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;

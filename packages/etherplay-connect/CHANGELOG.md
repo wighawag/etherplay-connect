@@ -1,5 +1,15 @@
 # @etherplay/connect
 
+## 0.0.35
+
+### Patch Changes
+
+- allow to pass a provider instead of an http endpoint
+- Updated dependencies
+  - @etherplay/wallet-connector-ethereum@0.0.5
+  - @etherplay/wallet-connector@0.0.4
+  - @etherplay/alchemy@0.0.15
+
 ## 0.0.34
 
 ### Patch Changes
