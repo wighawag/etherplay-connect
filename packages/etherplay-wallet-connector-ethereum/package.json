@@ -1,6 +1,31 @@
 {
 	"name": "@etherplay/wallet-connector-ethereum",
 	"version": "0.0.5",
+	"description": "Ethereum wallet connector implementation for @etherplay/connect - provides EIP-6963 provider detection, account management, and chain switching support",
+	"keywords": [
+		"ethereum",
+		"wallet",
+		"connector",
+		"eip-6963",
+		"metamask",
+		"web3",
+		"provider",
+		"chain-switching",
+		"account-management",
+		"typescript",
+		"eth_sign",
+		"personal_sign"
+	],
+	"homepage": "https://github.com/wighawag/etherplay-connect#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wighawag/etherplay-connect.git",
+		"directory": "packages/etherplay-wallet-connector-ethereum"
+	},
+	"bugs": {
+		"url": "https://github.com/wighawag/etherplay-connect/issues"
+	},
+	"author": "Ronan Sandford",
 	"license": "MIT",
 	"publishConfig": {
 		"access": "public"

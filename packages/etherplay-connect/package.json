@@ -1,6 +1,33 @@
 {
 	"name": "@etherplay/connect",
 	"version": "0.0.35",
+	"description": "Main connection library for Etherplay Accounts - provides seamless wallet and social authentication with session account management",
+	"keywords": [
+		"web3",
+		"wallet",
+		"authentication",
+		"ethereum",
+		"session",
+		"social-login",
+		"oauth",
+		"mnemonic",
+		"email-login",
+		"svelte",
+		"typescript",
+		"eip-6963",
+		"wallet-connect",
+		"account-kit"
+	],
+	"homepage": "https://github.com/wighawag/etherplay-connect#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wighawag/etherplay-connect.git",
+		"directory": "packages/etherplay-connect"
+	},
+	"bugs": {
+		"url": "https://github.com/wighawag/etherplay-connect/issues"
+	},
+	"author": "Ronan Sandford",
 	"license": "MIT",
 	"publishConfig": {
 		"access": "public"

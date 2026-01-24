@@ -1,6 +1,32 @@
 {
 	"name": "@etherplay/alchemy",
 	"version": "0.0.15",
+	"description": "Alchemy Mechanism For Deterministic Account Generation - provides social login mechanisms including email OTP, OAuth (Google, Facebook, Auth0), and mnemonic phrase authentication",
+	"keywords": [
+		"alchemy",
+		"social-login",
+		"oauth",
+		"email-login",
+		"mnemonic",
+		"authentication",
+		"otp",
+		"google",
+		"facebook",
+		"auth0",
+		"account-kit",
+		"web3",
+		"session"
+	],
+	"homepage": "https://github.com/wighawag/etherplay-connect#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wighawag/etherplay-connect.git",
+		"directory": "packages/etherplay-alchemy"
+	},
+	"bugs": {
+		"url": "https://github.com/wighawag/etherplay-connect/issues"
+	},
+	"author": "Ronan Sandford",
 	"license": "MIT",
 	"publishConfig": {
 		"access": "public"

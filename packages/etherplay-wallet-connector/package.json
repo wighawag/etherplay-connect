@@ -1,6 +1,29 @@
 {
 	"name": "@etherplay/wallet-connector",
 	"version": "0.0.4",
+	"description": "Core wallet connector interfaces and types for @etherplay/connect - provides the foundation for wallet provider implementations across different blockchain networks",
+	"keywords": [
+		"wallet",
+		"connector",
+		"web3",
+		"ethereum",
+		"interface",
+		"types",
+		"provider",
+		"account-generator",
+		"chain-connection",
+		"typescript"
+	],
+	"homepage": "https://github.com/wighawag/etherplay-connect#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wighawag/etherplay-connect.git",
+		"directory": "packages/etherplay-wallet-connector"
+	},
+	"bugs": {
+		"url": "https://github.com/wighawag/etherplay-connect/issues"
+	},
+	"author": "Ronan Sandford",
 	"license": "MIT",
 	"publishConfig": {
 		"access": "public"

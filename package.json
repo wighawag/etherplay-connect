@@ -1,7 +1,6 @@
 {
   "name": "etherplay-connect-monorepo",
   "private": true,
-  "description": "Wallet Connection VIa Session Account",
   "devDependencies": {
     "@changesets/cli": "^2.28.0",
     "set-defaults": "^0.0.5",
