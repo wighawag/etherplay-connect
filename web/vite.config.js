@@ -6,6 +6,11 @@ import {svelte} from '@sveltejs/vite-plugin-svelte';
 
 export default defineConfig({
 	plugins: [svelte(), nodePolyfills(), sri()],
+	resolve: {
+		alias: {
+			$lib: resolve(__dirname, './src/lib'),
+		},
+	},
 	build: {
 		emptyOutDir: true,
 		minify: false,
