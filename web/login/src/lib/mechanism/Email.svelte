@@ -2,6 +2,10 @@
 	import type {AlchemyConnectionStore} from '@etherplay/alchemy';
 	import {debounce} from '../utils';
 	import OTP from './components/OTP.svelte';
+	import {Button} from '$lib/components/ui/button';
+	import {Input} from '$lib/components/ui/input';
+	import * as Card from '$lib/components/ui/card';
+	import {Label} from '$lib/components/ui/label';
 
 	let {
 		alchemy,
@@ -16,6 +20,7 @@
 	} = $props();
 
 	let otp: OTP | undefined = $state(undefined);
+	let emailValue = $state('');
 
 	let bundleURL: string | undefined = $state(undefined);
 
@@ -32,42 +37,14 @@
 	}
 	export const submitOTP = debounce(_submitOTP, 500);
 
-	// TODO
-	// async function injectBundle(ev: Event) {
-	// 	ev.preventDefault();
-
-	// 	if (bundleURL === undefined) {
-	// 		// TODO error
-	// 		// alchemy.setError({message: 'no url provided', timeout: 3});
-	// 		return;
-	// 	}
-
-	// 	const signingState = await alchemy.injectBundle(bundleURL);
-	// 	if (signingState.error) {
-	// 		console.error(signingState.error);
-	// 	}
-	// }
-
 	async function onEmailChosen(ev: Event) {
 		ev.preventDefault();
-		// TODO
-		// if ($alchemy?.mechanism?.type != 'email') {
-		// 	// TODO
-		// 	// alchemy.setError({message: 'expected email'});
-		// 	return;
-		// }
-		// if ($alchemy.mechanismUsed.mode == 'saved') {
-		// 	alchemy.setError({message: 'cannot used saved here'});
-		// 	return;
-		// }
-		const emailInput = document.getElementById('email');
-		const email = (emailInput as any).value;
-
+		const email = emailValue;
+		if (!email) return;
 		return loginViaEmail(email);
 	}
 
 	async function loginViaEmail(email: string, mode: 'otp' = 'otp') {
-		// TODO 'magicLink' |
 		await alchemy.connect({
 			type: 'email',
 			email,
@@ -76,230 +53,159 @@
 	}
 </script>
 
-<main>
-	<!-- Do not add link as this would disturb the flow -->
-	<div class="logo">
-		<!-- <img src="/logo_wide_with_text_on_black.svg" alt="Etherplay logo" /> -->
+<main class="flex min-h-screen w-full max-w-[510px] flex-col items-center justify-between p-6">
+	<!-- Mail Icon -->
+	<div class="flex w-full justify-center py-8">
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
-			width="128"
-			height="128"
+			width="80"
+			height="80"
 			viewBox="0 0 24 24"
 			fill="none"
 			stroke="currentColor"
-			stroke-width="2"
+			stroke-width="1.5"
 			stroke-linecap="round"
 			stroke-linejoin="round"
-			class="lucide lucide-mail"
-			><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg
+			class="text-muted-foreground"
 		>
+			<rect width="20" height="16" x="2" y="4" rx="2" />
+			<path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+		</svg>
 	</div>
 
-	<div>
+	<div class="flex flex-1 flex-col items-center justify-center w-full py-4">
 		{#if !$alchemy || $alchemy.step === 'Initialising' || $alchemy.step === 'Initialised' || $alchemy.step === 'InitialisingMechanism' || $alchemy.step === 'MechanismToChoose' || $alchemy.step === 'MechanismChosen'}
-			<h1>Please wait...</h1>
+			<p class="text-lg text-muted-foreground">Please wait...</p>
 		{:else if $alchemy.step === 'EmailToProvide'}
-			<h1>Sign in via Email</h1>
-			<form>
-				<input
-					id="email"
-					type="email"
-					name="email"
-					placeholder="conan@catacombs.world"
-					aria-label="email"
-					autocomplete="email"
-					required
-				/>
-				<small id="email-info" style="display: none">Invalid Email</small>
-				<button onclick={onEmailChosen} id="login-submit" type="submit">Login</button>
-			</form>
-			<!-- TODO -->
-			<!-- {:else if $alchemy.step === 'WaitingForMagicLinkVerification'}
-			<p>You should shortly receive an email containing a link to click.</p>
-			<hr />
-
-			<p style="font-size: 1rem">You can also paste that link here:</p>
-			<fieldset>
-				<input autocomplete="off" bind:value={bundleURL} type="text" />
-				<button onclick={injectBundle} id="bundle-inject" type="submit">proceed</button>
-			</fieldset> -->
+			<Card.Root class="w-full max-w-sm border-0 shadow-md">
+				<Card.Header class="text-center">
+					<Card.Title class="text-xl">Sign in via Email</Card.Title>
+				</Card.Header>
+				<Card.Content>
+					<form onsubmit={onEmailChosen} class="space-y-4">
+						<div class="space-y-2">
+							<Label for="email">Email Address</Label>
+							<Input
+								id="email"
+								type="email"
+								name="email"
+								placeholder="conan@catacombs.world"
+								aria-label="email"
+								autocomplete="email"
+								required
+								bind:value={emailValue}
+								class="h-12 text-base"
+							/>
+						</div>
+						<Button type="submit" size="lg" class="w-full">Login</Button>
+					</form>
+				</Card.Content>
+			</Card.Root>
 		{:else if $alchemy.step === 'WaitingForOTP'}
-			<p>You should shortly receive an email containing a code.</p>
-			<p id="WaitingForOTPVerification:message"></p>
-			<hr />
-
-			<p style="font-size: 1rem">Paste it here.</p>
-			<!-- TODO -->
-			<!-- <OTP bind:this={otp} onAcknowledge={() => alchemy.acknowledgeError()} onCodeUpdated={submitOTP} /> -->
-			<OTP bind:this={otp} onAcknowledge={() => {}} onCodeUpdated={submitOTP} />
-			<!-- <button id="verify-btn">Verify OTP</button> -->
+			<Card.Root class="w-full max-w-sm border-0 shadow-md">
+				<Card.Header class="text-center">
+					<Card.Title class="text-xl">Check your email</Card.Title>
+					<Card.Description>
+						Enter the 6-digit code we sent to <span class="font-medium text-foreground">{emailValue}</span>
+					</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<OTP bind:this={otp} onAcknowledge={() => {}} onCodeUpdated={submitOTP} />
+				</Card.Content>
+			</Card.Root>
 		{:else if $alchemy.step === 'VerifyingOTP'}
-			<p>Verifying OTP...</p>
-			<hr />
+			<Card.Root class="w-full max-w-sm border-0 shadow-md">
+				<Card.Header class="text-center">
+					<Card.Title class="text-xl">Verifying code...</Card.Title>
+				</Card.Header>
+				<Card.Content class="flex justify-center py-4">
+					<div class="size-10 animate-spin rounded-full border-4 border-muted border-t-primary"></div>
+				</Card.Content>
+			</Card.Root>
 		{:else if $alchemy.step === 'GeneratingAccount'}
-			<p>Email Verified, Please wait...</p>
-			<hr />
+			<Card.Root class="w-full max-w-sm border-0 shadow-md">
+				<Card.Header class="text-center">
+					<Card.Title class="text-xl">Email Verified</Card.Title>
+					<Card.Description>Setting up your account...</Card.Description>
+				</Card.Header>
+				<Card.Content class="flex justify-center py-4">
+					<div class="size-10 animate-spin rounded-full border-4 border-muted border-t-primary"></div>
+				</Card.Content>
+			</Card.Root>
 		{:else if $alchemy.step === 'SignedIn'}
-			{#if $alchemy.requireOriginApproval}
-				{#if $alchemy.requireOriginApproval.requestingAccess}
-					<p>
-						{$alchemy.requireOriginApproval.windowOrigin} is requesting access to account from {$alchemy
-							.requireOriginApproval.signingOrigin}
-					</p>
-					<button
-						onclick={() => {
-							alchemy.confirmOriginAccess();
-							if (continueAfterLogin) {
-								continueAfterLogin();
-							}
-						}}
-						id="origin-accept"
-						type="submit">Accept</button
-					>
-					<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
+			<Card.Root class="w-full max-w-sm border-0 shadow-md">
+				{#if $alchemy.requireOriginApproval}
+					{#if $alchemy.requireOriginApproval.requestingAccess}
+						<Card.Header class="text-center">
+							<Card.Title class="text-xl">Access Request</Card.Title>
+							<Card.Description>
+								<span class="text-primary">{$alchemy.requireOriginApproval.windowOrigin}</span> is requesting access to your account
+							</Card.Description>
+						</Card.Header>
+						<Card.Content class="space-y-3">
+							<Button
+								onclick={() => {
+									alchemy.confirmOriginAccess();
+									if (continueAfterLogin) {
+										continueAfterLogin();
+									}
+								}}
+								id="origin-accept"
+								size="lg"
+								class="w-full"
+							>
+								Accept
+							</Button>
+							<Button
+								onclick={() => cancel()}
+								id="origin-deny"
+								variant="destructive"
+								size="lg"
+								class="w-full"
+							>
+								Deny
+							</Button>
+						</Card.Content>
+					{:else if goingToRedirect}
+						<Card.Header class="text-center">
+							<Card.Title class="text-xl">Please wait...</Card.Title>
+						</Card.Header>
+						<Card.Content class="flex justify-center py-4">
+							<div class="size-10 animate-spin rounded-full border-4 border-muted border-t-primary"></div>
+						</Card.Content>
+					{:else}
+						<Card.Header class="text-center">
+							<Card.Title class="text-xl text-destructive">Redirection Failed</Card.Title>
+						</Card.Header>
+						<Card.Content>
+							<Button onclick={() => cancel()} size="lg" class="w-full">Return</Button>
+						</Card.Content>
+					{/if}
+				{:else if continueAfterLogin}
+					<Card.Header class="text-center">
+						<Card.Title class="text-xl">You're logged in!</Card.Title>
+					</Card.Header>
+					<Card.Content>
+						<Button onclick={continueAfterLogin} id="continue-submit" size="lg" class="w-full">Continue</Button>
+					</Card.Content>
 				{:else if goingToRedirect}
-					<!-- TODO timeout-->
-					<p>Please wait...</p>
+					<Card.Header class="text-center">
+						<Card.Title class="text-xl">Please wait...</Card.Title>
+					</Card.Header>
+					<Card.Content class="flex justify-center py-4">
+						<div class="size-10 animate-spin rounded-full border-4 border-muted border-t-primary"></div>
+					</Card.Content>
 				{:else}
-					<p>Could not log you in, due to redirection failure</p>
-					<button onclick={() => cancel()}>Return</button>
+					<Card.Header class="text-center">
+						<Card.Title class="text-xl text-destructive">Redirection Failed</Card.Title>
+					</Card.Header>
+					<Card.Content>
+						<Button onclick={() => cancel()} size="lg" class="w-full">Return</Button>
+					</Card.Content>
 				{/if}
-			{:else if continueAfterLogin}
-				<p>You are logged in!</p>
-				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
-			{:else if goingToRedirect}
-				<!-- TODO timeout-->
-				<p>Please wait...</p>
-			{:else}
-				<p>Could not log you in, due to redirection failure</p>
-				<button onclick={() => cancel()}>Return</button>
-			{/if}
+			</Card.Root>
 		{/if}
 	</div>
 
-	<div></div>
+	<div class="h-8"></div>
 </main>
-
-<style>
-	main {
-		padding: 16px;
-		display: flex;
-		flex-direction: column;
-		justify-content: space-between;
-		min-height: 100vh;
-		max-width: 510px;
-	}
-
-	hr {
-		border: 4px solid #eeeeee;
-	}
-
-	@media (prefers-color-scheme: dark) {
-		hr {
-			border: 4px solid #202632;
-		}
-	}
-
-	h1 {
-		font-size: max(min(5vw, 2rem), 1.5rem);
-		color: #222222;
-		font-weight: 700;
-		line-height: 1.125;
-		margin-bottom: 1rem;
-	}
-
-	@media (prefers-color-scheme: dark) {
-		h1 {
-			color: #f0f1f3;
-		}
-	}
-
-	input {
-		border: 0.0625rem solid #aaa1a0;
-		background-color: #eeeeee;
-		color: #222222;
-		border-radius: 0.25rem;
-		outline: none;
-		box-shadow: none;
-		font-weight: 400;
-		font-size: 1rem;
-		line-height: 1.5;
-		width: 100%;
-		height: 50px;
-		margin-bottom: 1rem;
-		padding: 0.75rem 1rem;
-		font-family: inherit;
-	}
-
-	@media (prefers-color-scheme: dark) {
-		input {
-			border: 0.0625rem solid #2a3140;
-			background-color: #1c212c;
-			color: #e0e3e7;
-		}
-	}
-
-	input::placeholder {
-		color: #8891a4;
-		font-family: inherit;
-	}
-
-	button {
-		padding: 0.75rem 1rem;
-		border: 0.0625rem solid #524ed2;
-		border-radius: 0.25rem;
-		outline: none;
-		background-color: #524ed2;
-		box-shadow: 0 0 0 rgba(0, 0, 0, 0);
-		color: #fff;
-		font-weight: 400;
-		font-size: 1rem;
-		line-height: 1.5;
-		text-align: center;
-		text-decoration: none;
-		cursor: pointer;
-		user-select: none;
-		width: 100%;
-		height: 50px;
-		margin-bottom: 1rem;
-	}
-
-	.deny {
-		border: 0.0625rem solid #c74a24;
-		background-color: #c74a24;
-		color: #fff;
-	}
-
-	p {
-		color: #222222;
-		font-size: 1.5rem;
-		margin-block: 1rem;
-		font-weight: 400;
-	}
-
-	@media (prefers-color-scheme: dark) {
-		p {
-			color: #c2c7d0;
-		}
-	}
-
-	.logo {
-		width: 100%;
-		max-width: 100%;
-		display: flex;
-		justify-content: center;
-		gap: 0.5rem;
-		padding: 0.3rem;
-		align-items: center;
-		font-size: max(min(10vw, 3rem), 1rem);
-		font-family: Audiowide;
-		text-decoration: none;
-		color: #222222;
-	}
-
-	@media (prefers-color-scheme: dark) {
-		.logo {
-			color: #ffffff;
-		}
-	}
-</style>

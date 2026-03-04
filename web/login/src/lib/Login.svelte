@@ -181,92 +181,60 @@
 	}
 </script>
 
-<div class="root">
-	<!-- TODO -->
-	<!-- {#if $alchemy?.error && !$alchemy.error.delay} -->
-	{#if $alchemy?.error}
-		<div class="banner">
-			<p>{$alchemy.error.message}</p>
-			<!-- {#if !$alchemy.error.timeout}
-				<button onclick={() => acknowledgeError()} id="error-acknowledge">ok</button>
-			{/if} -->
+<!-- Error Banner -->
+{#if $alchemy?.error}
+	<div class="fixed inset-x-0 top-0 z-50 flex justify-center bg-destructive px-4 py-3">
+		<div class="flex max-w-[510px] w-full items-center gap-3">
+			<svg
+				xmlns="http://www.w3.org/2000/svg"
+				width="20"
+				height="20"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				class="shrink-0 text-destructive-foreground"
+			>
+				<circle cx="12" cy="12" r="10" />
+				<line x1="12" x2="12" y1="8" y2="12" />
+				<line x1="12" x2="12.01" y1="16" y2="16" />
+			</svg>
+			<p class="text-sm font-medium text-destructive-foreground">{$alchemy.error.message}</p>
 		</div>
-	{/if}
-	{#if !$alchemy || $alchemy.step === 'Initialised' || $alchemy.step === 'Initialising'}
-		<Loading />
-	{:else if $alchemy.step === 'MechanismToChoose'}
-		<!-- TODO? -->
-		<main>
-			<p>Not Supported</p>
-		</main>
-	{:else if $alchemy.mechanism.type == 'email'}
-		<Email
-			{alchemy}
-			goingToRedirect={!!from.domainRedirectPublicKey}
-			continueAfterLogin={from.source ? continueAfterLogin : undefined}
-			{cancel}
-		/>
-	{:else if $alchemy.mechanism.type == 'oauth'}
-		<OAuth
-			{alchemy}
-			goingToRedirect={!!from.domainRedirectPublicKey}
-			continueAfterLogin={from.source ? continueAfterLogin : undefined}
-			{cancel}
-		/>
-	{:else if $alchemy.mechanism.type == 'mnemonic'}
-		<Mnemonic
-			{alchemy}
-			goingToRedirect={!!from.domainRedirectPublicKey}
-			continueAfterLogin={from.source ? continueAfterLogin : undefined}
-			{cancel}
-		/>
-	{:else}
-		<main>
-			<p>{$alchemy.step}</p>
-		</main>
-	{/if}
-	<!-- TODO more ?-->
-</div>
+	</div>
+{/if}
 
-<style>
-	main {
-		padding: 16px;
-		display: flex;
-		flex-direction: column;
-		justify-content: space-between;
-		min-height: 100vh;
-		max-width: 510px;
-	}
-
-	p {
-		color: #222222;
-		font-size: 1.5rem;
-		margin-block: 1rem;
-		font-weight: 400;
-	}
-
-	.root {
-		width: 100%;
-		height: 100%;
-		line-height: 1.5;
-		font-family: system-ui, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, Helvetica, Arial, 'Helvetica Neue',
-			sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-		display: flex;
-		justify-content: center;
-	}
-
-	.banner {
-		padding: 1rem;
-		position: absolute;
-		width: 100%;
-		opacity: 0.9;
-		display: flex;
-		justify-content: space-between;
-
-		background-color: #d93526; /* #d93526; */
-		> p {
-			color: white;
-			font-size: 1rem;
-		}
-	}
-</style>
+{#if !$alchemy || $alchemy.step === 'Initialised' || $alchemy.step === 'Initialising'}
+	<Loading />
+{:else if $alchemy.step === 'MechanismToChoose'}
+	<main class="flex min-h-screen max-w-[510px] flex-col items-center justify-center p-4">
+		<p class="text-lg text-muted-foreground">Not Supported</p>
+	</main>
+{:else if $alchemy.mechanism.type == 'email'}
+	<Email
+		{alchemy}
+		goingToRedirect={!!from.domainRedirectPublicKey}
+		continueAfterLogin={from.source ? continueAfterLogin : undefined}
+		{cancel}
+	/>
+{:else if $alchemy.mechanism.type == 'oauth'}
+	<OAuth
+		{alchemy}
+		goingToRedirect={!!from.domainRedirectPublicKey}
+		continueAfterLogin={from.source ? continueAfterLogin : undefined}
+		{cancel}
+	/>
+{:else if $alchemy.mechanism.type == 'mnemonic'}
+	<Mnemonic
+		{alchemy}
+		goingToRedirect={!!from.domainRedirectPublicKey}
+		continueAfterLogin={from.source ? continueAfterLogin : undefined}
+		{cancel}
+	/>
+{:else}
+	<main class="flex min-h-screen max-w-[510px] flex-col items-center justify-center p-4">
+		<p class="text-lg text-muted-foreground">{$alchemy.step}</p>
+	</main>
+{/if}

@@ -4,10 +4,12 @@
 	import {alchemy, errors} from './lib/state';
 </script>
 
-{#if errors.length > 0}
-	<CriticalError {errors} />
-{:else if alchemy}
-	<Login alchemy={alchemy.connection} from={alchemy.from} />
-{:else}
-	<CriticalError errors={[{message: 'no alchemy', canClose: false}]} />
-{/if}
+<div class="flex min-h-screen w-full justify-center bg-background">
+	{#if errors.length > 0}
+		<CriticalError {errors} />
+	{:else if alchemy}
+		<Login alchemy={alchemy.connection} from={alchemy.from} />
+	{:else}
+		<CriticalError errors={[{message: 'no alchemy', canClose: false}]} />
+	{/if}
+</div>

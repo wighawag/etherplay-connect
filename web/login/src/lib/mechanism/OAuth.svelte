@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type {AlchemyConnectionStore} from '@etherplay/alchemy';
+	import {Button} from '$lib/components/ui/button';
+	import * as Card from '$lib/components/ui/card';
 
 	let {
 		alchemy,
@@ -24,152 +26,116 @@
 	provider: {id: 'auth0'; connection: string} | {id: 'google' | 'facebook'} | undefined,
 	animated: boolean,
 )}
-	{#if provider?.id == 'google'}
-		<picture>
-			<img src="/google_logo.png" alt="Google Logo" class:animated />
-		</picture>
-	{:else if provider?.id == 'facebook'}
-		<picture>
-			<img src="/Facebook_Logo_Primary.png" alt="Facebook Logo" class:animated />
-			<!-- {:else if typeof provider === 'object' && provider.type === 'auth0'}
-		<img src="/github-mark.png" alt="Github Logo" class:animated /> -->
-		</picture>
-	{:else if provider?.id === 'auth0' && provider.connection === 'twitter'}
-		<picture>
-			<source srcset="/x-logo-white.png" media="(prefers-color-scheme: dark)" />
-			<img alt="X Logo" src="/x-logo-black.png" />
-		</picture>
-	{:else}
-		<div>
-			<p>{animated ? 'Please Wait....' : provider?.id == 'auth0' ? provider.connection : provider}</p>
-			<hr />
-		</div>
-	{/if}
+	<div class="flex items-center justify-center">
+		{#if provider?.id == 'google'}
+			<img src="/google_logo.png" alt="Google Logo" class="max-w-36 max-h-36" class:animate-pulse={animated} />
+		{:else if provider?.id == 'facebook'}
+			<img src="/Facebook_Logo_Primary.png" alt="Facebook Logo" class="max-w-36 max-h-36" class:animate-pulse={animated} />
+		{:else if provider?.id === 'auth0' && provider.connection === 'twitter'}
+			<picture>
+				<source srcset="/x-logo-white.png" media="(prefers-color-scheme: dark)" />
+				<img alt="X Logo" src="/x-logo-white.png" class="max-w-36 max-h-36" class:animate-pulse={animated} />
+			</picture>
+		{:else}
+			<p class="text-lg text-muted-foreground">
+				{animated ? 'Please Wait...' : provider?.id == 'auth0' ? provider.connection : provider}
+			</p>
+		{/if}
+	</div>
 {/snippet}
 
-<main>
+<main class="flex min-h-screen w-full flex-col items-center justify-center p-6">
 	{#if !$alchemy || $alchemy.step === 'Initialising' || $alchemy.step === 'Initialised' || $alchemy.step === 'InitialisingMechanism' || $alchemy.step === 'MechanismToChoose' || $alchemy.step === 'MechanismChosen' || $alchemy.step === 'GeneratingAccount'}
 		{@render logo(provider, true)}
 	{:else if $alchemy.step === 'ConfirmOAuth'}
 		{@render logo(provider, false)}
-		<div class="wrapper" style="margin-top: 5rem">
-			<button onclick={() => alchemy.connect({type: 'oauth', provider, usePopup: true})} type="submit">continue</button>
-		</div>
+		<Card.Root class="mt-8 w-full max-w-sm border-0 shadow-md">
+			<Card.Content class="pt-6">
+				<Button
+					onclick={() => alchemy.connect({type: 'oauth', provider, usePopup: true})}
+					size="lg"
+					class="w-full"
+				>
+					Continue
+				</Button>
+			</Card.Content>
+		</Card.Root>
 	{:else if $alchemy.step === 'WaitingForOAuthResponse'}
 		{@render logo(provider, true)}
 	{:else if $alchemy.step === 'InitializingOAuthPopup'}
-		<!-- <div>
-			<p>Logging in, Please wait...</p>
-			<hr />
-		</div> -->
 		{@render logo(provider, true)}
 	{:else if $alchemy.step === 'SignedIn'}
-		<div class="wrapper">
+		{@render logo(provider, false)}
+		<Card.Root class="mt-8 w-full max-w-sm border-0 shadow-md">
 			{#if $alchemy.requireOriginApproval}
 				{#if $alchemy.requireOriginApproval.requestingAccess}
-					<p>
-						{$alchemy.requireOriginApproval.windowOrigin} is requesting access to account from {$alchemy
-							.requireOriginApproval.signingOrigin}
-					</p>
-					<button
-						onclick={() => {
-							alchemy.confirmOriginAccess();
-							if (continueAfterLogin) {
-								continueAfterLogin();
-							}
-						}}
-						id="origin-accept"
-						type="submit">Accept</button
-					>
-					<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
+					<Card.Header class="text-center">
+						<Card.Title class="text-xl">Access Request</Card.Title>
+						<Card.Description>
+							<span class="text-primary">{$alchemy.requireOriginApproval.windowOrigin}</span> is requesting access to your account
+						</Card.Description>
+					</Card.Header>
+					<Card.Content class="space-y-3">
+						<Button
+							onclick={() => {
+								alchemy.confirmOriginAccess();
+								if (continueAfterLogin) {
+									continueAfterLogin();
+								}
+							}}
+							id="origin-accept"
+							size="lg"
+							class="w-full"
+						>
+							Accept
+						</Button>
+						<Button
+							onclick={() => cancel()}
+							id="origin-deny"
+							variant="destructive"
+							size="lg"
+							class="w-full"
+						>
+							Deny
+						</Button>
+					</Card.Content>
 				{:else if goingToRedirect}
-					<!-- TODO timeout-->
-					<p>Please wait...</p>
+					<Card.Header class="text-center">
+						<Card.Title class="text-xl">Please wait...</Card.Title>
+					</Card.Header>
+					<Card.Content class="flex justify-center py-4">
+						<div class="size-10 animate-spin rounded-full border-4 border-muted border-t-primary"></div>
+					</Card.Content>
 				{:else}
-					<p>Could not log you in, due to redirection failure</p>
-					<button onclick={() => cancel()}>Return</button>
+					<Card.Header class="text-center">
+						<Card.Title class="text-xl text-destructive">Redirection Failed</Card.Title>
+					</Card.Header>
+					<Card.Content>
+						<Button onclick={() => cancel()} size="lg" class="w-full">Return</Button>
+					</Card.Content>
 				{/if}
 			{:else if continueAfterLogin}
-				<p>You are logged in!</p>
-				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
+				<Card.Header class="text-center">
+					<Card.Title class="text-xl">You're logged in!</Card.Title>
+				</Card.Header>
+				<Card.Content>
+					<Button onclick={continueAfterLogin} id="continue-submit" size="lg" class="w-full">Continue</Button>
+				</Card.Content>
 			{:else if goingToRedirect}
-				<!-- TODO timeout-->
-				<p>Please wait...</p>
+				<Card.Header class="text-center">
+					<Card.Title class="text-xl">Please wait...</Card.Title>
+				</Card.Header>
+				<Card.Content class="flex justify-center py-4">
+					<div class="size-10 animate-spin rounded-full border-4 border-muted border-t-primary"></div>
+				</Card.Content>
 			{:else}
-				<p>Could not log you in, due to redirection failure</p>
-				<button onclick={() => cancel()}>Return</button>
+				<Card.Header class="text-center">
+					<Card.Title class="text-xl text-destructive">Redirection Failed</Card.Title>
+				</Card.Header>
+				<Card.Content>
+					<Button onclick={() => cancel()} size="lg" class="w-full">Return</Button>
+				</Card.Content>
 			{/if}
-		</div>
+		</Card.Root>
 	{/if}
 </main>
-
-<style>
-	main {
-		width: 100%;
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		align-items: center;
-	}
-
-	main picture {
-		max-width: min(30%, 128px);
-		max-height: min(30%, 128px);
-	}
-	main img {
-		width: 100%;
-		height: 100%;
-	}
-
-	main img.animated {
-		animation: pulse ease-in 1400ms infinite alternate;
-	}
-
-	.wrapper {
-		display: flex;
-		gap: 1rem;
-		flex-direction: column;
-		justify-content: center;
-		align-items: center;
-	}
-
-	button {
-		padding: 0.75rem 1rem;
-		border: 0.0625rem solid black;
-		border-radius: 0.25rem;
-		outline: none;
-		background-color: black;
-		box-shadow: 0 0 0 rgba(0, 0, 0, 0);
-		color: white;
-		font-weight: 400;
-		font-size: 1rem;
-		line-height: 1.5;
-		text-align: center;
-		text-decoration: none;
-		cursor: pointer;
-		user-select: none;
-		width: 100%;
-		height: 50px;
-		margin-bottom: 1rem;
-	}
-
-	.deny {
-		border: 0.0625rem solid #c74a24;
-		background-color: #c74a24;
-		color: #fff;
-	}
-
-	@media (prefers-color-scheme: dark) {
-		button {
-			background-color: white;
-			color: black;
-		}
-	}
-
-	@keyframes pulse {
-		50% {
-			transform: scale(0.9);
-		}
-	}
-</style>
