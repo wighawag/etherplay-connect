@@ -903,6 +903,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 	let remember: boolean = false;
 	async function connect(mechanism?: Mechanism, options?: ConnectionOptions) {
+		if (!mechanism && walletOnly) {
+			mechanism = {type: 'wallet'};
+		}
 		remember = !(options?.doNotStoreLocally || false);
 		if (mechanism) {
 			if (mechanism.type === 'wallet') {

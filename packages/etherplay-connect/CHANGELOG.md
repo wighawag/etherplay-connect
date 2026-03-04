@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.37
+
+### Patch Changes
+
+- walletOnly auto chose wallet type on connect
+
 ## 0.0.36
 
 ### Patch Changes
