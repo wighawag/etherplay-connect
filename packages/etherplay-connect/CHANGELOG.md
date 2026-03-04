@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.36
+
+### Patch Changes
+
+- better support for wallet-only connections
+
 ## 0.0.35
 
 ### Patch Changes
