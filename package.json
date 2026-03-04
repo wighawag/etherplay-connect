@@ -13,6 +13,10 @@
   },
   "scripts": {
     "prepare": "set-defaults .vscode && pnpm build:packages",
+    "prepublishOnly": "pnpm format:check && pnpm build",
+    "release": "pnpm prepublishOnly && git push --all && pnpm changeset publish && git push --tags",
+    "format": "pnpm run -r format",
+    "format:check": "pnpm run -r format:check",
     "build:packages": "pnpm build:etherplay-wallet-connector && pnpm build:etherplay-wallet-connector-ethereum && pnpm build:etherplay-alchemy && pnpm build:etherplay-connect && pnpm build:etherplay-wallet-connector-ethereum",
     "build:etherplay-alchemy": "pnpm run --filter @etherplay/alchemy build",
     "build:etherplay-connect": "pnpm run --filter @etherplay/connect build",
