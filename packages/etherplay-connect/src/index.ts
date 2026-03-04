@@ -190,11 +190,7 @@ export type SignedInState<WalletProviderType> = Extract<Connection<WalletProvide
 // For 'WalletConnected' target: narrows to ConnectedWithWallet (WalletConnected | SignedIn-with-wallet)
 // For 'SignedIn' target with walletOnly: narrows to SignedInWithWallet
 // For 'SignedIn' target (default): narrows to SignedIn
-export function isTargetStepReached<
-	WalletProviderType,
-	Target extends TargetStep,
-	WalletOnly extends boolean = false,
->(
+export function isTargetStepReached<WalletProviderType, Target extends TargetStep, WalletOnly extends boolean = false>(
 	connection: Connection<WalletProviderType>,
 	targetStep: Target,
 	walletOnly?: WalletOnly,
