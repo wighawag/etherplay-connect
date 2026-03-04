@@ -1,6 +1,6 @@
 {
 	"name": "@etherplay/connect",
-	"version": "0.0.37",
+	"version": "0.0.38",
 	"description": "Main connection library for Etherplay Accounts - provides seamless wallet and social authentication with session account management",
 	"keywords": [
 		"web3",

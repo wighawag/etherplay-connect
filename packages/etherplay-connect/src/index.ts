@@ -323,6 +323,12 @@ export type ConnectionStore<
 	chainInfo: ChainInfo<WalletProviderType>;
 };
 
+export type AnyConnectionStore<WalletProviderType> =
+	| ConnectionStore<WalletProviderType, 'SignedIn', true>
+	| ConnectionStore<WalletProviderType, 'WalletConnected', true>
+	| ConnectionStore<WalletProviderType, 'SignedIn', false>
+	| ConnectionStore<WalletProviderType, 'WalletConnected', false>;
+
 // Function overloads for proper typing
 
 // WalletConnected target with custom wallet connector - walletHost optional

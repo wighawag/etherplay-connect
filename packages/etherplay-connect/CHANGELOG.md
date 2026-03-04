@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.38
+
+### Patch Changes
+
+- AnyConnectionStore
+
 ## 0.0.37
 
 ### Patch Changes
