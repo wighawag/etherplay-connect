@@ -2,13 +2,15 @@
 	import { chainInfo } from '$lib';
 	import { createConnection } from '@etherplay/connect';
 
-	// Using targetStep: 'WalletConnected' - no walletHost needed for wallet-only apps!
+	// Using targetStep: 'SignedIn' with walletOnly: true - no walletHost needed for wallet-only auth!
 	const connection = createConnection({
-		targetStep: 'WalletConnected',
+		targetStep: 'SignedIn',
+		walletOnly: true,
 		chainInfo,
 		prioritizeWalletProvider: true,
 		alwaysUseCurrentAccount: true,
-		autoConnect: true
+		autoConnect: true,
+		requestSignatureAutomaticallyIfPossible: true
 	});
 
 	let connectionAsAny = $derived($connection as any);
@@ -30,36 +32,48 @@
 		<button onclick={() => connection.connect({ type: 'wallet' })}>connect</button>
 	{/if}
 {:else if connection.isTargetStepReached($connection)}
-	you are signed-in: {$connection.mechanism.address}
+	you are signed-in: {$connection.account.address} / {$connection.account.signer.address} | {$connection
+		.wallet?.chainId}
 	<button onclick={() => connection.disconnect()}>disconnect</button>
 
 	{@const accountChanged = $connection.wallet?.accountChanged}
 	{#if accountChanged}
 		<button style="margin-right: 2rem;" onclick={() => connection.connectToAddress(accountChanged)}
-			>switch</button
+			>switch account</button
 		>
 	{/if}
 	{@const invalidChain = $connection.wallet?.invalidChainId}
 	{#if invalidChain}
 		<button
 			style="margin-right: 2rem;"
-			onclick={() => connection.switchWalletChain()}
+			onclick={() => connection.switchWalletChain(chainInfo)}
 			disabled={!!$connection.wallet?.switchingChain}>switch chain</button
 		>
 	{/if}
-	{#if $connection.wallet.status == 'locked'}
-		<button
-			style="margin-right: 2rem;"
-			disabled={$connection.wallet.unlocking}
-			onclick={() => connection.unlock()}>unlock</button
-		>
-	{:else if $connection.wallet.status == 'disconnected'}
-		<p style="color: oklch(0.637 0.237 25.331);">
-			The account has been disconnected, reconnect it to continue. or disconnect
-		</p>
+{:else if $connection.step == 'WalletConnected'}
+	Wallet connected
+	<button onclick={() => connection.requestSignature()}>sign-in private account</button>
+	<button
+		onclick={() =>
+			connection.walletOnly ? connection.back('Idle') : connection.back('MechanismToChoose')}
+		>back</button
+	>
+	<button onclick={() => connection.disconnect()}>disconnect</button>
+{:else if $connection.step == 'PopupLaunched'}
+	{#if $connection.popupClosed}
+		Popup seems to be closed.
+		<button onclick={() => connection.cancel()}>cancel</button>
+	{:else}
+		Popup launched...
+		<button onclick={() => connection.cancel()}>cancel</button>
 	{/if}
 {:else if $connection.step == 'WaitingForWalletConnection'}
 	Wallet connection requested...
+{:else if $connection.step == 'WaitingForSignature'}
+	Waiting for signature...
+	<!-- Waiting for signature Did the wallet not ask ? -->
+	<!-- <button onclick={() => connection.requestSignature()}>sign</button> -->
+	<!-- <button onclick={() => connection.back('WalletToChoose')}>back</button> -->
 {:else if $connection.step == 'ChooseWalletAccount'}
 	{#each $connection.wallet.accounts as account}
 		<button onclick={() => connection.connectToAddress(account)}>{account}</button>
@@ -73,16 +87,24 @@
 			rel="noopener noreferrer">MetaMask</a
 		>
 		<br />
-		<button onclick={() => connection.back('Idle')}>back</button>
+		<button
+			onclick={() =>
+				connection.walletOnly ? connection.back('Idle') : connection.back('MechanismToChoose')}
+			>back</button
+		>
 	{:else}
 		{#each $connection.wallets as wallet}
 			<button onclick={() => connection.connect({ type: 'wallet', name: wallet.info.name })}
 				>{wallet.info.name}</button
 			>
 		{/each}
-		<button onclick={() => connection.back('Idle')}>back</button>
+		<button
+			onclick={() =>
+				connection.walletOnly ? connection.back('Idle') : connection.back('MechanismToChoose')}
+			>back</button
+		>
 	{/if}
-{:else if $connection.step == 'SignedIn'}{:else}
+{:else}
 	{JSON.stringify({ step: connectionAsAny.step, error: connectionAsAny.error }, null, 2)}
 {/if}
 

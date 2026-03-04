@@ -108,6 +108,7 @@
 {:else if $connection.step == 'WaitingForWalletConnection'}
 	Wallet connection requested...
 {:else if $connection.step == 'WaitingForSignature'}
+	Waiting for Signature...
 	<!-- Waiting for signature Did the wallet not ask ? -->
 	<!-- <button onclick={() => connection.requestSignature()}>sign</button> -->
 	<!-- <button onclick={() => connection.back('WalletToChoose')}>back</button> -->

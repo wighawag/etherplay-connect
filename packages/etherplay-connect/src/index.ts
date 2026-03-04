@@ -68,6 +68,8 @@ export type Mechanism = AlchemyMechanism | WalletMechanism<string | undefined, `
 
 export type FullfilledMechanism = AlchemyMechanism | WalletMechanism<string, `0x${string}`>;
 
+export type TargetStep = 'WalletConnected' | 'SignedIn';
+
 export type WalletState<WalletProviderType> = {
 	provider: WalletProvider<WalletProviderType>;
 	accounts: `0x${string}`[];
@@ -161,6 +163,60 @@ export type Connection<WalletProviderType> = {
 	| SignedIn<WalletProviderType>
 );
 
+// Type for SignedIn state that was reached via wallet authentication (not popup-based auth)
+// This variant always has wallet and WalletMechanism
+export type SignedInWithWallet<WalletProviderType> = Extract<
+	Connection<WalletProviderType>,
+	{step: 'SignedIn'; wallet: WalletState<WalletProviderType>}
+>;
+
+// Full WalletConnected type from Connection
+export type WalletConnectedState<WalletProviderType> = Extract<
+	Connection<WalletProviderType>,
+	{step: 'WalletConnected'}
+>;
+
+// Type representing wallet-connected states (both WalletConnected and SignedIn-via-wallet)
+// This is what you get when targetStep is 'WalletConnected' and target is reached
+// Both variants have WalletMechanism and wallet
+export type ConnectedWithWallet<WalletProviderType> =
+	| WalletConnectedState<WalletProviderType>
+	| SignedInWithWallet<WalletProviderType>;
+
+// Full SignedIn type from Connection (includes both popup-based and wallet-based variants)
+export type SignedInState<WalletProviderType> = Extract<Connection<WalletProviderType>, {step: 'SignedIn'}>;
+
+// Type guard - narrows Connection based on targetStep and walletOnly
+// For 'WalletConnected' target: narrows to ConnectedWithWallet (WalletConnected | SignedIn-with-wallet)
+// For 'SignedIn' target with walletOnly: narrows to SignedInWithWallet
+// For 'SignedIn' target (default): narrows to SignedIn
+export function isTargetStepReached<
+	WalletProviderType,
+	Target extends TargetStep,
+	WalletOnly extends boolean = false,
+>(
+	connection: Connection<WalletProviderType>,
+	targetStep: Target,
+	walletOnly?: WalletOnly,
+): connection is Target extends 'WalletConnected'
+	? ConnectedWithWallet<WalletProviderType>
+	: WalletOnly extends true
+		? SignedInWithWallet<WalletProviderType>
+		: SignedInState<WalletProviderType> {
+	if (targetStep === 'WalletConnected') {
+		// For WalletConnected target, accept WalletConnected OR SignedIn-with-wallet
+		return connection.step === 'WalletConnected' || (connection.step === 'SignedIn' && connection.wallet !== undefined);
+	}
+	// For SignedIn target (regardless of walletOnly), only accept SignedIn
+	// walletOnly affects the return type narrowing, not the step check
+	if (walletOnly) {
+		// For SignedIn + walletOnly, only accept SignedIn-with-wallet
+		return connection.step === 'SignedIn' && connection.wallet !== undefined;
+	}
+	// For SignedIn target, accept any SignedIn variant
+	return connection.step === 'SignedIn';
+}
+
 function viemChainInfoToSwitchChainInfo(chainInfo: BasicChainInfo): {
 	chainId: `0x${string}`;
 	readonly rpcUrls?: readonly string[];
@@ -185,15 +241,25 @@ function viemChainInfoToSwitchChainInfo(chainInfo: BasicChainInfo): {
 const storageKeyAccount = '__origin_account';
 const storageKeyLastWallet = '__last_wallet';
 
-export type ConnectionStore<WalletProviderType> = {
+export type ConnectionOptions = {
+	requireUserConfirmationBeforeSignatureRequest?: boolean;
+	doNotStoreLocally?: boolean;
+	requestSignatureRightAway?: boolean;
+};
+
+export type ConnectionStore<
+	WalletProviderType,
+	Target extends TargetStep = 'SignedIn',
+	WalletOnly extends boolean = false,
+> = {
 	subscribe: (run: (value: Connection<WalletProviderType>) => void) => () => void;
 	connect: (
-		mechanism?: Mechanism,
-		options?: {
-			requireUserConfirmationBeforeSignatureRequest?: boolean;
-			doNotStoreLocally?: boolean;
-			requestSignatureRightAway?: boolean;
-		},
+		mechanism?: Target extends 'WalletConnected'
+			? WalletMechanism<string | undefined, `0x${string}` | undefined>
+			: WalletOnly extends true
+				? WalletMechanism<string | undefined, `0x${string}` | undefined>
+				: Mechanism,
+		options?: ConnectionOptions,
 	) => Promise<void>;
 	cancel: () => void;
 	back: (step: 'MechanismToChoose' | 'Idle' | 'WalletToChoose') => void;
@@ -206,78 +272,161 @@ export type ConnectionStore<WalletProviderType> = {
 	getSignatureForPublicKeyPublication: () => Promise<`0x${string}`>;
 	switchWalletChain: (chainInfo?: BasicChainInfo) => Promise<void>;
 	unlock: () => Promise<void>;
-	ensureConnected: {
-		(
-			step: 'WalletConnected',
-			mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
-			options?: {
-				requireUserConfirmationBeforeSignatureRequest?: boolean;
-				doNotStoreLocally?: boolean;
-				requestSignatureRightAway?: boolean;
-			},
-		): Promise<WalletConnected<WalletProviderType>>;
-		(
-			step: 'SignedIn',
-			mechanism?: Mechanism,
-			options?: {
-				requireUserConfirmationBeforeSignatureRequest?: boolean;
-				doNotStoreLocally?: boolean;
-				requestSignatureRightAway?: boolean;
-			},
-		): Promise<SignedIn<WalletProviderType>>;
-		(
-			mechanism?: Mechanism,
-			options?: {
-				requireUserConfirmationBeforeSignatureRequest?: boolean;
-				doNotStoreLocally?: boolean;
-				requestSignatureRightAway?: boolean;
-			},
-		): Promise<SignedIn<WalletProviderType>>;
-	};
+
+	// ensureConnected signature depends on target and walletOnly
+	ensureConnected: Target extends 'WalletConnected'
+		? {
+				(options?: ConnectionOptions): Promise<WalletConnected<WalletProviderType>>;
+				(
+					step: 'WalletConnected',
+					mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
+					options?: ConnectionOptions,
+				): Promise<WalletConnected<WalletProviderType>>;
+			}
+		: WalletOnly extends true
+			? {
+					// walletOnly: true for SignedIn - returns SignedInWithWallet (not full SignedIn union)
+					(options?: ConnectionOptions): Promise<SignedInWithWallet<WalletProviderType>>;
+					(
+						step: 'WalletConnected',
+						mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
+						options?: ConnectionOptions,
+					): Promise<WalletConnected<WalletProviderType>>;
+					(
+						step: 'SignedIn',
+						mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
+						options?: ConnectionOptions,
+					): Promise<SignedInWithWallet<WalletProviderType>>;
+				}
+			: {
+					(options?: ConnectionOptions): Promise<SignedIn<WalletProviderType>>;
+					(
+						step: 'WalletConnected',
+						mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
+						options?: ConnectionOptions,
+					): Promise<WalletConnected<WalletProviderType>>;
+					(step: 'SignedIn', mechanism?: Mechanism, options?: ConnectionOptions): Promise<SignedIn<WalletProviderType>>;
+				};
+
+	// Method to check if target step is reached with proper type narrowing
+	isTargetStepReached: (
+		connection: Connection<WalletProviderType>,
+	) => connection is Target extends 'WalletConnected'
+		? ConnectedWithWallet<WalletProviderType>
+		: WalletOnly extends true
+			? SignedInWithWallet<WalletProviderType>
+			: SignedInState<WalletProviderType>;
+
+	// New properties
+	targetStep: Target;
+	walletOnly: WalletOnly;
+
+	// Existing properties
 	provider: WalletProviderType;
 	chainId: string;
 	chainInfo: ChainInfo<WalletProviderType>;
 };
 
 // Function overloads for proper typing
+
+// WalletConnected target with custom wallet connector - walletHost optional
 export function createConnection<WalletProviderType>(settings: {
-	signingOrigin?: string;
-	walletHost: string;
-	autoConnect?: boolean;
-	autoConnectWallet?: boolean;
-	walletConnector: WalletConnector<WalletProviderType>;
-	requestSignatureAutomaticallyIfPossible?: boolean;
-	alwaysUseCurrentAccount?: boolean;
+	targetStep: 'WalletConnected';
+	walletHost?: string;
 	chainInfo: ChainInfo<WalletProviderType>;
+	walletConnector: WalletConnector<WalletProviderType>;
+	autoConnect?: boolean;
+	alwaysUseCurrentAccount?: boolean;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
-}): ConnectionStore<WalletProviderType>;
+}): ConnectionStore<WalletProviderType, 'WalletConnected'>;
 
+// WalletConnected target with default Ethereum connector - walletHost optional
 export function createConnection(settings: {
-	signingOrigin?: string;
-	walletHost: string;
-	autoConnect?: boolean;
-	autoConnectWallet?: boolean;
+	targetStep: 'WalletConnected';
+	walletHost?: string;
+	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
 	walletConnector?: undefined;
+	autoConnect?: boolean;
+	alwaysUseCurrentAccount?: boolean;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
+}): ConnectionStore<UnderlyingEthereumProvider, 'WalletConnected', true>;
+
+// SignedIn target with walletOnly: true (custom wallet connector) - walletHost optional
+export function createConnection<WalletProviderType>(settings: {
+	targetStep?: 'SignedIn';
+	walletOnly: true;
+	walletHost?: string;
+	chainInfo: ChainInfo<WalletProviderType>;
+	walletConnector: WalletConnector<WalletProviderType>;
+	signingOrigin?: string;
+	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
-	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
-}): ConnectionStore<UnderlyingEthereumProvider>;
+}): ConnectionStore<WalletProviderType, 'SignedIn', true>;
 
-export function createConnection<WalletProviderType = UnderlyingEthereumProvider>(settings: {
+// SignedIn target with walletOnly: true (default Ethereum connector) - walletHost optional
+export function createConnection(settings: {
+	targetStep?: 'SignedIn';
+	walletOnly: true;
+	walletHost?: string;
+	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
+	walletConnector?: undefined;
 	signingOrigin?: string;
-	walletHost: string;
 	autoConnect?: boolean;
-	autoConnectWallet?: boolean;
+	requestSignatureAutomaticallyIfPossible?: boolean;
+	alwaysUseCurrentAccount?: boolean;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
+}): ConnectionStore<UnderlyingEthereumProvider, 'SignedIn', true>;
+
+// SignedIn target (explicit) with custom wallet connector - walletHost required
+export function createConnection<WalletProviderType>(settings: {
+	targetStep?: 'SignedIn';
+	walletOnly?: false;
+	walletHost: string;
+	chainInfo: ChainInfo<WalletProviderType>;
+	walletConnector: WalletConnector<WalletProviderType>;
+	signingOrigin?: string;
+	autoConnect?: boolean;
+	requestSignatureAutomaticallyIfPossible?: boolean;
+	alwaysUseCurrentAccount?: boolean;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
+}): ConnectionStore<WalletProviderType, 'SignedIn', false>;
+
+// SignedIn target (default) with default Ethereum connector - walletHost required
+export function createConnection(settings: {
+	targetStep?: 'SignedIn';
+	walletOnly?: false;
+	walletHost: string;
+	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
+	walletConnector?: undefined;
+	signingOrigin?: string;
+	autoConnect?: boolean;
+	requestSignatureAutomaticallyIfPossible?: boolean;
+	alwaysUseCurrentAccount?: boolean;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
+}): ConnectionStore<UnderlyingEthereumProvider, 'SignedIn', false>;
+
+// Implementation signature
+export function createConnection<WalletProviderType = UnderlyingEthereumProvider>(settings: {
+	targetStep?: TargetStep;
+	walletOnly?: boolean;
+	signingOrigin?: string;
+	walletHost?: string;
+	autoConnect?: boolean;
 	walletConnector?: WalletConnector<WalletProviderType>;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	alwaysUseCurrentAccount?: boolean;
 	chainInfo: ChainInfo<WalletProviderType>;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
-}) {
+}): ConnectionStore<WalletProviderType, TargetStep, boolean> {
 	function originToSignWith() {
 		return settings.signingOrigin || origin;
 	}
@@ -292,15 +441,18 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		prioritizeWalletProvider: settings.prioritizeWalletProvider,
 		requestsPerSecond: settings.requestsPerSecond,
 	});
+	// Determine target step (defaults to 'SignedIn')
+	const targetStep: TargetStep = settings.targetStep || 'SignedIn';
+
 	let autoConnect = true;
 	if (typeof settings.autoConnect !== 'undefined') {
 		autoConnect = settings.autoConnect;
 	}
-	let autoConnectWallet = true;
-	if (typeof settings.autoConnectWallet !== 'undefined') {
-		autoConnectWallet = settings.autoConnectWallet;
-	}
-	const requestSignatureAutomaticallyIfPossible = settings.requestSignatureAutomaticallyIfPossible || false;
+
+	// For SignedIn target, we can auto-request signature if configured
+	// For WalletConnected target, this is always false (we never auto-request signature)
+	const requestSignatureAutomaticallyIfPossible =
+		targetStep === 'SignedIn' ? settings.requestSignatureAutomaticallyIfPossible || false : false;
 
 	let $connection: Connection<WalletProviderType> = {step: 'Idle', loading: true, wallet: undefined, wallets: []};
 	const _store = writable<Connection<WalletProviderType>>($connection);
@@ -353,13 +505,18 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		});
 	}
 
+	// Auto-connect logic based on targetStep
+	// When targetStep: 'WalletConnected' - only check lastWallet
+	// When targetStep: 'SignedIn' - check originAccount first, then fallback to lastWallet
+	let autoConnectHandled = false;
 	if (autoConnect) {
 		if (typeof window !== 'undefined') {
-			// set({step: 'Idle', loading: true, wallets: $connection.wallets});
 			try {
-				const existingAccount = getOriginAccount();
-				if (existingAccount) {
-					if (existingAccount.signer) {
+				// For SignedIn target, check for existing account first
+				if (targetStep === 'SignedIn') {
+					const existingAccount = getOriginAccount();
+					if (existingAccount && existingAccount.signer) {
+						autoConnectHandled = true;
 						const mechanismUsed = existingAccount.mechanismUsed as
 							| AlchemyMechanism
 							| WalletMechanism<string, `0x${string}`>;
@@ -371,15 +528,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									const chainIdAsHex = await withTimeout(walletProvider.getChainId());
 									const chainId = Number(chainIdAsHex).toString();
 									_wallet = {provider: walletProvider, chainId};
-									// TODO
 									alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
 									watchForChainIdChange(_wallet.provider);
 									let accounts: `0x${string}`[] = [];
-									// try {
 									accounts = await withTimeout(walletProvider.getAccounts());
 									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
-									// } catch {}
-									// // TODO try catch ? and use logic of onAccountChanged
 									set({
 										step: 'SignedIn',
 										account: existingAccount,
@@ -396,7 +549,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										},
 									});
 									alwaysOnProviderWrapper.setWalletStatus('connected');
-									// TODO use the same logic before hand
 									onAccountChanged(accounts);
 									watchForAccountChange(walletProvider);
 								})
@@ -412,54 +564,46 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								wallet: undefined,
 							});
 						}
-					} else {
-						set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 					}
-				} else {
-					if (autoConnectWallet) {
-						const lastWallet = getLastWallet();
-						if (lastWallet) {
-							waitForWallet(lastWallet.name)
-								.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
-									const walletProvider = walletDetails.walletProvider;
-									const chainIdAsHex = await withTimeout(walletProvider.getChainId());
-									const chainId = Number(chainIdAsHex).toString();
-									_wallet = {provider: walletProvider, chainId};
-									// TODO
-									alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
-									watchForChainIdChange(_wallet.provider);
+				}
 
-									let accounts: `0x${string}`[] = [];
-									// try {
-									accounts = await withTimeout(walletProvider.getAccounts());
-									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
-									// } catch {}
-									// // TODO try catch ? and use logic of onAccountChanged
-									set({
-										step: 'WalletConnected',
-										mechanism: lastWallet,
-										wallets: $connection.wallets,
-										wallet: {
-											provider: walletProvider,
-											accounts,
-											status: 'connected',
-											accountChanged: undefined,
-											chainId,
-											invalidChainId: alwaysOnChainId != chainId,
-											switchingChain: false,
-										},
-									});
-									alwaysOnProviderWrapper.setWalletStatus('connected');
-									// TODO use the same logic before hand
-									onAccountChanged(accounts);
-									watchForAccountChange(walletProvider);
-								})
-								.catch((err) => {
-									set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
+				// For both targets, fallback to lastWallet if no account found (or WalletConnected target)
+				if (!autoConnectHandled) {
+					const lastWallet = getLastWallet();
+					if (lastWallet) {
+						waitForWallet(lastWallet.name)
+							.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
+								const walletProvider = walletDetails.walletProvider;
+								const chainIdAsHex = await withTimeout(walletProvider.getChainId());
+								const chainId = Number(chainIdAsHex).toString();
+								_wallet = {provider: walletProvider, chainId};
+								alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
+								watchForChainIdChange(_wallet.provider);
+
+								let accounts: `0x${string}`[] = [];
+								accounts = await withTimeout(walletProvider.getAccounts());
+								accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
+								set({
+									step: 'WalletConnected',
+									mechanism: lastWallet,
+									wallets: $connection.wallets,
+									wallet: {
+										provider: walletProvider,
+										accounts,
+										status: 'connected',
+										accountChanged: undefined,
+										chainId,
+										invalidChainId: alwaysOnChainId != chainId,
+										switchingChain: false,
+									},
 								});
-						} else {
-							set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
-						}
+								alwaysOnProviderWrapper.setWalletStatus('connected');
+								onAccountChanged(accounts);
+								watchForAccountChange(walletProvider);
+							})
+							.catch((err) => {
+								set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
+							});
 					} else {
 						set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 					}
@@ -986,6 +1130,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					});
 				}
 			} else {
+				// Popup-based auth requires walletHost
+				if (!settings.walletHost) {
+					throw new Error('walletHost is required for popup-based authentication (email, oauth, mnemonic)');
+				}
 				popup = connectViaPopup({
 					mechanism,
 					walletHost: settings.walletHost,
@@ -1037,6 +1185,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		}
 	}
 
+	// ensureConnected overloads - the default step depends on targetStep
+	function ensureConnected(
+		options?: ConnectionOptions,
+	): Promise<WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>>;
 	function ensureConnected(
 		step: 'WalletConnected',
 		mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
@@ -1047,51 +1199,70 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		mechanism?: Mechanism,
 		options?: ConnectionOptions,
 	): Promise<SignedIn<WalletProviderType>>;
-	function ensureConnected(mechanism?: Mechanism, options?: ConnectionOptions): Promise<SignedIn<WalletProviderType>>;
-	async function ensureConnected<Step extends 'WalletConnected' | 'SignedIn' = 'SignedIn'>(
-		stepOrMechanism?: Step | Mechanism,
+	async function ensureConnected<Step extends 'WalletConnected' | 'SignedIn'>(
+		stepOrMechanismOrOptions?: Step | Mechanism | ConnectionOptions,
 		mechanismOrOptions?: Mechanism | ConnectionOptions,
 		options?: ConnectionOptions,
-	) {
-		const step = typeof stepOrMechanism === 'string' ? stepOrMechanism : 'SignedIn';
-		let mechanism = typeof stepOrMechanism === 'string' ? (mechanismOrOptions as Mechanism) : stepOrMechanism;
+	): Promise<WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>> {
+		// Determine if first arg is a step string, mechanism, or options
+		let step: 'WalletConnected' | 'SignedIn';
+		let mechanism: Mechanism | undefined;
+		let opts: ConnectionOptions | undefined;
+
+		if (typeof stepOrMechanismOrOptions === 'string') {
+			// First arg is a step
+			step = stepOrMechanismOrOptions as 'WalletConnected' | 'SignedIn';
+			mechanism = mechanismOrOptions as Mechanism | undefined;
+			opts = options;
+		} else if (stepOrMechanismOrOptions && 'type' in (stepOrMechanismOrOptions as any)) {
+			// First arg is a mechanism
+			step = targetStep; // Use configured target as default
+			mechanism = stepOrMechanismOrOptions as Mechanism;
+			opts = mechanismOrOptions as ConnectionOptions | undefined;
+		} else {
+			// First arg is options or undefined
+			step = targetStep; // Use configured target as default
+			mechanism = undefined;
+			opts = stepOrMechanismOrOptions as ConnectionOptions | undefined;
+		}
+
+		// For WalletConnected step, default to wallet mechanism
 		if (!mechanism && step === 'WalletConnected') {
 			mechanism = {type: 'wallet'};
 		}
-		options = typeof stepOrMechanism === 'string' ? options : (mechanismOrOptions as ConnectionOptions);
-		const promise = new Promise<
-			Step extends 'WalletConnected' ? WalletConnected<WalletProviderType> : SignedIn<WalletProviderType>
-		>((resolve, reject) => {
-			let forceConnect = false;
-			if (
-				$connection.step == 'WalletConnected' &&
-				($connection.wallet.status == 'locked' || $connection.wallet.status === 'disconnected')
-			) {
-				// console.log(`locked / disconnected : we assume it needs reconnection`);
-				forceConnect = true;
-				mechanism = $connection.mechanism; // we reuse existing mechanism as we just want to reconnect
-			} else if ($connection.step == step) {
-				resolve($connection as any);
-				return;
-			}
-			let idlePassed = $connection.step != 'Idle';
-			if (!idlePassed || forceConnect) {
-				connect(mechanism, options);
-			}
-			const unsubscribe = _store.subscribe((connection) => {
-				if (connection.step === 'Idle' && idlePassed) {
-					unsubscribe();
-					reject();
+
+		const promise = new Promise<WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>>(
+			(resolve, reject) => {
+				let forceConnect = false;
+				if (
+					$connection.step == 'WalletConnected' &&
+					($connection.wallet.status == 'locked' || $connection.wallet.status === 'disconnected')
+				) {
+					forceConnect = true;
+					mechanism = $connection.mechanism; // we reuse existing mechanism as we just want to reconnect
+				} else if ($connection.step == step) {
+					resolve($connection as any);
+					return;
 				}
-				if (!idlePassed && connection.step !== 'Idle') {
-					idlePassed = true;
+				let idlePassed = $connection.step != 'Idle';
+				if (!idlePassed || forceConnect) {
+					connect(mechanism, opts);
 				}
-				if (connection.step === step) {
-					unsubscribe();
-					resolve(connection as any);
-				}
-			});
-		});
+				const unsubscribe = _store.subscribe((connection) => {
+					if (connection.step === 'Idle' && idlePassed) {
+						unsubscribe();
+						reject();
+					}
+					if (!idlePassed && connection.step !== 'Idle') {
+						idlePassed = true;
+					}
+					if (connection.step === step) {
+						unsubscribe();
+						resolve(connection as any);
+					}
+				});
+			},
+		);
 
 		return promise;
 	}
@@ -1395,7 +1566,27 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		}
 	}
 
-	return {
+	// Determine walletOnly (defaults to false, but true implies WalletConnected target behavior for mechanism)
+	const walletOnly = settings.walletOnly || targetStep === 'WalletConnected';
+
+	// Method on the store to check if target step is reached
+	function storeIsTargetStepReached(connection: Connection<WalletProviderType>): boolean {
+		if (targetStep === 'WalletConnected') {
+			// For WalletConnected target, accept WalletConnected OR SignedIn-with-wallet
+			return (
+				connection.step === 'WalletConnected' || (connection.step === 'SignedIn' && connection.wallet !== undefined)
+			);
+		}
+		// For SignedIn target
+		if (walletOnly) {
+			// With walletOnly, only accept SignedIn-with-wallet
+			return connection.step === 'SignedIn' && connection.wallet !== undefined;
+		}
+		// Accept any SignedIn variant
+		return connection.step === 'SignedIn';
+	}
+
+	const store = {
 		subscribe: _store.subscribe,
 		connect,
 		cancel,
@@ -1406,9 +1597,14 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		getSignatureForPublicKeyPublication,
 		switchWalletChain,
 		unlock,
-		ensureConnected,
+		ensureConnected: ensureConnected as any, // Cast to bypass complex conditional typing
+		isTargetStepReached: storeIsTargetStepReached as any, // Cast for type guard
+		targetStep,
+		walletOnly,
 		provider: alwaysOnProviderWrapper.provider,
 		chainId: '' + settings.chainInfo.id,
 		chainInfo: settings.chainInfo,
 	};
+
+	return store as ConnectionStore<WalletProviderType, TargetStep, boolean>;
 }
