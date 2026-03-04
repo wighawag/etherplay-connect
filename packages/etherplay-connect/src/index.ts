@@ -77,8 +77,14 @@ export type WalletState<WalletProviderType> = {
 	switchingChain: 'addingChain' | 'switchingChain' | false;
 } & ({status: 'connected'} | {status: 'locked'; unlocking: boolean} | {status: 'disconnected'; connecting: boolean});
 
-type WalletConnected<WalletProviderType> = {
+type WaitingForSignature<WalletProviderType> = {
 	step: 'WaitingForSignature';
+	mechanism: WalletMechanism<string, `0x${string}`>;
+	wallet: WalletState<WalletProviderType>;
+};
+
+type WalletConnected<WalletProviderType> = {
+	step: 'WalletConnected';
 	mechanism: WalletMechanism<string, `0x${string}`>;
 	wallet: WalletState<WalletProviderType>;
 };
@@ -144,13 +150,9 @@ export type Connection<WalletProviderType> = {
 	  }
 	// Once the wallet is connected, the system will need a signature
 	// this state represent the fact and require another user interaction to request the signature
-	| {
-			step: 'WalletConnected';
-			mechanism: WalletMechanism<string, `0x${string}`>;
-			wallet: WalletState<WalletProviderType>;
-	  }
-	// This state is triggered once the signature is requested, the user will have to confirm with its wallet
 	| WalletConnected<WalletProviderType>
+	// This state is triggered once the signature is requested, the user will have to confirm with its wallet
+	| WaitingForSignature<WalletProviderType>
 	// Finally the user is fully signed in
 	// wallet?.accountChanged if set, represent the fact that the user has changed its web3-wallet accounnt.
 	// wallet?.invalidChainId if set, represent the fact that the wallet is connected to a different chain.
