@@ -13,7 +13,7 @@
   },
   "scripts": {
     "prepare": "set-defaults .vscode && pnpm build:packages",
-    "prepublishOnly": "pnpm format:check && pnpm build",
+    "prepublishOnly": "pnpm format:check && pnpm build:packages",
     "release": "pnpm prepublishOnly && git push --all && pnpm changeset publish && git push --tags",
     "format": "pnpm run -r format",
     "format:check": "pnpm run -r format:check",
