@@ -307,7 +307,11 @@ export type ConnectionStore<
 						mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
 						options?: EnsureConnectedOptions,
 					): Promise<WalletConnected<WalletProviderType>>;
-					(step: 'SignedIn', mechanism?: Mechanism, options?: EnsureConnectedOptions): Promise<SignedIn<WalletProviderType>>;
+					(
+						step: 'SignedIn',
+						mechanism?: Mechanism,
+						options?: EnsureConnectedOptions,
+					): Promise<SignedIn<WalletProviderType>>;
 				};
 
 	// Method to check if target step is reached with proper type narrowing
@@ -591,21 +595,21 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								let accounts: `0x${string}`[] = [];
 								accounts = await withTimeout(walletProvider.getAccounts());
 								accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
-							set({
-								step: 'WalletConnected',
-								mechanism: lastWallet,
-								wallets: $connection.wallets,
-								wallet: {
-									provider: walletProvider,
-									accounts,
-									status: 'connected',
-									accountChanged: undefined,
-									chainId,
-									invalidChainId: alwaysOnChainId != chainId,
-									switchingChain: false,
-								},
-								account: {address: lastWallet.address},
-							});
+								set({
+									step: 'WalletConnected',
+									mechanism: lastWallet,
+									wallets: $connection.wallets,
+									wallet: {
+										provider: walletProvider,
+										accounts,
+										status: 'connected',
+										accountChanged: undefined,
+										chainId,
+										invalidChainId: alwaysOnChainId != chainId,
+										switchingChain: false,
+									},
+									account: {address: lastWallet.address},
+								});
 								alwaysOnProviderWrapper.setWalletStatus('connected');
 								onAccountChanged(accounts);
 								watchForAccountChange(walletProvider);
@@ -993,24 +997,24 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 														switchingChain: false,
 													},
 												}
-								: {
-												step: nextStep,
-												mechanism: {
-													...mechanismToSave,
-													address: account,
-												},
-												wallets: $connection.wallets,
-												wallet: {
-													provider: _wallet.provider,
-													accounts,
-													status: 'connected',
-													accountChanged: undefined,
-													chainId,
-													invalidChainId: alwaysOnChainId != chainId,
-													switchingChain: false,
-												},
-												account: {address: account},
-											};
+											: {
+													step: nextStep,
+													mechanism: {
+														...mechanismToSave,
+														address: account,
+													},
+													wallets: $connection.wallets,
+													wallet: {
+														provider: _wallet.provider,
+														accounts,
+														status: 'connected',
+														accountChanged: undefined,
+														chainId,
+														invalidChainId: alwaysOnChainId != chainId,
+														switchingChain: false,
+													},
+													account: {address: account},
+												};
 									if (
 										newState.step === 'WalletConnected' &&
 										(requestSignatureAutomaticallyIfPossible || options?.requestSignatureRightAway) &&
@@ -1069,7 +1073,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 													switchingChain: false,
 												},
 											}
-								: {
+										: {
 												step: nextStep,
 												mechanism: {
 													...mechanismToSave,
