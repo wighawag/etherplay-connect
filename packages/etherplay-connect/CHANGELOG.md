@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.40
+
+### Patch Changes
+
+- bumo
+
 ## 0.0.39
 
 ### Patch Changes
