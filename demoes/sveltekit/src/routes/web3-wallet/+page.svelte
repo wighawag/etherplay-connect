@@ -17,7 +17,7 @@
 		// With targetStep: 'WalletConnected', ensureConnected() returns WalletConnected type
 		connection.ensureConnected().then(($connection) => {
 			connection.provider.call('eth_sendTransaction')([
-				{ from: $connection.mechanism.address, to: $connection.mechanism.address, value: '0x0' }
+				{ from: $connection.account.address, to: $connection.account.address, value: '0x0' }
 			]);
 		});
 	}
@@ -30,7 +30,7 @@
 		<button onclick={() => connection.connect({ type: 'wallet' })}>connect</button>
 	{/if}
 {:else if connection.isTargetStepReached($connection)}
-	you are signed-in: {$connection.mechanism.address}
+	you are signed-in: {$connection.account.address}
 	<button onclick={() => connection.disconnect()}>disconnect</button>
 
 	{@const accountChanged = $connection.wallet?.accountChanged}

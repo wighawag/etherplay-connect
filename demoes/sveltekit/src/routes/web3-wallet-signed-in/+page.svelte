@@ -16,10 +16,10 @@
 	let connectionAsAny = $derived($connection as any);
 
 	function purchase() {
-		// With targetStep: 'WalletConnected', ensureConnected() returns WalletConnected type
+		// With targetStep: 'SignedIn', ensureConnected() returns SignedIn type
 		connection.ensureConnected().then(($connection) => {
 			connection.provider.call('eth_sendTransaction')([
-				{ from: $connection.mechanism.address, to: $connection.mechanism.address, value: '0x0' }
+				{ from: $connection.account.address, to: $connection.account.address, value: '0x0' }
 			]);
 		});
 	}
