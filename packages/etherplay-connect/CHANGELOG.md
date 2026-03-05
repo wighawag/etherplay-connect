@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.39
+
+### Patch Changes
+
+- 5dcb07c: unified account WalletConnected + SignedIn
+
 ## 0.0.38
 
 ### Patch Changes
