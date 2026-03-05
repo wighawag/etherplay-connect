@@ -47,12 +47,14 @@
 		"svelte": "^5.0.0"
 	},
 	"devDependencies": {
+		"@vitest/coverage-v8": "^4.0.18",
 		"as-soon": "^0.0.11",
 		"eip-1193": "^0.6.3",
 		"ldenv": "^0.3.12",
 		"prettier": "^3.5.3",
 		"svelte": "^5.25.12",
-		"typescript": "^5.8.3"
+		"typescript": "^5.8.3",
+		"vitest": "^4.0.18"
 	},
 	"pnpm": {
 		"onlyBuiltDependencies": [
@@ -73,6 +75,9 @@
 		"build": "tsc --project tsconfig.json",
 		"dev": "as-soon -w src pnpm build",
 		"format:check": "prettier --check .",
-		"format": "prettier --write ."
+		"format": "prettier --write .",
+		"test:watch": "vitest",
+		"test": "vitest run",
+		"test:coverage": "vitest run --coverage"
 	}
 }
