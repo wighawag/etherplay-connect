@@ -239,10 +239,14 @@ function viemChainInfoToSwitchChainInfo(chainInfo: BasicChainInfo): {
 const storageKeyAccount = '__origin_account';
 const storageKeyLastWallet = '__last_wallet';
 
-export type ConnectionOptions = {
+export type ConnectOptions = {
 	requireUserConfirmationBeforeSignatureRequest?: boolean;
 	doNotStoreLocally?: boolean;
 	requestSignatureRightAway?: boolean;
+};
+
+export type EnsureConnectedOptions = ConnectOptions & {
+	skipChainCheck?: boolean; // Skip chain validation for WalletConnected step
 };
 
 export type ConnectionStore<
@@ -257,7 +261,7 @@ export type ConnectionStore<
 			: WalletOnly extends true
 				? WalletMechanism<string | undefined, `0x${string}` | undefined>
 				: Mechanism,
-		options?: ConnectionOptions,
+		options?: ConnectOptions,
 	) => Promise<void>;
 	cancel: () => void;
 	back: (step: 'MechanismToChoose' | 'Idle' | 'WalletToChoose') => void;
@@ -274,36 +278,36 @@ export type ConnectionStore<
 	// ensureConnected signature depends on target and walletOnly
 	ensureConnected: Target extends 'WalletConnected'
 		? {
-				(options?: ConnectionOptions): Promise<WalletConnected<WalletProviderType>>;
+				(options?: EnsureConnectedOptions): Promise<WalletConnected<WalletProviderType>>;
 				(
 					step: 'WalletConnected',
 					mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
-					options?: ConnectionOptions,
+					options?: EnsureConnectedOptions,
 				): Promise<WalletConnected<WalletProviderType>>;
 			}
 		: WalletOnly extends true
 			? {
 					// walletOnly: true for SignedIn - returns SignedInWithWallet (not full SignedIn union)
-					(options?: ConnectionOptions): Promise<SignedInWithWallet<WalletProviderType>>;
+					(options?: EnsureConnectedOptions): Promise<SignedInWithWallet<WalletProviderType>>;
 					(
 						step: 'WalletConnected',
 						mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
-						options?: ConnectionOptions,
+						options?: EnsureConnectedOptions,
 					): Promise<WalletConnected<WalletProviderType>>;
 					(
 						step: 'SignedIn',
 						mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
-						options?: ConnectionOptions,
+						options?: EnsureConnectedOptions,
 					): Promise<SignedInWithWallet<WalletProviderType>>;
 				}
 			: {
-					(options?: ConnectionOptions): Promise<SignedIn<WalletProviderType>>;
+					(options?: EnsureConnectedOptions): Promise<SignedIn<WalletProviderType>>;
 					(
 						step: 'WalletConnected',
 						mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
-						options?: ConnectionOptions,
+						options?: EnsureConnectedOptions,
 					): Promise<WalletConnected<WalletProviderType>>;
-					(step: 'SignedIn', mechanism?: Mechanism, options?: ConnectionOptions): Promise<SignedIn<WalletProviderType>>;
+					(step: 'SignedIn', mechanism?: Mechanism, options?: EnsureConnectedOptions): Promise<SignedIn<WalletProviderType>>;
 				};
 
 	// Method to check if target step is reached with proper type narrowing
@@ -904,14 +908,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		walletProvider.stopListenForChainChanged(onChainChanged);
 	}
 
-	type ConnectionOptions = {
-		requireUserConfirmationBeforeSignatureRequest?: boolean;
-		doNotStoreLocally?: boolean;
-		requestSignatureRightAway?: boolean;
-	};
-
 	let remember: boolean = false;
-	async function connect(mechanism?: Mechanism, options?: ConnectionOptions) {
+	async function connect(mechanism?: Mechanism, options?: ConnectOptions) {
 		if (!mechanism && (targetStep === 'WalletConnected' || walletOnly)) {
 			mechanism = {type: 'wallet'};
 		}
@@ -1197,43 +1195,49 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 	// ensureConnected overloads - the default step depends on targetStep
 	function ensureConnected(
-		options?: ConnectionOptions,
+		options?: EnsureConnectedOptions,
 	): Promise<WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>>;
 	function ensureConnected(
 		step: 'WalletConnected',
-		mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
-		options?: ConnectionOptions,
+		mechanismOrOptions?: WalletMechanism<string | undefined, `0x${string}` | undefined> | EnsureConnectedOptions,
+		options?: EnsureConnectedOptions,
 	): Promise<WalletConnected<WalletProviderType>>;
 	function ensureConnected(
 		step: 'SignedIn',
 		mechanism?: Mechanism,
-		options?: ConnectionOptions,
+		options?: EnsureConnectedOptions,
 	): Promise<SignedIn<WalletProviderType>>;
 	async function ensureConnected<Step extends 'WalletConnected' | 'SignedIn'>(
-		stepOrMechanismOrOptions?: Step | Mechanism | ConnectionOptions,
-		mechanismOrOptions?: Mechanism | ConnectionOptions,
-		options?: ConnectionOptions,
+		stepOrMechanismOrOptions?: Step | Mechanism | EnsureConnectedOptions,
+		mechanismOrOptions?: Mechanism | EnsureConnectedOptions,
+		options?: EnsureConnectedOptions,
 	): Promise<WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>> {
 		// Determine if first arg is a step string, mechanism, or options
 		let step: 'WalletConnected' | 'SignedIn';
 		let mechanism: Mechanism | undefined;
-		let opts: ConnectionOptions | undefined;
+		let opts: EnsureConnectedOptions | undefined;
 
 		if (typeof stepOrMechanismOrOptions === 'string') {
 			// First arg is a step
 			step = stepOrMechanismOrOptions as 'WalletConnected' | 'SignedIn';
-			mechanism = mechanismOrOptions as Mechanism | undefined;
-			opts = options;
+			// Check if second arg is a mechanism (has 'type') or options (doesn't have 'type')
+			if (mechanismOrOptions && 'type' in (mechanismOrOptions as any)) {
+				mechanism = mechanismOrOptions as Mechanism;
+				opts = options;
+			} else {
+				mechanism = undefined;
+				opts = mechanismOrOptions as EnsureConnectedOptions | undefined;
+			}
 		} else if (stepOrMechanismOrOptions && 'type' in (stepOrMechanismOrOptions as any)) {
 			// First arg is a mechanism
 			step = targetStep; // Use configured target as default
 			mechanism = stepOrMechanismOrOptions as Mechanism;
-			opts = mechanismOrOptions as ConnectionOptions | undefined;
+			opts = mechanismOrOptions as EnsureConnectedOptions | undefined;
 		} else {
 			// First arg is options or undefined
 			step = targetStep; // Use configured target as default
 			mechanism = undefined;
-			opts = stepOrMechanismOrOptions as ConnectionOptions | undefined;
+			opts = stepOrMechanismOrOptions as EnsureConnectedOptions | undefined;
 		}
 
 		// For WalletConnected step, default to wallet mechanism
@@ -1244,13 +1248,31 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		const promise = new Promise<WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>>(
 			(resolve, reject) => {
 				let forceConnect = false;
+
+				// Helper to check if resolution conditions are met
+				const canResolve = (connection: Connection<WalletProviderType>): boolean => {
+					// Must be at the target step
+					if (connection.step !== step) return false;
+
+					// For WalletConnected step, check chain validity unless skipped
+					if (step === 'WalletConnected' && !opts?.skipChainCheck) {
+						// connection.wallet should exist when step is WalletConnected
+						if (connection.wallet?.invalidChainId) {
+							return false; // Wrong chain, wait for chain change
+						}
+					}
+
+					return true;
+				};
+
 				if (
 					$connection.step == 'WalletConnected' &&
 					($connection.wallet.status == 'locked' || $connection.wallet.status === 'disconnected')
 				) {
 					forceConnect = true;
 					mechanism = $connection.mechanism; // we reuse existing mechanism as we just want to reconnect
-				} else if ($connection.step == step) {
+				} else if (canResolve($connection)) {
+					// Only resolve if step matches AND chain is valid (or skipChainCheck)
 					resolve($connection as any);
 					return;
 				}
@@ -1259,14 +1281,16 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					connect(mechanism, opts);
 				}
 				const unsubscribe = _store.subscribe((connection) => {
+					// Reject on disconnect/back to Idle
 					if (connection.step === 'Idle' && idlePassed) {
 						unsubscribe();
-						reject();
+						reject(new Error('Connection cancelled'));
 					}
 					if (!idlePassed && connection.step !== 'Idle') {
 						idlePassed = true;
 					}
-					if (connection.step === step) {
+					// Check full resolution conditions including chain validity
+					if (canResolve(connection)) {
 						unsubscribe();
 						resolve(connection as any);
 					}
