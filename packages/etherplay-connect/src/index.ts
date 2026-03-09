@@ -1,15 +1,16 @@
-import type {AlchemyMechanism, OriginAccount} from '@etherplay/alchemy';
 import type {WalletConnector, WalletHandle, WalletProvider} from '@etherplay/wallet-connector';
 import {EthereumWalletConnector, type UnderlyingEthereumProvider} from '@etherplay/wallet-connector-ethereum';
 import {writable} from 'svelte/store';
 import {createPopupLauncher, type PopupPromise} from './popup.js';
+import {withTimeout} from './utils.js';
 import {
 	fromEntropyKeyToMnemonic,
-	fromSignatureToKey,
-	originKeyMessage,
+	type OriginAccount,
 	originPublicKeyPublicationMessage,
-} from '@etherplay/alchemy';
-import {withTimeout} from './utils.js';
+	originKeyMessage,
+	fromSignatureToKey,
+	AlchemyMechanism,
+} from '@etherplay/connect-core';
 
 export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage};
 export type {OriginAccount};

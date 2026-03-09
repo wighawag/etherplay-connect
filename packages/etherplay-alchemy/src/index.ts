@@ -2,8 +2,6 @@ import {writable} from 'svelte/store';
 import {
 	AlchemyWebSigner,
 	createAlchemyOnBoarding,
-	fromEntropyKeyToMnemonic,
-	fromSignatureToKey,
 	Redirection,
 	type AlchemySettings,
 	type SignerUser,
@@ -14,14 +12,18 @@ import {mnemonicToEntropy} from '@scure/bip39';
 import {bytesToHex} from '@noble/hashes/utils';
 import {wordlist} from '@scure/bip39/wordlists/english';
 import type {AccountGenerator} from '@etherplay/wallet-connector';
-
-export {fromEntropyKeyToMnemonic, fromSignatureToKey};
-
-export type EmailMechanism<T extends string | undefined> = {
-	type: 'email';
-	email: T;
-	mode: 'otp';
-};
+import {
+	AlchemyMechanism,
+	EmailMechanism,
+	fromEntropyKeyToMnemonic,
+	fromSignatureToKey,
+	localKeyMessage,
+	MnemonicMechanism,
+	OauthMechanism,
+	OriginAccount,
+	originKeyMessage,
+	originPublicKeyPublicationMessage,
+} from '@etherplay/connect-core';
 
 export type MagicLinkReturnMechanism = {
 	type: 'magicLink';
@@ -29,28 +31,11 @@ export type MagicLinkReturnMechanism = {
 	orgId: string;
 };
 
-export type OauthMechanism = {
-	type: 'oauth';
-
-	provider: {id: 'google' | 'facebook'} | {id: 'auth0'; connection: string};
-} & ({usePopup: true} | {usePopup: false}); // redirection: { origin: string; requestID: string }
-
 export type OauthRedirectMechanism = {
 	type: 'oauth-redirect';
 	provider: {id: 'google' | 'facebook'} | {id: 'auth0'; connection: string};
 	redirection: {origin: string; requestID: string};
 } & ({alchemyOrgId: string; alchemyIdToken: string; alchemyBundle: string} | {error: string});
-
-export type MnemonicMechanism<T extends number | undefined> = {
-	type: 'mnemonic';
-	mnemonic: string;
-	index: T;
-};
-
-export type AlchemyMechanism =
-	| EmailMechanism<string | undefined>
-	| OauthMechanism
-	| MnemonicMechanism<number | undefined>;
 
 export type AlchemyMechanismIncludingRedirects = AlchemyMechanism | MagicLinkReturnMechanism | OauthRedirectMechanism;
 
@@ -74,23 +59,6 @@ export type EtherplayAccount = {
 		mechanismUsed: AlchemyMechanism;
 		user: AlchemyUser;
 	};
-	accountType: string;
-};
-
-export type OriginAccount = {
-	address: `0x${string}`;
-	signer: {
-		origin: string;
-		address: `0x${string}`;
-		publicKey: `0x${string}`;
-		privateKey: `0x${string}`;
-		mnemonicKey: `0x${string}`;
-	};
-	metadata: {
-		email?: string;
-	};
-	mechanismUsed: AlchemyMechanism | {type: string};
-	savedPublicKeyPublicationSignature?: `0x${string}`;
 	accountType: string;
 };
 
@@ -194,16 +162,6 @@ export type AlchemyConnection = {error?: {message: string; cause?: any}} & (
 // --------------------------------------------------------------------------------------------
 
 const storageAccountKey = '__etherplay_account';
-
-export function originKeyMessage(orig: string): string {
-	return `Origin: ${orig}\n\nIMPORTANT: Only sign on trusted websites.\n\nThis grants access to your private session account.\n\nVerify before proceeding.`;
-}
-export function localKeyMessage(): string {
-	return 'DO NOT ACCEPT THIS SIGNATURE REQUEST! This used by Etherplay Wallet to generate your seed phrase.';
-}
-export function originPublicKeyPublicationMessage(orig: string, publicKey: `0x${string}`): string {
-	return `Origin: ${orig}\n\nIMPORTANT: Only sign on trusted websites.\n\nThis authorizes the following Public Key to represent your account:\n\n${publicKey}\n\nOthers can use this key to write encrypted messages to you securely.`;
-}
 
 export type AlchemyConnectionStore = ReturnType<typeof createAlchemyConnection>;
 
