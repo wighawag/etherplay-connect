@@ -34,25 +34,25 @@ npm install svelte@^5.0.0
 ### Basic Setup
 
 ```typescript
-import { createAlchemyConnection } from '@etherplay/alchemy';
-import { EthereumWalletConnector } from '@etherplay/wallet-connector-ethereum';
+import {createAlchemyConnection} from '@etherplay/alchemy';
+import {EthereumWalletConnector} from '@etherplay/wallet-connector-ethereum';
 
 const connector = new EthereumWalletConnector();
 
 const connection = createAlchemyConnection({
-  alchemy: {
-    apiKey: 'YOUR_ALCHEMY_API_KEY',
-    // Additional Alchemy configuration
-  },
-  accountGenerator: connector.accountGenerator,
-  windowOrigin: window.location.origin,
-  signingOrigin: 'https://your-app.com',
-  autoInitialise: true,
+	alchemy: {
+		apiKey: 'YOUR_ALCHEMY_API_KEY',
+		// Additional Alchemy configuration
+	},
+	accountGenerator: connector.accountGenerator,
+	windowOrigin: window.location.origin,
+	signingOrigin: 'https://your-app.com',
+	autoInitialise: true,
 });
 
 // Subscribe to connection state changes (Svelte store)
 connection.subscribe((state) => {
-  console.log('Connection state:', state?.step);
+	console.log('Connection state:', state?.step);
 });
 ```
 
@@ -61,9 +61,9 @@ connection.subscribe((state) => {
 ```typescript
 // Start email authentication
 await connection.connect({
-  type: 'email',
-  mode: 'otp',
-  email: 'user@example.com',
+	type: 'email',
+	mode: 'otp',
+	email: 'user@example.com',
 });
 
 // After user receives OTP
@@ -75,9 +75,9 @@ await connection.provideOTP('123456');
 ```typescript
 // Using popup
 await connection.connect({
-  type: 'oauth',
-  provider: { id: 'google' },
-  usePopup: true,
+	type: 'oauth',
+	provider: {id: 'google'},
+	usePopup: true,
 });
 
 // Then confirm the OAuth flow
@@ -88,9 +88,9 @@ await connection.confirmOAuth();
 
 ```typescript
 await connection.connect({
-  type: 'oauth',
-  provider: { id: 'auth0', connection: 'your-auth0-connection' },
-  usePopup: true,
+	type: 'oauth',
+	provider: {id: 'auth0', connection: 'your-auth0-connection'},
+	usePopup: true,
 });
 ```
 
@@ -98,9 +98,9 @@ await connection.connect({
 
 ```typescript
 await connection.connect({
-  type: 'mnemonic',
-  mnemonic: 'your twelve word mnemonic phrase goes here and more words',
-  index: 0,
+	type: 'mnemonic',
+	mnemonic: 'your twelve word mnemonic phrase goes here and more words',
+	index: 0,
 });
 ```
 
@@ -108,20 +108,20 @@ await connection.connect({
 
 The connection follows a state machine with the following steps:
 
-| Step | Description |
-|------|-------------|
-| `Initialising` | Connection is being initialized |
-| `Initialised` | Signer is ready |
-| `MechanismToChoose` | Waiting for mechanism selection |
-| `MechanismChosen` | Mechanism selected, processing |
-| `EmailToProvide` | Waiting for email input |
-| `WaitingForOTP` | Email sent, waiting for OTP |
-| `VerifyingOTP` | Verifying the provided OTP |
-| `ConfirmOAuth` | OAuth popup ready, needs confirmation |
-| `WaitingForOAuthResponse` | Waiting for OAuth provider response |
-| `MnemonicIndexToProvide` | Waiting for mnemonic index |
-| `GeneratingAccount` | Creating the account |
-| `SignedIn` | Successfully authenticated |
+| Step                      | Description                           |
+| ------------------------- | ------------------------------------- |
+| `Initialising`            | Connection is being initialized       |
+| `Initialised`             | Signer is ready                       |
+| `MechanismToChoose`       | Waiting for mechanism selection       |
+| `MechanismChosen`         | Mechanism selected, processing        |
+| `EmailToProvide`          | Waiting for email input               |
+| `WaitingForOTP`           | Email sent, waiting for OTP           |
+| `VerifyingOTP`            | Verifying the provided OTP            |
+| `ConfirmOAuth`            | OAuth popup ready, needs confirmation |
+| `WaitingForOAuthResponse` | Waiting for OAuth provider response   |
+| `MnemonicIndexToProvide`  | Waiting for mnemonic index            |
+| `GeneratingAccount`       | Creating the account                  |
+| `SignedIn`                | Successfully authenticated            |
 
 ### Origin Account Generation
 
@@ -129,15 +129,12 @@ Generate isolated accounts for specific origins:
 
 ```typescript
 connection.subscribe(async (state) => {
-  if (state?.step === 'SignedIn') {
-    const originAccount = await connection.generateOriginAccount(
-      'https://game.example.com',
-      state.account
-    );
-    
-    console.log('Origin account address:', originAccount.signer.address);
-    console.log('Origin public key:', originAccount.signer.publicKey);
-  }
+	if (state?.step === 'SignedIn') {
+		const originAccount = await connection.generateOriginAccount('https://game.example.com', state.account);
+
+		console.log('Origin account address:', originAccount.signer.address);
+		console.log('Origin public key:', originAccount.signer.publicKey);
+	}
 });
 ```
 
@@ -146,26 +143,23 @@ connection.subscribe(async (state) => {
 ### AlchemyMechanism
 
 ```typescript
-type AlchemyMechanism =
-  | EmailMechanism<string | undefined>
-  | OauthMechanism
-  | MnemonicMechanism<number | undefined>;
+type AlchemyMechanism = EmailMechanism<string | undefined> | OauthMechanism | MnemonicMechanism<number | undefined>;
 ```
 
 ### EtherplayAccount
 
 ```typescript
 type EtherplayAccount = {
-  localAccount: {
-    address: `0x${string}`;
-    index: number;
-    key: `0x${string}`;
-  };
-  signer: {
-    mechanismUsed: AlchemyMechanism;
-    user: AlchemyUser;
-  };
-  accountType: string;
+	localAccount: {
+		address: `0x${string}`;
+		index: number;
+		key: `0x${string}`;
+	};
+	signer: {
+		mechanismUsed: AlchemyMechanism;
+		user: AlchemyUser;
+	};
+	accountType: string;
 };
 ```
 
@@ -173,20 +167,20 @@ type EtherplayAccount = {
 
 ```typescript
 type OriginAccount = {
-  address: `0x${string}`;
-  signer: {
-    origin: string;
-    address: `0x${string}`;
-    publicKey: `0x${string}`;
-    privateKey: `0x${string}`;
-    mnemonicKey: `0x${string}`;
-  };
-  metadata: {
-    email?: string;
-  };
-  mechanismUsed: AlchemyMechanism | { type: string };
-  savedPublicKeyPublicationSignature?: `0x${string}`;
-  accountType: string;
+	address: `0x${string}`;
+	signer: {
+		origin: string;
+		address: `0x${string}`;
+		publicKey: `0x${string}`;
+		privateKey: `0x${string}`;
+		mnemonicKey: `0x${string}`;
+	};
+	metadata: {
+		email?: string;
+	};
+	mechanismUsed: AlchemyMechanism | {type: string};
+	savedPublicKeyPublicationSignature?: `0x${string}`;
+	accountType: string;
 };
 ```
 
@@ -194,13 +188,13 @@ type OriginAccount = {
 
 ```typescript
 type AlchemyUser = {
-  email?: string;
-  orgId: string;
-  userId: string;
-  address: `0x${string}`;
-  credentialId?: string;
-  idToken?: string;
-  claims?: Record<string, unknown>;
+	email?: string;
+	orgId: string;
+	userId: string;
+	address: `0x${string}`;
+	credentialId?: string;
+	idToken?: string;
+	claims?: Record<string, unknown>;
 };
 ```
 
@@ -210,28 +204,28 @@ type AlchemyUser = {
 
 ```typescript
 function createAlchemyConnection(settings: {
-  alchemy: AlchemySettings;
-  autoInitialise?: boolean;
-  alwaysUsePopupForOAuth?: boolean;
-  accountGenerator: AccountGenerator;
-  windowOrigin: string;
-  signingOrigin: string;
+	alchemy: AlchemySettings;
+	autoInitialise?: boolean;
+	alwaysUsePopupForOAuth?: boolean;
+	accountGenerator: AccountGenerator;
+	windowOrigin: string;
+	signingOrigin: string;
 }): AlchemyConnectionStore;
 ```
 
 ### AlchemyConnectionStore Methods
 
-| Method | Description |
-|--------|-------------|
-| `subscribe` | Subscribe to connection state changes |
-| `connect(mechanism?)` | Start authentication with optional mechanism |
-| `confirmOAuth()` | Confirm OAuth popup authentication |
-| `provideEmail(email)` | Provide email for OTP authentication |
-| `provideOTP(otp)` | Submit OTP code |
-| `provideMnemonicIndex(index)` | Provide account index for mnemonic |
-| `generateOriginAccount(origin, account)` | Generate origin-specific account |
-| `completeOAuthWithBundle(...)` | Complete OAuth with redirect bundle |
-| `confirmOriginAccess()` | Confirm cross-origin access |
+| Method                                   | Description                                  |
+| ---------------------------------------- | -------------------------------------------- |
+| `subscribe`                              | Subscribe to connection state changes        |
+| `connect(mechanism?)`                    | Start authentication with optional mechanism |
+| `confirmOAuth()`                         | Confirm OAuth popup authentication           |
+| `provideEmail(email)`                    | Provide email for OTP authentication         |
+| `provideOTP(otp)`                        | Submit OTP code                              |
+| `provideMnemonicIndex(index)`            | Provide account index for mnemonic           |
+| `generateOriginAccount(origin, account)` | Generate origin-specific account             |
+| `completeOAuthWithBundle(...)`           | Complete OAuth with redirect bundle          |
+| `confirmOriginAccess()`                  | Confirm cross-origin access                  |
 
 ## Utility Functions
 

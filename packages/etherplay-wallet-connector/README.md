@@ -24,8 +24,8 @@ Represents a wallet with its provider and metadata:
 
 ```typescript
 type WalletHandle<UnderlyingProvider> = {
-  walletProvider: WalletProvider<UnderlyingProvider>;
-  info: WalletInfo;
+	walletProvider: WalletProvider<UnderlyingProvider>;
+	info: WalletInfo;
 };
 ```
 
@@ -35,10 +35,10 @@ Metadata about a wallet:
 
 ```typescript
 type WalletInfo = {
-  uuid: string;
-  name: string;
-  icon: string;
-  rdns: string;
+	uuid: string;
+	name: string;
+	icon: string;
+	rdns: string;
 };
 ```
 
@@ -48,16 +48,16 @@ Information about a blockchain network:
 
 ```typescript
 type ChainInfo = Readonly<{
-  chainId: `0x${string}`;
-  rpcUrls?: readonly string[];
-  blockExplorerUrls?: readonly string[];
-  chainName?: string;
-  iconUrls?: readonly string[];
-  nativeCurrency?: Readonly<{
-    name: string;
-    symbol: string;
-    decimals: number;
-  }>;
+	chainId: `0x${string}`;
+	rpcUrls?: readonly string[];
+	blockExplorerUrls?: readonly string[];
+	chainName?: string;
+	iconUrls?: readonly string[];
+	nativeCurrency?: Readonly<{
+		name: string;
+		symbol: string;
+		decimals: number;
+	}>;
 }>;
 ```
 
@@ -69,9 +69,9 @@ Interface for generating accounts from mnemonics:
 
 ```typescript
 interface AccountGenerator {
-  fromMnemonicToAccount(mnemonic: string, index: number): PrivateKeyAccount;
-  signTextMessage(message: string, privateKey: `0x${string}`): Promise<`0x${string}`>;
-  type: string;
+	fromMnemonicToAccount(mnemonic: string, index: number): PrivateKeyAccount;
+	signTextMessage(message: string, privateKey: `0x${string}`): Promise<`0x${string}`>;
+	type: string;
 }
 ```
 
@@ -81,14 +81,14 @@ Main interface for wallet connector implementations:
 
 ```typescript
 interface WalletConnector<UnderlyingProvider> {
-  fetchWallets(walletAnnounced: (walletHandle: WalletHandle<UnderlyingProvider>) => void): void;
-  createAlwaysOnProvider(params: {
-    endpoint: string | UnderlyingProvider;
-    chainId: string;
-    prioritizeWalletProvider?: boolean;
-    requestsPerSecond?: number;
-  }): AlwaysOnProviderWrapper<UnderlyingProvider>;
-  accountGenerator: AccountGenerator;
+	fetchWallets(walletAnnounced: (walletHandle: WalletHandle<UnderlyingProvider>) => void): void;
+	createAlwaysOnProvider(params: {
+		endpoint: string | UnderlyingProvider;
+		chainId: string;
+		prioritizeWalletProvider?: boolean;
+		requestsPerSecond?: number;
+	}): AlwaysOnProviderWrapper<UnderlyingProvider>;
+	accountGenerator: AccountGenerator;
 }
 ```
 
@@ -98,12 +98,12 @@ Interface for wallet provider interactions:
 
 ```typescript
 interface WalletProvider<UnderlyingProvider> extends BasicWalletProvider<UnderlyingProvider> {
-  listenForAccountsChanged: (handler: (accounts: `0x${string}`[]) => void) => void;
-  stopListenForAccountsChanged: (handler: (accounts: `0x${string}`[]) => void) => void;
-  listenForChainChanged: (handler: (chainId: `0x${string}`) => void) => void;
-  stopListenForChainChanged: (handler: (chainId: `0x${string}`) => void) => void;
-  switchChain: (chainId: `0x${string}`) => Promise<null | any>;
-  addChain(chainInfo: ChainInfo): Promise<null | any>;
+	listenForAccountsChanged: (handler: (accounts: `0x${string}`[]) => void) => void;
+	stopListenForAccountsChanged: (handler: (accounts: `0x${string}`[]) => void) => void;
+	listenForChainChanged: (handler: (chainId: `0x${string}`) => void) => void;
+	stopListenForChainChanged: (handler: (chainId: `0x${string}`) => void) => void;
+	switchChain: (chainId: `0x${string}`) => Promise<null | any>;
+	addChain(chainInfo: ChainInfo): Promise<null | any>;
 }
 ```
 
@@ -113,10 +113,10 @@ Wrapper for providers that should always be available:
 
 ```typescript
 interface AlwaysOnProviderWrapper<WalletProviderType> {
-  setWalletProvider: (walletProvider: WalletProviderType | undefined) => void;
-  setWalletStatus: (newStatus: 'connected' | 'locked' | 'disconnected') => void;
-  chainId: string;
-  provider: WalletProviderType;
+	setWalletProvider: (walletProvider: WalletProviderType | undefined) => void;
+	setWalletStatus: (newStatus: 'connected' | 'locked' | 'disconnected') => void;
+	chainId: string;
+	provider: WalletProviderType;
 }
 ```
 
@@ -125,16 +125,11 @@ interface AlwaysOnProviderWrapper<WalletProviderType> {
 This package is primarily used as a dependency for implementing blockchain-specific wallet connectors:
 
 ```typescript
-import type {
-  WalletConnector,
-  WalletProvider,
-  AccountGenerator,
-  ChainInfo,
-} from '@etherplay/wallet-connector';
+import type {WalletConnector, WalletProvider, AccountGenerator, ChainInfo} from '@etherplay/wallet-connector';
 
 // Implement a custom wallet connector
 class MyWalletConnector implements WalletConnector<MyProvider> {
-  // ... implementation
+	// ... implementation
 }
 ```
 

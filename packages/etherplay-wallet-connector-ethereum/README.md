@@ -25,14 +25,14 @@ yarn add @etherplay/wallet-connector-ethereum
 ### Basic Setup
 
 ```typescript
-import { EthereumWalletConnector } from '@etherplay/wallet-connector-ethereum';
+import {EthereumWalletConnector} from '@etherplay/wallet-connector-ethereum';
 
 const connector = new EthereumWalletConnector();
 
 // Fetch available wallets (EIP-6963)
 connector.fetchWallets((walletHandle) => {
-  console.log('Wallet found:', walletHandle.info.name);
-  // walletHandle.walletProvider is ready to use
+	console.log('Wallet found:', walletHandle.info.name);
+	// walletHandle.walletProvider is ready to use
 });
 ```
 
@@ -45,12 +45,12 @@ const connector = new EthereumWalletConnector();
 
 // Generate account at index 0
 const account = connector.accountGenerator.fromMnemonicToAccount(
-  'your twelve word mnemonic phrase goes here and more words',
-  0
+	'your twelve word mnemonic phrase goes here and more words',
+	0,
 );
 
-console.log(account.address);    // 0x...
-console.log(account.publicKey);  // 0x...
+console.log(account.address); // 0x...
+console.log(account.publicKey); // 0x...
 console.log(account.privateKey); // 0x...
 ```
 
@@ -61,10 +61,7 @@ Sign messages using EIP-191 personal_sign:
 ```typescript
 const connector = new EthereumWalletConnector();
 
-const signature = await connector.accountGenerator.signTextMessage(
-  'Hello, Ethereum!',
-  account.privateKey
-);
+const signature = await connector.accountGenerator.signTextMessage('Hello, Ethereum!', account.privateKey);
 ```
 
 ### Always-On Provider
@@ -75,10 +72,10 @@ Create a provider that falls back to an RPC endpoint when no wallet is connected
 const connector = new EthereumWalletConnector();
 
 const provider = connector.createAlwaysOnProvider({
-  endpoint: 'https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY',
-  chainId: '1',
-  prioritizeWalletProvider: true, // Use wallet if available
-  requestsPerSecond: 10,
+	endpoint: 'https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY',
+	chainId: '1',
+	prioritizeWalletProvider: true, // Use wallet if available
+	requestsPerSecond: 10,
 });
 
 // The provider can now be used for read operations
@@ -89,45 +86,42 @@ const provider = connector.createAlwaysOnProvider({
 
 ```typescript
 connector.fetchWallets(async (walletHandle) => {
-  const { walletProvider } = walletHandle;
+	const {walletProvider} = walletHandle;
 
-  // Request account access
-  const accounts = await walletProvider.requestAccounts();
+	// Request account access
+	const accounts = await walletProvider.requestAccounts();
 
-  // Get current chain
-  const chainId = await walletProvider.getChainId();
+	// Get current chain
+	const chainId = await walletProvider.getChainId();
 
-  // Sign a message
-  const signature = await walletProvider.signMessage(
-    'Sign this message',
-    accounts[0]
-  );
+	// Sign a message
+	const signature = await walletProvider.signMessage('Sign this message', accounts[0]);
 
-  // Switch to a different chain
-  await walletProvider.switchChain('0x89'); // Polygon
+	// Switch to a different chain
+	await walletProvider.switchChain('0x89'); // Polygon
 
-  // Add a new chain
-  await walletProvider.addChain({
-    chainId: '0x89',
-    chainName: 'Polygon Mainnet',
-    rpcUrls: ['https://polygon-rpc.com'],
-    nativeCurrency: {
-      name: 'MATIC',
-      symbol: 'MATIC',
-      decimals: 18,
-    },
-    blockExplorerUrls: ['https://polygonscan.com'],
-  });
+	// Add a new chain
+	await walletProvider.addChain({
+		chainId: '0x89',
+		chainName: 'Polygon Mainnet',
+		rpcUrls: ['https://polygon-rpc.com'],
+		nativeCurrency: {
+			name: 'MATIC',
+			symbol: 'MATIC',
+			decimals: 18,
+		},
+		blockExplorerUrls: ['https://polygonscan.com'],
+	});
 
-  // Listen for account changes
-  walletProvider.listenForAccountsChanged((accounts) => {
-    console.log('Accounts changed:', accounts);
-  });
+	// Listen for account changes
+	walletProvider.listenForAccountsChanged((accounts) => {
+		console.log('Accounts changed:', accounts);
+	});
 
-  // Listen for chain changes
-  walletProvider.listenForChainChanged((chainId) => {
-    console.log('Chain changed:', chainId);
-  });
+	// Listen for chain changes
+	walletProvider.listenForChainChanged((chainId) => {
+		console.log('Chain changed:', chainId);
+	});
 });
 ```
 
@@ -139,14 +133,14 @@ Main connector class implementing `WalletConnector<CurriedRPC<Methods>>`:
 
 ```typescript
 class EthereumWalletConnector {
-  accountGenerator: AccountGenerator;
-  fetchWallets(walletAnnounced: (walletHandle: WalletHandle<CurriedRPC<Methods>>) => void): void;
-  createAlwaysOnProvider(params: {
-    endpoint: string | UnderlyingEthereumProvider;
-    chainId: string;
-    prioritizeWalletProvider?: boolean;
-    requestsPerSecond?: number;
-  }): AlwaysOnProviderWrapper<CurriedRPC<Methods>>;
+	accountGenerator: AccountGenerator;
+	fetchWallets(walletAnnounced: (walletHandle: WalletHandle<CurriedRPC<Methods>>) => void): void;
+	createAlwaysOnProvider(params: {
+		endpoint: string | UnderlyingEthereumProvider;
+		chainId: string;
+		prioritizeWalletProvider?: boolean;
+		requestsPerSecond?: number;
+	}): AlwaysOnProviderWrapper<CurriedRPC<Methods>>;
 }
 ```
 
@@ -156,9 +150,9 @@ Account generator for Ethereum using BIP-32/BIP-39 standards:
 
 ```typescript
 class EthereumAccountGenerator implements AccountGenerator {
-  type: 'ethereum';
-  fromMnemonicToAccount(mnemonic: string, index: number): PrivateKeyAccount;
-  signTextMessage(message: string, privateKey: `0x${string}`): Promise<`0x${string}`>;
+	type: 'ethereum';
+	fromMnemonicToAccount(mnemonic: string, index: number): PrivateKeyAccount;
+	signTextMessage(message: string, privateKey: `0x${string}`): Promise<`0x${string}`>;
 }
 ```
 
@@ -168,17 +162,17 @@ Wrapper for EIP-1193 wallet providers:
 
 ```typescript
 class EthereumWalletProvider implements WalletProvider<CurriedRPC<Methods>> {
-  underlyingProvider: CurriedRPC<Methods>;
-  signMessage(message: string, account: `0x${string}`): Promise<`0x${string}`>;
-  getChainId(): Promise<`0x${string}`>;
-  getAccounts(): Promise<`0x${string}`[]>;
-  requestAccounts(): Promise<`0x${string}`[]>;
-  listenForAccountsChanged(handler: (accounts: `0x${string}`[]) => void): void;
-  stopListenForAccountsChanged(handler: (accounts: `0x${string}`[]) => void): void;
-  listenForChainChanged(handler: (chainId: `0x${string}`) => void): void;
-  stopListenForChainChanged(handler: (chainId: `0x${string}`) => void): void;
-  switchChain(chainId: string): Promise<null | any>;
-  addChain(chainInfo: ChainInfo): Promise<null | any>;
+	underlyingProvider: CurriedRPC<Methods>;
+	signMessage(message: string, account: `0x${string}`): Promise<`0x${string}`>;
+	getChainId(): Promise<`0x${string}`>;
+	getAccounts(): Promise<`0x${string}`[]>;
+	requestAccounts(): Promise<`0x${string}`[]>;
+	listenForAccountsChanged(handler: (accounts: `0x${string}`[]) => void): void;
+	stopListenForAccountsChanged(handler: (accounts: `0x${string}`[]) => void): void;
+	listenForChainChanged(handler: (chainId: `0x${string}`) => void): void;
+	stopListenForChainChanged(handler: (chainId: `0x${string}`) => void): void;
+	switchChain(chainId: string): Promise<null | any>;
+	addChain(chainInfo: ChainInfo): Promise<null | any>;
 }
 ```
 
