@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.41
+
+### Patch Changes
+
+- 9e89c58: connect-core and remove alchemy dependencies of @etherplay/connect
+
 ## 0.0.40
 
 ### Patch Changes
