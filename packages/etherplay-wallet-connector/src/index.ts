@@ -52,6 +52,48 @@ export interface WalletProvider<UnderlyingProvider> extends BasicWalletProvider<
 	addChain(chainInfo: ChainInfo): Promise<null | any>;
 }
 
+// Transaction methods (require sending or signing a transaction)
+export const TRANSACTION_METHODS = ['eth_sendTransaction', 'eth_signTransaction'] as const;
+export type TransactionMethod = (typeof TRANSACTION_METHODS)[number];
+
+// Signature methods (require signing a message)
+export const SIGNATURE_METHODS = ['personal_sign', 'eth_signTypedData', 'eth_signTypedData_v4', 'eth_sign'] as const;
+export type SignatureMethod = (typeof SIGNATURE_METHODS)[number];
+
+// Combined tracked methods
+export const TRACKED_REQUEST_METHODS = [...TRANSACTION_METHODS, ...SIGNATURE_METHODS] as const;
+export type TrackedRequestMethod = TransactionMethod | SignatureMethod;
+
+export type PendingRequestKind = 'transaction' | 'signature';
+
+// Discriminated union for PendingRequest - ensures method and kind are properly paired
+export type PendingRequest =
+	| {
+			id: string;
+			method: TransactionMethod;
+			kind: 'transaction';
+			startedAt: number;
+	  }
+	| {
+			id: string;
+			method: SignatureMethod;
+			kind: 'signature';
+			startedAt: number;
+	  };
+
+export type RequestEventType = 'requestStart' | 'requestEnd';
+
+export type RequestResult = 'success' | 'error' | 'rejected';
+
+export interface RequestEvent {
+	type: RequestEventType;
+	request: PendingRequest;
+	result?: RequestResult; // Only present on 'requestEnd'
+	error?: unknown; // Only present on 'requestEnd' with 'error' result
+}
+
+export type RequestEventHandler = (event: RequestEvent) => void;
+
 export interface AlwaysOnProviderWrapper<WalletProviderType> {
 	setWalletProvider: (walletProvider: WalletProviderType | undefined) => void;
 	setWalletStatus: (newStatus: 'connected' | 'locked' | 'disconnected') => void;
@@ -59,6 +101,12 @@ export interface AlwaysOnProviderWrapper<WalletProviderType> {
 	// TODO replace with a ChainConnection type that expose the chainId and provider but also the full chainInfo ?
 	chainId: string;
 	provider: WalletProviderType;
+
+	// Event subscription for request tracking
+	onRequest: (handler: RequestEventHandler) => () => void; // Returns unsubscribe function
+
+	// Current state accessor (for initial state on subscription)
+	getPendingRequests: () => PendingRequest[];
 }
 
 export interface ChainConnection<WalletProviderType> {
