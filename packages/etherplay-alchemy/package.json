@@ -60,11 +60,6 @@
 		"svelte": "^5.25.12",
 		"typescript": "^5.8.3"
 	},
-	"pnpm": {
-		"onlyBuiltDependencies": [
-			"esbuild"
-		]
-	},
 	"scripts": {
 		"build": "tsc --project tsconfig.json",
 		"dev": "as-soon -w src pnpm build",

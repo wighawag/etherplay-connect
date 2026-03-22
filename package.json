@@ -6,11 +6,6 @@
     "set-defaults": "^0.0.5",
     "zellij-launcher": "^0.0.1"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  },
   "scripts": {
     "prepare": "set-defaults .vscode && pnpm build:packages",
     "prepublishOnly": "pnpm format:check && pnpm build:packages",

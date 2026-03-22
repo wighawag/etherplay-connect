@@ -43,11 +43,6 @@
 		"dist",
 		"src"
 	],
-	"pnpm": {
-		"onlyBuiltDependencies": [
-			"esbuild"
-		]
-	},
 	"dependencies": {
 		"@etherplay/connect-core": "workspace:*",
 		"@etherplay/wallet-connector": "workspace:*",
