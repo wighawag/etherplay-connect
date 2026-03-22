@@ -1,5 +1,14 @@
 # @etherplay/connect
 
+## 0.0.42
+
+### Patch Changes
+
+- 331f862: implement tx/signature wallet request
+- Updated dependencies [331f862]
+  - @etherplay/wallet-connector-ethereum@0.0.6
+  - @etherplay/wallet-connector@0.0.5
+
 ## 0.0.41
 
 ### Patch Changes

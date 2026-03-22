@@ -1,5 +1,12 @@
 # @etherplay/alchemy
 
+## 0.0.17
+
+### Patch Changes
+
+- Updated dependencies [331f862]
+  - @etherplay/wallet-connector@0.0.5
+
 ## 0.0.16
 
 ### Patch Changes

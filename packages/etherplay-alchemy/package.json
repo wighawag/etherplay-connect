@@ -1,6 +1,6 @@
 {
 	"name": "@etherplay/alchemy",
-	"version": "0.0.16",
+	"version": "0.0.17",
 	"description": "Alchemy Mechanism For Deterministic Account Generation - provides social login mechanisms including email OTP, OAuth (Google, Facebook, Auth0), and mnemonic phrase authentication",
 	"keywords": [
 		"alchemy",
