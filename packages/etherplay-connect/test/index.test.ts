@@ -191,22 +191,22 @@ describe('isTargetStepReached', () => {
 					savedPublicKeyPublicationSignature: undefined,
 					accountType: 'secp256k1',
 				},
-			wallet: {
-				provider: mockWalletProvider,
-				accounts: ['0xabc' as `0x${string}`],
-				status: 'connected',
-				chainId: '1',
-				invalidChainId: false,
-				switchingChain: false,
-				pendingRequests: [],
-			},
-			wallets: [],
-		};
+				wallet: {
+					provider: mockWalletProvider,
+					accounts: ['0xabc' as `0x${string}`],
+					status: 'connected',
+					chainId: '1',
+					invalidChainId: false,
+					switchingChain: false,
+					pendingRequests: [],
+				},
+				wallets: [],
+			};
 
-		expect(isTargetStepReached(connection, 'SignedIn')).toBe(true);
-	});
+			expect(isTargetStepReached(connection, 'SignedIn')).toBe(true);
+		});
 
-	it('should return false when step is not SignedIn', () => {
+		it('should return false when step is not SignedIn', () => {
 			const connection: Connection<MockUnderlyingProvider> = {
 				step: 'Idle',
 				loading: false,
@@ -223,43 +223,43 @@ describe('isTargetStepReached', () => {
 				step: 'WalletConnected',
 				mechanism: {type: 'wallet', name: 'MockWallet', address: '0xabc' as `0x${string}`},
 				account: {address: '0xabc' as `0x${string}`},
-			wallet: {
-				provider: mockWalletProvider,
-				accounts: ['0xabc' as `0x${string}`],
-				status: 'connected',
-				chainId: '1',
-				invalidChainId: false,
-				switchingChain: false,
-				pendingRequests: [],
-			},
-			wallets: [],
-		};
+				wallet: {
+					provider: mockWalletProvider,
+					accounts: ['0xabc' as `0x${string}`],
+					status: 'connected',
+					chainId: '1',
+					invalidChainId: false,
+					switchingChain: false,
+					pendingRequests: [],
+				},
+				wallets: [],
+			};
 
-		expect(isTargetStepReached(connection, 'SignedIn')).toBe(false);
-	});
+			expect(isTargetStepReached(connection, 'SignedIn')).toBe(false);
+		});
 	});
 
 	describe('with targetStep: WalletConnected', () => {
 		it('should return true when step is WalletConnected', () => {
 			const mockWalletProvider = createMockWalletProvider(['0xabc' as `0x${string}`]);
-		const connection: Connection<MockUnderlyingProvider> = {
-			step: 'WalletConnected',
-			mechanism: {type: 'wallet', name: 'MockWallet', address: '0xabc' as `0x${string}`},
-			account: {address: '0xabc' as `0x${string}`},
-			wallet: {
-				provider: mockWalletProvider,
-				accounts: ['0xabc' as `0x${string}`],
-				status: 'connected',
-				chainId: '1',
-				invalidChainId: false,
-				switchingChain: false,
-				pendingRequests: [],
-			},
-			wallets: [],
-		};
+			const connection: Connection<MockUnderlyingProvider> = {
+				step: 'WalletConnected',
+				mechanism: {type: 'wallet', name: 'MockWallet', address: '0xabc' as `0x${string}`},
+				account: {address: '0xabc' as `0x${string}`},
+				wallet: {
+					provider: mockWalletProvider,
+					accounts: ['0xabc' as `0x${string}`],
+					status: 'connected',
+					chainId: '1',
+					invalidChainId: false,
+					switchingChain: false,
+					pendingRequests: [],
+				},
+				wallets: [],
+			};
 
-		expect(isTargetStepReached(connection, 'WalletConnected')).toBe(true);
-	});
+			expect(isTargetStepReached(connection, 'WalletConnected')).toBe(true);
+		});
 
 		it('should return true when step is SignedIn with wallet', () => {
 			const mockWalletProvider = createMockWalletProvider(['0xabc' as `0x${string}`]);
@@ -268,37 +268,37 @@ describe('isTargetStepReached', () => {
 				name: 'MockWallet',
 				address: '0xabc' as `0x${string}`,
 			};
-		const connection: Connection<MockUnderlyingProvider> = {
-			step: 'SignedIn',
-			mechanism: walletMechanism2,
-			account: {
-				address: '0xabc' as `0x${string}`,
-				signer: {
-					origin: 'test',
-					address: '0xorigin' as `0x${string}`,
-					publicKey: '0xpub' as `0x${string}`,
-					privateKey: '0xpriv' as `0x${string}`,
-					mnemonicKey: '0xmnem' as `0x${string}`,
+			const connection: Connection<MockUnderlyingProvider> = {
+				step: 'SignedIn',
+				mechanism: walletMechanism2,
+				account: {
+					address: '0xabc' as `0x${string}`,
+					signer: {
+						origin: 'test',
+						address: '0xorigin' as `0x${string}`,
+						publicKey: '0xpub' as `0x${string}`,
+						privateKey: '0xpriv' as `0x${string}`,
+						mnemonicKey: '0xmnem' as `0x${string}`,
+					},
+					metadata: {},
+					mechanismUsed: walletMechanism2,
+					savedPublicKeyPublicationSignature: undefined,
+					accountType: 'secp256k1',
 				},
-				metadata: {},
-				mechanismUsed: walletMechanism2,
-				savedPublicKeyPublicationSignature: undefined,
-				accountType: 'secp256k1',
-			},
-			wallet: {
-				provider: mockWalletProvider,
-				accounts: ['0xabc' as `0x${string}`],
-				status: 'connected',
-				chainId: '1',
-				invalidChainId: false,
-				switchingChain: false,
-				pendingRequests: [],
-			},
-			wallets: [],
-		};
+				wallet: {
+					provider: mockWalletProvider,
+					accounts: ['0xabc' as `0x${string}`],
+					status: 'connected',
+					chainId: '1',
+					invalidChainId: false,
+					switchingChain: false,
+					pendingRequests: [],
+				},
+				wallets: [],
+			};
 
-		expect(isTargetStepReached(connection, 'WalletConnected')).toBe(true);
-	});
+			expect(isTargetStepReached(connection, 'WalletConnected')).toBe(true);
+		});
 
 		it('should return false when step is SignedIn without wallet', () => {
 			const connection: Connection<MockUnderlyingProvider> = {
@@ -345,37 +345,37 @@ describe('isTargetStepReached', () => {
 				name: 'MockWallet',
 				address: '0xabc' as `0x${string}`,
 			};
-		const connection: Connection<MockUnderlyingProvider> = {
-			step: 'SignedIn',
-			mechanism: walletMechanism3,
-			account: {
-				address: '0xabc' as `0x${string}`,
-				signer: {
-					origin: 'test',
-					address: '0xorigin' as `0x${string}`,
-					publicKey: '0xpub' as `0x${string}`,
-					privateKey: '0xpriv' as `0x${string}`,
-					mnemonicKey: '0xmnem' as `0x${string}`,
+			const connection: Connection<MockUnderlyingProvider> = {
+				step: 'SignedIn',
+				mechanism: walletMechanism3,
+				account: {
+					address: '0xabc' as `0x${string}`,
+					signer: {
+						origin: 'test',
+						address: '0xorigin' as `0x${string}`,
+						publicKey: '0xpub' as `0x${string}`,
+						privateKey: '0xpriv' as `0x${string}`,
+						mnemonicKey: '0xmnem' as `0x${string}`,
+					},
+					metadata: {},
+					mechanismUsed: walletMechanism3,
+					savedPublicKeyPublicationSignature: undefined,
+					accountType: 'secp256k1',
 				},
-				metadata: {},
-				mechanismUsed: walletMechanism3,
-				savedPublicKeyPublicationSignature: undefined,
-				accountType: 'secp256k1',
-			},
-			wallet: {
-				provider: mockWalletProvider,
-				accounts: ['0xabc' as `0x${string}`],
-				status: 'connected',
-				chainId: '1',
-				invalidChainId: false,
-				switchingChain: false,
-				pendingRequests: [],
-			},
-			wallets: [],
-		};
+				wallet: {
+					provider: mockWalletProvider,
+					accounts: ['0xabc' as `0x${string}`],
+					status: 'connected',
+					chainId: '1',
+					invalidChainId: false,
+					switchingChain: false,
+					pendingRequests: [],
+				},
+				wallets: [],
+			};
 
-		expect(isTargetStepReached(connection, 'SignedIn', true)).toBe(true);
-	});
+			expect(isTargetStepReached(connection, 'SignedIn', true)).toBe(true);
+		});
 
 		it('should return false for SignedIn without wallet when walletOnly is true', () => {
 			const connection: Connection<MockUnderlyingProvider> = {

@@ -1,4 +1,10 @@
-import type {WalletConnector, WalletHandle, WalletProvider, PendingRequest, RequestEventHandler} from '@etherplay/wallet-connector';
+import type {
+	WalletConnector,
+	WalletHandle,
+	WalletProvider,
+	PendingRequest,
+	RequestEventHandler,
+} from '@etherplay/wallet-connector';
 import {EthereumWalletConnector, type UnderlyingEthereumProvider} from '@etherplay/wallet-connector-ethereum';
 import {writable} from 'svelte/store';
 import {createPopupLauncher, type PopupPromise} from './popup.js';
@@ -571,33 +577,33 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										account: existingAccount,
 										mechanism: walletMechanism,
 										wallets: $connection.wallets,
-									wallet: {
-										provider: walletProvider,
-										accounts,
-										status: 'connected',
-										accountChanged: undefined,
-										chainId,
-										invalidChainId: alwaysOnChainId != chainId,
-										switchingChain: false,
-										pendingRequests: [],
-									},
+										wallet: {
+											provider: walletProvider,
+											accounts,
+											status: 'connected',
+											accountChanged: undefined,
+											chainId,
+											invalidChainId: alwaysOnChainId != chainId,
+											switchingChain: false,
+											pendingRequests: [],
+										},
+									});
+									alwaysOnProviderWrapper.setWalletStatus('connected');
+									onAccountChanged(accounts);
+									watchForAccountChange(walletProvider);
+								})
+								.catch((err) => {
+									set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 								});
-								alwaysOnProviderWrapper.setWalletStatus('connected');
-								onAccountChanged(accounts);
-								watchForAccountChange(walletProvider);
-							})
-							.catch((err) => {
-								set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
+						} else {
+							set({
+								step: 'SignedIn',
+								account: existingAccount,
+								mechanism: mechanismUsed,
+								wallets: $connection.wallets,
+								wallet: undefined,
 							});
-					} else {
-						set({
-							step: 'SignedIn',
-							account: existingAccount,
-							mechanism: mechanismUsed,
-							wallets: $connection.wallets,
-							wallet: undefined,
-						});
-					}
+						}
 					}
 				}
 
@@ -617,25 +623,25 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								let accounts: `0x${string}`[] = [];
 								accounts = await withTimeout(walletProvider.getAccounts());
 								accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
-							set({
-								step: 'WalletConnected',
-								mechanism: lastWallet,
-								wallets: $connection.wallets,
-								wallet: {
-									provider: walletProvider,
-									accounts,
-									status: 'connected',
-									accountChanged: undefined,
-									chainId,
-									invalidChainId: alwaysOnChainId != chainId,
-									switchingChain: false,
-									pendingRequests: [],
-								},
-								account: {address: lastWallet.address},
-							});
-							alwaysOnProviderWrapper.setWalletStatus('connected');
-							onAccountChanged(accounts);
-							watchForAccountChange(walletProvider);
+								set({
+									step: 'WalletConnected',
+									mechanism: lastWallet,
+									wallets: $connection.wallets,
+									wallet: {
+										provider: walletProvider,
+										accounts,
+										status: 'connected',
+										accountChanged: undefined,
+										chainId,
+										invalidChainId: alwaysOnChainId != chainId,
+										switchingChain: false,
+										pendingRequests: [],
+									},
+									account: {address: lastWallet.address},
+								});
+								alwaysOnProviderWrapper.setWalletStatus('connected');
+								onAccountChanged(accounts);
+								watchForAccountChange(walletProvider);
 							})
 							.catch((err) => {
 								set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
@@ -1003,13 +1009,91 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										}
 									}
 
+									const newState: Connection<WalletProviderType> =
+										nextStep === 'ChooseWalletAccount'
+											? {
+													step: nextStep,
+													mechanism: mechanismToSave,
+													wallets: $connection.wallets,
+
+													wallet: {
+														provider: _wallet.provider,
+														accounts,
+														status: 'connected',
+														accountChanged: undefined,
+														chainId,
+														invalidChainId: alwaysOnChainId != chainId,
+														switchingChain: false,
+														pendingRequests: [],
+													},
+												}
+											: {
+													step: nextStep,
+													mechanism: {
+														...mechanismToSave,
+														address: account,
+													},
+													wallets: $connection.wallets,
+													wallet: {
+														provider: _wallet.provider,
+														accounts,
+														status: 'connected',
+														accountChanged: undefined,
+														chainId,
+														invalidChainId: alwaysOnChainId != chainId,
+														switchingChain: false,
+														pendingRequests: [],
+													},
+													account: {address: account},
+												};
+									if (
+										newState.step === 'WalletConnected' &&
+										(requestSignatureAutomaticallyIfPossible || options?.requestSignatureRightAway) &&
+										!options?.requireUserConfirmationBeforeSignatureRequest
+									) {
+										watchForAccountChange(_wallet.provider);
+
+										set(newState);
+										alwaysOnProviderWrapper.setWalletStatus('connected');
+										saveLastWallet(newState.mechanism);
+										await requestSignature();
+									} else {
+										set(newState);
+										alwaysOnProviderWrapper.setWalletStatus('connected');
+										if (newState.step === 'WalletConnected') {
+											saveLastWallet(newState.mechanism);
+										}
+
+										watchForAccountChange(_wallet.provider);
+									}
+								} else {
+									set({
+										step: 'MechanismToChoose',
+										wallets: $connection.wallets,
+										wallet: undefined,
+										error: {message: 'could not get any accounts'},
+									});
+								}
+							} else {
+								let account = accounts[0];
+								if (specificAddress) {
+									if (accounts.find((v) => v === specificAddress)) {
+										account = specificAddress;
+									} else {
+										// TODO error
+										throw new Error(`could not find address ${specificAddress}`);
+									}
+								}
+								const nextStep =
+									!settings?.alwaysUseCurrentAccount && !specificAddress && accounts.length > 1
+										? 'ChooseWalletAccount'
+										: 'WalletConnected';
 								const newState: Connection<WalletProviderType> =
 									nextStep === 'ChooseWalletAccount'
 										? {
 												step: nextStep,
 												mechanism: mechanismToSave,
 												wallets: $connection.wallets,
-
 												wallet: {
 													provider: _wallet.provider,
 													accounts,
@@ -1045,89 +1129,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									(requestSignatureAutomaticallyIfPossible || options?.requestSignatureRightAway) &&
 									!options?.requireUserConfirmationBeforeSignatureRequest
 								) {
-									watchForAccountChange(_wallet.provider);
-
 									set(newState);
 									alwaysOnProviderWrapper.setWalletStatus('connected');
 									saveLastWallet(newState.mechanism);
+									watchForAccountChange(_wallet.provider);
 									await requestSignature();
-									} else {
-										set(newState);
-										alwaysOnProviderWrapper.setWalletStatus('connected');
-										if (newState.step === 'WalletConnected') {
-											saveLastWallet(newState.mechanism);
-										}
-
-										watchForAccountChange(_wallet.provider);
-									}
-								} else {
-									set({
-										step: 'MechanismToChoose',
-										wallets: $connection.wallets,
-										wallet: undefined,
-										error: {message: 'could not get any accounts'},
-									});
-								}
-							} else {
-								let account = accounts[0];
-								if (specificAddress) {
-									if (accounts.find((v) => v === specificAddress)) {
-										account = specificAddress;
-									} else {
-										// TODO error
-										throw new Error(`could not find address ${specificAddress}`);
-									}
-								}
-								const nextStep =
-									!settings?.alwaysUseCurrentAccount && !specificAddress && accounts.length > 1
-										? 'ChooseWalletAccount'
-										: 'WalletConnected';
-							const newState: Connection<WalletProviderType> =
-								nextStep === 'ChooseWalletAccount'
-									? {
-											step: nextStep,
-											mechanism: mechanismToSave,
-											wallets: $connection.wallets,
-											wallet: {
-												provider: _wallet.provider,
-												accounts,
-												status: 'connected',
-												accountChanged: undefined,
-												chainId,
-												invalidChainId: alwaysOnChainId != chainId,
-												switchingChain: false,
-												pendingRequests: [],
-											},
-										}
-									: {
-											step: nextStep,
-											mechanism: {
-												...mechanismToSave,
-												address: account,
-											},
-											wallets: $connection.wallets,
-											wallet: {
-												provider: _wallet.provider,
-												accounts,
-												status: 'connected',
-												accountChanged: undefined,
-												chainId,
-												invalidChainId: alwaysOnChainId != chainId,
-												switchingChain: false,
-												pendingRequests: [],
-											},
-											account: {address: account},
-										};
-							if (
-								newState.step === 'WalletConnected' &&
-								(requestSignatureAutomaticallyIfPossible || options?.requestSignatureRightAway) &&
-								!options?.requireUserConfirmationBeforeSignatureRequest
-							) {
-								set(newState);
-								alwaysOnProviderWrapper.setWalletStatus('connected');
-								saveLastWallet(newState.mechanism);
-								watchForAccountChange(_wallet.provider);
-								await requestSignature();
 								} else {
 									watchForAccountChange(_wallet.provider);
 									set(newState);
