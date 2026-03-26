@@ -1,5 +1,11 @@
 # @etherplay/wallet-connector-ethereum
 
+## 0.0.7
+
+### Patch Changes
+
+- 1b727a2: support wallet that use window.ethereum but not ERC-6963
+
 ## 0.0.6
 
 ### Patch Changes
