@@ -150,8 +150,9 @@ type WalletAnnouncementFunction = (walletInfo: WalletHandle<CurriedRPC<Methods>>
 function createWalletFetcher() {
 	const walletHandles: WalletHandle<CurriedRPC<Methods>>[] = [];
 	const walletAnnouncementFunctions: WalletAnnouncementFunction[] = [];
-	const eip6963Providers: EIP1193WindowWalletProvider[] = [];
 	let requesting = false;
+	let eip6963Received = false;
+	// Track the actual window.ethereum provider reference for late EIP-6963 comparison
 	let windowEthereumProviderAdded: EIP1193WindowWalletProvider | undefined;
 
 	function announceWallet(walletHandle: WalletHandle<CurriedRPC<Methods>>) {
@@ -164,10 +165,12 @@ function createWalletFetcher() {
 	function onWalletAnnounced(event: EIP6963AnnounceProviderEvent) {
 		const {detail} = event;
 
-		// Track EIP6963 providers to detect duplicates with window.ethereum
-		eip6963Providers.push(detail.provider);
+		// Mark that we received at least one EIP6963 announcement
+		eip6963Received = true;
 
-		// Skip if this provider was already added via window.ethereum fallback
+		// If window.ethereum was already added (late EIP-6963 arrival),
+		// skip if this provider is the same object as window.ethereum
+		// This handles wallets that provide the same provider object in both
 		if (windowEthereumProviderAdded && detail.provider === windowEthereumProviderAdded) {
 			return;
 		}
@@ -182,14 +185,15 @@ function createWalletFetcher() {
 	function addWindowEthereumIfNeeded() {
 		if (windowEthereumProviderAdded) return;
 
+		// If any EIP6963 providers were announced, skip window.ethereum entirely
+		// This avoids duplicates since wallets like Rabby provide different provider objects
+		// in EIP6963 vs window.ethereum, making equality comparison unreliable
+		if (eip6963Received) return;
+
 		const windowEthereumProvider = (window as any).ethereum as EIP1193WindowWalletProvider | undefined;
 		if (!windowEthereumProvider) return;
 
-		// Check if window.ethereum was already announced via EIP6963
-		const alreadyAnnounced = eip6963Providers.some((provider) => provider === windowEthereumProvider);
-		if (alreadyAnnounced) return;
-
-		// Mark as added before announcing to prevent race conditions
+		// Store the reference for late EIP-6963 comparison
 		windowEthereumProviderAdded = windowEthereumProvider;
 
 		// Add window.ethereum with fallback info (for mobile wallet browsers without EIP6963)
@@ -213,7 +217,7 @@ function createWalletFetcher() {
 			(window as any).addEventListener('eip6963:announceProvider', onWalletAnnounced);
 			window.dispatchEvent(new Event('eip6963:requestProvider'));
 
-			// After a short delay, add window.ethereum if it wasn't announced via EIP6963
+			// After a short delay, add window.ethereum only if no EIP6963 providers were announced
 			// This handles mobile wallet browsers that don't support EIP6963
 			setTimeout(addWindowEthereumIfNeeded, 100);
 		}

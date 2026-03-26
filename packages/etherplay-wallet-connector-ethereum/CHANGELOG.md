@@ -1,5 +1,11 @@
 # @etherplay/wallet-connector-ethereum
 
+## 0.0.8
+
+### Patch Changes
+
+- assume if 693 events are emitted, then window.ethereum is not needed
+
 ## 0.0.7
 
 ### Patch Changes
