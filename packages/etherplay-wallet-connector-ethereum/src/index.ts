@@ -85,28 +85,121 @@ interface EIP6963ProviderDetail {
 	provider: EIP1193WindowWalletProvider;
 }
 
+function detectWindowEthereumInfo(provider: EIP1193WindowWalletProvider): EIP6963ProviderInfo {
+	const p = provider as any;
+
+	// Check for common wallet flags
+	// Order matters - more specific checks first
+	let name = 'Browser Wallet';
+
+	if (p.isMetaMask && !p.isRabby && !p.isBraveWallet) {
+		name = 'MetaMask';
+	} else if (p.isCoinbaseWallet) {
+		name = 'Coinbase Wallet';
+	} else if (p.isTrust) {
+		name = 'Trust Wallet';
+	} else if (p.isRabby) {
+		name = 'Rabby';
+	} else if (p.isBraveWallet) {
+		name = 'Brave Wallet';
+	} else if (p.isPhantom) {
+		name = 'Phantom';
+	} else if (p.isRainbow) {
+		name = 'Rainbow';
+	} else if (p.isTokenPocket) {
+		name = 'TokenPocket';
+	} else if (p.isOKExWallet || p.isOkxWallet) {
+		name = 'OKX Wallet';
+	} else if (p.isBitKeep) {
+		name = 'BitKeep';
+	} else if (p.isZerion) {
+		name = 'Zerion';
+	} else if (p.isFrame) {
+		name = 'Frame';
+	} else if (p.isTally) {
+		name = 'Taho';
+	} else if (p.isOneInch) {
+		name = '1inch Wallet';
+	} else if (p.isImToken) {
+		name = 'imToken';
+	} else if (p.isMathWallet) {
+		name = 'MathWallet';
+	} else if (p.isTokenary) {
+		name = 'Tokenary';
+	} else if (p.isStatus) {
+		name = 'Status';
+	} else if (p.isXDEFI) {
+		name = 'XDEFI';
+	} else if (p.isExodus) {
+		name = 'Exodus';
+	} else if (p.isOpera) {
+		name = 'Opera Wallet';
+	} else if (p.isGamestop) {
+		name = 'GameStop Wallet';
+	}
+
+	return {
+		uuid: 'window.ethereum',
+		name,
+		icon: '', // No icon available for window.ethereum
+		rdns: 'window.ethereum',
+	};
+}
+
 type WalletAnnouncementFunction = (walletInfo: WalletHandle<CurriedRPC<Methods>>) => void;
 function createWalletFetcher() {
 	const walletHandles: WalletHandle<CurriedRPC<Methods>>[] = [];
 	const walletAnnouncementFunctions: WalletAnnouncementFunction[] = [];
+	const eip6963Providers: EIP1193WindowWalletProvider[] = [];
 	let requesting = false;
+	let windowEthereumProviderAdded: EIP1193WindowWalletProvider | undefined;
 
-	function onWalletAnnounced(event: EIP6963AnnounceProviderEvent) {
-		const {detail} = event;
-		// const { info, provider } = detail;
-		// const { uuid, name, icon, rdns } = info;
-		// console.log('provider', provider);
-		// console.log(`isDefault: ${provider === defaultProvider}`);
-		// console.log('info', info);
-		const walletHandle = {
-			walletProvider: new EthereumWalletProvider(detail.provider),
-			info: detail.info,
-		};
+	function announceWallet(walletHandle: WalletHandle<CurriedRPC<Methods>>) {
 		walletHandles.push(walletHandle);
 		for (const walletAnnounced of walletAnnouncementFunctions) {
 			walletAnnounced(walletHandle);
 		}
 	}
+
+	function onWalletAnnounced(event: EIP6963AnnounceProviderEvent) {
+		const {detail} = event;
+
+		// Track EIP6963 providers to detect duplicates with window.ethereum
+		eip6963Providers.push(detail.provider);
+
+		// Skip if this provider was already added via window.ethereum fallback
+		if (windowEthereumProviderAdded && detail.provider === windowEthereumProviderAdded) {
+			return;
+		}
+
+		const walletHandle = {
+			walletProvider: new EthereumWalletProvider(detail.provider),
+			info: detail.info,
+		};
+		announceWallet(walletHandle);
+	}
+
+	function addWindowEthereumIfNeeded() {
+		if (windowEthereumProviderAdded) return;
+
+		const windowEthereumProvider = (window as any).ethereum as EIP1193WindowWalletProvider | undefined;
+		if (!windowEthereumProvider) return;
+
+		// Check if window.ethereum was already announced via EIP6963
+		const alreadyAnnounced = eip6963Providers.some((provider) => provider === windowEthereumProvider);
+		if (alreadyAnnounced) return;
+
+		// Mark as added before announcing to prevent race conditions
+		windowEthereumProviderAdded = windowEthereumProvider;
+
+		// Add window.ethereum with fallback info (for mobile wallet browsers without EIP6963)
+		const walletHandle = {
+			walletProvider: new EthereumWalletProvider(windowEthereumProvider),
+			info: detectWindowEthereumInfo(windowEthereumProvider),
+		};
+		announceWallet(walletHandle);
+	}
+
 	function fetchWallets(walletAnnounced: WalletAnnouncementFunction) {
 		walletAnnouncementFunctions.push(walletAnnounced);
 		if (requesting) {
@@ -115,11 +208,14 @@ function createWalletFetcher() {
 			}
 		} else if (typeof window !== 'undefined') {
 			requesting = true;
-			// const defaultProvider = (window as any).ethereum;
-			// console.log(defaultProvider);
-			// TODO ?
+
+			// First listen for EIP6963 announcements (they have proper name/icon info)
 			(window as any).addEventListener('eip6963:announceProvider', onWalletAnnounced);
 			window.dispatchEvent(new Event('eip6963:requestProvider'));
+
+			// After a short delay, add window.ethereum if it wasn't announced via EIP6963
+			// This handles mobile wallet browsers that don't support EIP6963
+			setTimeout(addWindowEthereumIfNeeded, 100);
 		}
 	}
 	return {
