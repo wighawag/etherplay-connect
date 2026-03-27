@@ -1,5 +1,0 @@
----
-'@etherplay/connect': patch
----
-
-fixes
