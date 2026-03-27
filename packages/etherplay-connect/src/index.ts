@@ -445,7 +445,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	autoConnect?: boolean;
 	walletConnector?: WalletConnector<WalletProviderType>;
 	requestSignatureAutomaticallyIfPossible?: boolean;
-	alwaysUseCurrentAccount?: boolean;
+	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	chainInfo: ChainInfo<WalletProviderType>;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
@@ -879,7 +879,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			}
 
 			if (accountsFormated.length > 0 && accountsFormated[0] != $connection.mechanism.address) {
-				if ($connection.wallet && settings?.alwaysUseCurrentAccount) {
+				if (
+					$connection.wallet &&
+					(settings?.useCurrentAccount == 'always' ||
+						(settings?.useCurrentAccount == 'whenSingle' && accountsFormated.length == 1))
+				) {
 					connectToAddress(accountsFormated[0]);
 				} else {
 					set({
@@ -996,7 +1000,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 								if (accounts.length > 0) {
 									const nextStep =
-										!settings?.alwaysUseCurrentAccount && !specificAddress && accounts.length > 1
+										!settings?.useCurrentAccount && !specificAddress && accounts.length > 1
 											? 'ChooseWalletAccount'
 											: 'WalletConnected';
 									let account = accounts[0];
@@ -1085,7 +1089,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									}
 								}
 								const nextStep =
-									!settings?.alwaysUseCurrentAccount && !specificAddress && accounts.length > 1
+									!settings?.useCurrentAccount && !specificAddress && accounts.length > 1
 										? 'ChooseWalletAccount'
 										: 'WalletConnected';
 								const newState: Connection<WalletProviderType> =
