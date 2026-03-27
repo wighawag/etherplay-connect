@@ -610,7 +610,7 @@ describe('createConnection', () => {
 				chainInfo: defaultChainInfo,
 				walletConnector,
 				autoConnect: false,
-				alwaysUseCurrentAccount: false,
+				useCurrentAccount: false,
 			});
 
 			// Wait for wallet to be announced
@@ -631,7 +631,7 @@ describe('createConnection', () => {
 			}
 		});
 
-		it('should skip account selection when alwaysUseCurrentAccount is true', async () => {
+		it(`should skip account selection when alwaysUseCurrentAccount is 'always'`, async () => {
 			const mockHandle = createMockWalletHandle('MockWallet', ['0xuser1' as `0x${string}`, '0xuser2' as `0x${string}`]);
 			const walletConnector = createMockWalletConnector([mockHandle]);
 
@@ -640,7 +640,7 @@ describe('createConnection', () => {
 				chainInfo: defaultChainInfo,
 				walletConnector,
 				autoConnect: false,
-				alwaysUseCurrentAccount: true,
+				useCurrentAccount: 'always',
 			});
 
 			// Wait for wallet to be announced
@@ -832,7 +832,7 @@ describe('createConnection', () => {
 				chainInfo: defaultChainInfo,
 				walletConnector,
 				autoConnect: false,
-				alwaysUseCurrentAccount: false,
+				useCurrentAccount: false,
 			});
 
 			// Wait for wallet to be announced

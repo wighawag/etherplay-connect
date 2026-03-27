@@ -7,7 +7,7 @@
 		targetStep: 'WalletConnected',
 		chainInfo,
 		prioritizeWalletProvider: true,
-		alwaysUseCurrentAccount: true,
+		useCurrentAccount: 'always',
 		autoConnect: true
 	});
 

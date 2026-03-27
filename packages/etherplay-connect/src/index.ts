@@ -359,7 +359,7 @@ export function createConnection<WalletProviderType>(settings: {
 	chainInfo: ChainInfo<WalletProviderType>;
 	walletConnector: WalletConnector<WalletProviderType>;
 	autoConnect?: boolean;
-	alwaysUseCurrentAccount?: boolean;
+	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 }): ConnectionStore<WalletProviderType, 'WalletConnected'>;
@@ -371,7 +371,7 @@ export function createConnection(settings: {
 	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
 	walletConnector?: undefined;
 	autoConnect?: boolean;
-	alwaysUseCurrentAccount?: boolean;
+	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 }): ConnectionStore<UnderlyingEthereumProvider, 'WalletConnected', true>;
@@ -386,7 +386,7 @@ export function createConnection<WalletProviderType>(settings: {
 	signingOrigin?: string;
 	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
-	alwaysUseCurrentAccount?: boolean;
+	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 }): ConnectionStore<WalletProviderType, 'SignedIn', true>;
@@ -401,7 +401,7 @@ export function createConnection(settings: {
 	signingOrigin?: string;
 	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
-	alwaysUseCurrentAccount?: boolean;
+	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 }): ConnectionStore<UnderlyingEthereumProvider, 'SignedIn', true>;
@@ -416,7 +416,7 @@ export function createConnection<WalletProviderType>(settings: {
 	signingOrigin?: string;
 	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
-	alwaysUseCurrentAccount?: boolean;
+	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 }): ConnectionStore<WalletProviderType, 'SignedIn', false>;
@@ -431,7 +431,7 @@ export function createConnection(settings: {
 	signingOrigin?: string;
 	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
-	alwaysUseCurrentAccount?: boolean;
+	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 }): ConnectionStore<UnderlyingEthereumProvider, 'SignedIn', false>;

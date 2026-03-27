@@ -103,7 +103,7 @@ console.log('Session account:', signedInState.account.signer.address);
 | `autoConnect`                             | `boolean`                         | No          | Auto-reconnect returning users (default: `true`)     |
 | `walletConnector`                         | `WalletConnector`                 | No          | Custom wallet connector (defaults to Ethereum)       |
 | `requestSignatureAutomaticallyIfPossible` | `boolean`                         | No          | Auto-request signature after wallet connection       |
-| `alwaysUseCurrentAccount`                 | `boolean`                         | No          | Always use current wallet account                    |
+| `useCurrentAccount`                       | `'always' \| 'whenSingle'`        | No          | Always use current wallet account                    |
 | `prioritizeWalletProvider`                | `boolean`                         | No          | Prioritize wallet for RPC calls                      |
 | `requestsPerSecond`                       | `number`                          | No          | Rate limit for RPC requests                          |
 

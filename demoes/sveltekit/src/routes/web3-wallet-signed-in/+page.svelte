@@ -8,7 +8,7 @@
 		walletOnly: true,
 		chainInfo,
 		prioritizeWalletProvider: true,
-		alwaysUseCurrentAccount: true,
+		useCurrentAccount: 'always',
 		autoConnect: true,
 		requestSignatureAutomaticallyIfPossible: true
 	});

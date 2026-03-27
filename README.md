@@ -55,43 +55,42 @@ etherplay-connect/
 pnpm add @etherplay/connect
 ```
 
-
 ## Quick Start
 
 ### Basic Setup
 
 ```typescript
-import { createConnection } from '@etherplay/connect';
+import {createConnection} from '@etherplay/connect';
 
 const connection = createConnection({
-  signingOrigin: 'https://testing.io',
-  walletHost: PUBLIC_WALLET_HOST,
-  chainInfo: {
-    id: 1,
-    rpcUrls: {
-      default: {
-        http: [ETHEREUM_RPC]
-      }
-    },
-    name: 'Ethereum',
-    nativeCurrency: {
-      decimals: 18,
-      name: 'Ether',
-      symbol: 'ETH'
-    }
-  }
+	signingOrigin: 'https://testing.io',
+	walletHost: PUBLIC_WALLET_HOST,
+	chainInfo: {
+		id: 1,
+		rpcUrls: {
+			default: {
+				http: [ETHEREUM_RPC],
+			},
+		},
+		name: 'Ethereum',
+		nativeCurrency: {
+			decimals: 18,
+			name: 'Ether',
+			symbol: 'ETH',
+		},
+	},
 });
 
 // Subscribe to connection state
-connection.subscribe($connection => {
-  console.log('Connection state:', $connection);
+connection.subscribe(($connection) => {
+	console.log('Connection state:', $connection);
 });
 
 // Connect via social login
-await connection.connect({ type: 'email', mode: 'otp', email: 'user@example.com' });
+await connection.connect({type: 'email', mode: 'otp', email: 'user@example.com'});
 
 // Or connect via wallet
-await connection.connect({ type: 'wallet', name: 'MetaMask' });
+await connection.connect({type: 'wallet', name: 'MetaMask'});
 ```
 
 ### Using in Svelte
@@ -99,7 +98,7 @@ await connection.connect({ type: 'wallet', name: 'MetaMask' });
 ```svelte
 <script>
   import { createConnection } from '@etherplay/connect';
-  
+
   const connection = createConnection({
     signingOrigin: 'https://testing.io',
     walletHost: PUBLIC_WALLET_HOST,
@@ -108,10 +107,10 @@ await connection.connect({ type: 'wallet', name: 'MetaMask' });
       rpcUrls: { default: { http: [ETHEREUM_RPC] } }
     }
   });
-  
+
   let $connection;
   connection.subscribe(value => $connection = value);
-  
+
   async function connectWithWallet() {
     await connection.connect({ type: 'wallet' });
   }
@@ -128,9 +127,9 @@ await connection.connect({ type: 'wallet', name: 'MetaMask' });
 
 ```typescript
 await connection.connect({
-  type: 'email',
-  mode: 'otp',
-  email: 'user@example.com'
+	type: 'email',
+	mode: 'otp',
+	email: 'user@example.com',
 });
 ```
 
@@ -139,16 +138,16 @@ await connection.connect({
 ```typescript
 // Popup mode
 await connection.connect({
-  type: 'oauth',
-  provider: { id: 'google' },
-  usePopup: true
+	type: 'oauth',
+	provider: {id: 'google'},
+	usePopup: true,
 });
 
 // Redirect mode
 await connection.connect({
-  type: 'oauth',
-  provider: { id: 'auth0', connection: 'your-connection' },
-  usePopup: false
+	type: 'oauth',
+	provider: {id: 'auth0', connection: 'your-connection'},
+	usePopup: false,
 });
 ```
 
@@ -156,9 +155,9 @@ await connection.connect({
 
 ```typescript
 await connection.connect({
-  type: 'mnemonic',
-  mnemonic: 'your twelve word mnemonic phrase here',
-  index: 0
+	type: 'mnemonic',
+	mnemonic: 'your twelve word mnemonic phrase here',
+	index: 0,
 });
 ```
 
@@ -166,18 +165,18 @@ await connection.connect({
 
 ```typescript
 // Connect to any available wallet
-await connection.connect({ type: 'wallet' });
+await connection.connect({type: 'wallet'});
 
 // Connect to specific wallet
-await connection.connect({ 
-  type: 'wallet', 
-  name: 'MetaMask' 
+await connection.connect({
+	type: 'wallet',
+	name: 'MetaMask',
 });
 
 // Connect to specific address
-await connection.connect({ 
-  type: 'wallet', 
-  address: '0x...' 
+await connection.connect({
+	type: 'wallet',
+	address: '0x...',
 });
 ```
 
@@ -207,7 +206,7 @@ The connection store goes through several states during the authentication flow:
   autoConnectWallet?: boolean;      // Auto-connect to wallet (default: true)
   walletConnector?: WalletConnector; // Custom wallet connector
   requestSignatureAutomaticallyIfPossible?: boolean;
-  alwaysUseCurrentAccount?: boolean; // Auto-switch when account changes
+  useCurrentAccount?: 'always' | 'whenSingle' | false; // Auto-switch when account changes (always or only when single account)
   chainInfo: ChainInfo;             // Blockchain configuration
   prioritizeWalletProvider?: boolean;
   requestsPerSecond?: number;       // Rate limiting for provider
@@ -235,7 +234,6 @@ pnpm install
 pnpm start
 ```
 
-
 ## License
 
 MIT License - see LICENSE file for details
@@ -243,4 +241,3 @@ MIT License - see LICENSE file for details
 ## Contributing
 
 Contributions are welcome! Please read our contributing guidelines before submitting PRs.
-
