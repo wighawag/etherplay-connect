@@ -147,7 +147,10 @@ function detectWindowEthereumInfo(provider: EIP1193WindowWalletProvider): EIP696
 }
 
 type WalletAnnouncementFunction = (walletInfo: WalletHandle<CurriedRPC<Methods>>) => void;
-function createWalletFetcher() {
+export type WalletFetcher = {
+	fetchWallets(walletAnnounced: WalletAnnouncementFunction): void;
+};
+function createWalletFetcher(): WalletFetcher {
 	const walletHandles: WalletHandle<CurriedRPC<Methods>>[] = [];
 	const walletAnnouncementFunctions: WalletAnnouncementFunction[] = [];
 	let requesting = false;
@@ -231,8 +234,6 @@ function createWalletFetcher() {
 	};
 }
 
-const walletFetcher = createWalletFetcher();
-
 export interface EIP6963AnnounceProviderEvent extends CustomEvent {
 	type: 'eip6963:announceProvider';
 	detail: EIP6963ProviderDetail;
@@ -240,8 +241,14 @@ export interface EIP6963AnnounceProviderEvent extends CustomEvent {
 
 export class EthereumWalletConnector implements WalletConnector<CurriedRPC<Methods>> {
 	accountGenerator: AccountGenerator = new EthereumAccountGenerator();
+	walletFetcher: WalletFetcher;
+
+	constructor() {
+		this.walletFetcher = createWalletFetcher();
+	}
+
 	fetchWallets(walletAnnounced: (walletInfo: WalletHandle<CurriedRPC<Methods>>) => void): void {
-		walletFetcher.fetchWallets(walletAnnounced);
+		this.walletFetcher.fetchWallets(walletAnnounced);
 	}
 
 	createAlwaysOnProvider(params: {

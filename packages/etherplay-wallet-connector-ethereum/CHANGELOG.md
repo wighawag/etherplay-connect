@@ -1,5 +1,11 @@
 # @etherplay/wallet-connector-ethereum
 
+## 0.0.10
+
+### Patch Changes
+
+- fix walletFetcher being a module level var that keep old conncetion
+
 ## 0.0.9
 
 ### Patch Changes
