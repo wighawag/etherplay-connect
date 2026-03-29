@@ -219,7 +219,11 @@ function createWalletFetcher() {
 
 			// After a short delay, add window.ethereum only if no EIP6963 providers were announced
 			// This handles mobile wallet browsers that don't support EIP6963
-			setTimeout(addWindowEthereumIfNeeded, 100);
+			// we also stop listenning for more
+			setTimeout(() => {
+				(window as any).removeListener('eip6963:announceProvider', onWalletAnnounced);
+				addWindowEthereumIfNeeded();
+			}, 100);
 		}
 	}
 	return {

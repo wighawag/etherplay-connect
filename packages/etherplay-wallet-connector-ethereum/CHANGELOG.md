@@ -1,5 +1,11 @@
 # @etherplay/wallet-connector-ethereum
 
+## 0.0.9
+
+### Patch Changes
+
+- stop listening eip6963 after 100ms
+
 ## 0.0.8
 
 ### Patch Changes

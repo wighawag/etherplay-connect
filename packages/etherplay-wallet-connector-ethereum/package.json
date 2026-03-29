@@ -1,6 +1,6 @@
 {
 	"name": "@etherplay/wallet-connector-ethereum",
-	"version": "0.0.8",
+	"version": "0.0.9",
 	"description": "Ethereum wallet connector implementation for @etherplay/connect - provides EIP-6963 provider detection, account management, and chain switching support",
 	"keywords": [
 		"ethereum",
