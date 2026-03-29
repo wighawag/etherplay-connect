@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.0.47
+
+### Patch Changes
+
+- allow provide nodeURL different from chainInfo (for wallets)
+
 ## 0.0.46
 
 ### Patch Changes

@@ -356,6 +356,7 @@ export type AnyConnectionStore<WalletProviderType> =
 export function createConnection<WalletProviderType>(settings: {
 	targetStep: 'WalletConnected';
 	walletHost?: string;
+	nodeURL?: string;
 	chainInfo: ChainInfo<WalletProviderType>;
 	walletConnector: WalletConnector<WalletProviderType>;
 	autoConnect?: boolean;
@@ -368,6 +369,7 @@ export function createConnection<WalletProviderType>(settings: {
 export function createConnection(settings: {
 	targetStep: 'WalletConnected';
 	walletHost?: string;
+	nodeURL?: string;
 	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
 	walletConnector?: undefined;
 	autoConnect?: boolean;
@@ -381,6 +383,7 @@ export function createConnection<WalletProviderType>(settings: {
 	targetStep?: 'SignedIn';
 	walletOnly: true;
 	walletHost?: string;
+	nodeURL?: string;
 	chainInfo: ChainInfo<WalletProviderType>;
 	walletConnector: WalletConnector<WalletProviderType>;
 	signingOrigin?: string;
@@ -396,6 +399,7 @@ export function createConnection(settings: {
 	targetStep?: 'SignedIn';
 	walletOnly: true;
 	walletHost?: string;
+	nodeURL?: string;
 	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
 	walletConnector?: undefined;
 	signingOrigin?: string;
@@ -411,6 +415,7 @@ export function createConnection<WalletProviderType>(settings: {
 	targetStep?: 'SignedIn';
 	walletOnly?: false;
 	walletHost: string;
+	nodeURL?: string;
 	chainInfo: ChainInfo<WalletProviderType>;
 	walletConnector: WalletConnector<WalletProviderType>;
 	signingOrigin?: string;
@@ -426,6 +431,7 @@ export function createConnection(settings: {
 	targetStep?: 'SignedIn';
 	walletOnly?: false;
 	walletHost: string;
+	nodeURL?: string;
 	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
 	walletConnector?: undefined;
 	signingOrigin?: string;
@@ -446,6 +452,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	walletConnector?: WalletConnector<WalletProviderType>;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
+	nodeURL?: string;
 	chainInfo: ChainInfo<WalletProviderType>;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
@@ -459,7 +466,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	const alwaysOnChainId = '' + settings.chainInfo.id;
 	const alwaysOnProviderWrapper = walletConnector.createAlwaysOnProvider({
 		endpoint:
-			'provider' in settings.chainInfo ? settings.chainInfo.provider : settings.chainInfo.rpcUrls.default.http[0],
+			'provider' in settings.chainInfo
+				? settings.chainInfo.provider
+				: settings.nodeURL
+					? settings.nodeURL
+					: settings.chainInfo.rpcUrls.default.http[0],
 		chainId: '' + settings.chainInfo.id,
 		prioritizeWalletProvider: settings.prioritizeWalletProvider,
 		requestsPerSecond: settings.requestsPerSecond,
