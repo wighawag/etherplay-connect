@@ -1,5 +1,12 @@
 # @etherplay/connect
 
+## 0.0.50
+
+### Patch Changes
+
+- Updated dependencies
+  - @etherplay/wallet-connector-ethereum@0.0.11
+
 ## 0.0.49
 
 ### Patch Changes
