@@ -8,7 +8,7 @@ export type OauthMechanism = {
 	type: 'oauth';
 
 	provider: {id: 'google' | 'facebook'} | {id: 'auth0'; connection: string};
-} & ({usePopup: true} | {usePopup: false}); // redirection: { origin: string; requestID: string }
+} & ({usePopup: true} | {usePopup: false});
 
 export type EmailMechanism<T extends string | undefined> = {
 	type: 'email';
@@ -20,6 +20,26 @@ export type AlchemyMechanism =
 	| EmailMechanism<string | undefined>
 	| OauthMechanism
 	| MnemonicMechanism<number | undefined>;
+
+export type ProviderOauthMechanism = {
+	type: 'oauth';
+	provider: {id: string; connection?: string};
+	usePopup?: boolean;
+};
+
+export type ProviderEmailMechanism = {
+	type: 'email';
+	email?: string;
+	mode?: 'otp';
+};
+
+export type ProviderMnemonicMechanism = {
+	type: 'mnemonic';
+	mnemonic?: string;
+	index?: number;
+};
+
+export type ProviderMechanism = ProviderEmailMechanism | ProviderOauthMechanism | ProviderMnemonicMechanism;
 
 export type OriginAccount = {
 	address: `0x${string}`;

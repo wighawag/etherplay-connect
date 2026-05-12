@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type {AlchemyConnectionStore} from '@etherplay/alchemy';
 	import {onMount} from 'svelte';
 	import OAuth from './mechanism/OAuth.svelte';
 	import Email from './mechanism/Email.svelte';
@@ -7,12 +6,13 @@
 	import {get} from 'svelte/store';
 	import Loading from './Loading.svelte';
 	import {debug} from './state';
+	import type {UnifiedConnectionStore, UnifiedConnectionState} from './handler';
 
 	let {
-		alchemy,
+		connection,
 		from,
 	}: {
-		alchemy: AlchemyConnectionStore;
+		connection: UnifiedConnectionStore;
 		from: {
 			source?: MessageEventSource;
 			windowOrigin: string;
@@ -55,30 +55,20 @@
 
 	onMount(() => {
 		enableCancelOnClose();
-		const unsubscribeFromAlchemyService = alchemy.subscribe((v) => {
-			if (v?.step == 'WaitingForOAuthResponse') {
-				disableCancelOnClose();
-			}
-		});
 
 		let closed = false;
 		window.addEventListener('message', onMessage);
 		const sourceTimeoutId = setTimeout(() => {
 			if (!from.source) {
-				//TODO
-				// alchemy.setError({message: 'timeout waiting for source'});
-				// TODO allow to cancel flow
 			}
 			if (!closed) {
 				window.removeEventListener('message', onMessage);
 			}
 		}, 10000);
 
-		alchemy.subscribe((v) => {
+		connection.subscribe((v) => {
 			if (v?.step === 'SignedIn') {
 				if (from.domainRedirectPublicKey) {
-					// TODO encrypt
-					window.location.href = `${from.windowOrigin}/_etherplay_accounts.html#myencryptedresult`;
 				} else {
 					if (!v.requireOriginApproval || (v.requireOriginApproval && !v.requireOriginApproval.requestingAccess)) {
 						postResultIfNotAlreadyPosted(from.canCloseAutomatically);
@@ -92,21 +82,15 @@
 			closed = true;
 			window.removeEventListener('message', onMessage);
 			disableCancelOnClose();
-			unsubscribeFromAlchemyService();
 		};
 	});
 
-	function acknowledgeError() {
-		// TODO
-		// alchemy.acknowledgeError();
-	}
-
 	async function continueAfterLogin() {
-		if ($alchemy?.step !== 'SignedIn') {
+		if ($connection?.step !== 'SignedIn') {
 			throw new Error(`not signed in`);
 		}
 
-		if ($alchemy.requireOriginApproval && $alchemy.requireOriginApproval.requestingAccess) {
+		if ($connection.requireOriginApproval && $connection.requireOriginApproval.requestingAccess) {
 			throw new Error(`origin not approved`);
 		}
 		await postResultIfNotAlreadyPosted();
@@ -115,8 +99,6 @@
 		} else {
 			window.close();
 		}
-
-		// setTimeout(() => window.close(), 300);
 	}
 
 	let resultPosted = false;
@@ -126,10 +108,9 @@
 		}
 		if (!resultPosted) {
 			try {
-				const state = get(alchemy);
+				const state = get(connection);
 				if (state?.step === 'SignedIn') {
-					// TODO
-					const result = await alchemy.generateOriginAccount(from.signingOrigin, state.account);
+					const result = await connection.generateOriginAccount(from.signingOrigin, state.account);
 					if (debug) {
 						console.log('postMessage', {result, id: from.requestID}, {targetOrigin: from.windowOrigin});
 					}
@@ -139,7 +120,6 @@
 					throw new Error(`invalid step: ${state?.step}`);
 				}
 			} catch (e) {
-				// TODO
 				console.error(e);
 			}
 		}
@@ -182,50 +162,43 @@
 </script>
 
 <div class="root">
-	<!-- TODO -->
-	<!-- {#if $alchemy?.error && !$alchemy.error.delay} -->
-	{#if $alchemy?.error}
+	{#if $connection?.step === 'Error'}
 		<div class="banner">
-			<p>{$alchemy.error.message}</p>
-			<!-- {#if !$alchemy.error.timeout}
-				<button onclick={() => acknowledgeError()} id="error-acknowledge">ok</button>
-			{/if} -->
+			<p>{$connection.message}</p>
 		</div>
 	{/if}
-	{#if !$alchemy || $alchemy.step === 'Initialised' || $alchemy.step === 'Initialising'}
+	{#if !$connection || $connection.step === 'Initialised' || $connection.step === 'Initialising'}
 		<Loading />
-	{:else if $alchemy.step === 'MechanismToChoose'}
-		<!-- TODO? -->
+	{:else if $connection.step === 'MechanismToChoose'}
 		<main>
 			<p>Not Supported</p>
 		</main>
-	{:else if $alchemy.mechanism.type == 'email'}
+	{:else if $connection.mechanism?.type == 'email'}
 		<Email
-			{alchemy}
+			connection={$connection as any}
 			goingToRedirect={!!from.domainRedirectPublicKey}
 			continueAfterLogin={from.source ? continueAfterLogin : undefined}
 			{cancel}
 		/>
-	{:else if $alchemy.mechanism.type == 'oauth'}
+	{:else if $connection.mechanism?.type == 'oauth'}
 		<OAuth
-			{alchemy}
+			connection={$connection as any}
 			goingToRedirect={!!from.domainRedirectPublicKey}
 			continueAfterLogin={from.source ? continueAfterLogin : undefined}
 			{cancel}
 		/>
-	{:else if $alchemy.mechanism.type == 'mnemonic'}
+	{:else if $connection.mechanism?.type == 'mnemonic'}
 		<Mnemonic
-			{alchemy}
+			connection={$connection as any}
 			goingToRedirect={!!from.domainRedirectPublicKey}
 			continueAfterLogin={from.source ? continueAfterLogin : undefined}
 			{cancel}
 		/>
 	{:else}
 		<main>
-			<p>{$alchemy.step}</p>
+			<p>{$connection.step}</p>
 		</main>
 	{/if}
-	<!-- TODO more ?-->
 </div>
 
 <style>
@@ -263,7 +236,7 @@
 		display: flex;
 		justify-content: space-between;
 
-		background-color: #d93526; /* #d93526; */
+		background-color: #d93526;
 		> p {
 			color: white;
 			font-size: 1rem;

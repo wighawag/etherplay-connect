@@ -24,6 +24,9 @@
   },
   "dependencies": {
     "@etherplay/alchemy": "workspace:*",
+    "@etherplay/auth-provider": "workspace:*",
+    "@etherplay/connect-core": "workspace:*",
+    "@etherplay/openfort": "workspace:*",
     "@etherplay/wallet-connector": "workspace:*",
     "@etherplay/wallet-connector-ethereum": "workspace:*",
     "micro-eth-signer": "^0.13.3",

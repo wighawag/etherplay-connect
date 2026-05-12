@@ -1,27 +1,96 @@
 <script lang="ts">
-	import type {AlchemyConnectionStore} from '@etherplay/alchemy';
+	import type {UnifiedConnectionStore} from '../handler';
 
 	let {
-		alchemy,
+		connection,
 		continueAfterLogin,
 		goingToRedirect,
 		cancel,
 	}: {
-		alchemy: AlchemyConnectionStore;
+		connection: UnifiedConnectionStore;
 		continueAfterLogin?: () => void;
 		goingToRedirect?: boolean;
 		cancel: (error?: {message: string; cause?: any}) => void;
 	} = $props();
 
+	let popupRef: {contentWindow?: Window | null} | null = null;
+
 	let provider = $derived(
-		$alchemy && 'mechanism' in $alchemy && $alchemy.mechanism.type === 'oauth'
-			? $alchemy.mechanism.provider
-			: ({id: 'auth0', connection: 'unknown'} as const),
+		$connection && $connection.mechanism?.type === 'oauth'
+			? ($connection.mechanism.provider || {id: 'unknown'})
+			: ({id: 'unknown'} as const),
 	);
+
+	let usePopup = $derived(
+		$connection && $connection.mechanism?.type === 'oauth'
+			? ($connection.mechanism as any).usePopup !== false
+			: true,
+	);
+
+	async function handleOAuthContinue() {
+		const mechanism = $connection?.mechanism;
+		if (!mechanism || mechanism.type !== 'oauth') return;
+
+		const oauthMech = {
+			type: 'oauth' as const,
+			provider: mechanism.provider,
+			usePopup: usePopup,
+		};
+
+		await connection.connect(oauthMech);
+
+		if (usePopup) {
+			const state = $connection;
+			if (state?.step === 'ConfirmOAuth') {
+				popupRef = window.open('', '_blank', 'width=600,height=600');
+				if (popupRef?.contentWindow) {
+					const oauthUrl = await getOAuthUrl();
+					popupRef.contentWindow.location.href = oauthUrl;
+				}
+				pollPopupForCallback();
+			}
+		} else {
+			const oauthUrl = await getOAuthUrl();
+			window.location.href = oauthUrl;
+		}
+	}
+
+	async function getOAuthUrl(): Promise<string> {
+		const state = $connection;
+		if (state?.step === 'ConfirmOAuth') {
+			return new Promise((resolve) => {
+				const checkSignedIn = () => {
+					const s = $connection;
+					if (s?.step === 'SignedIn') {
+						resolve('');
+					}
+				};
+				setTimeout(checkSignedIn, 100);
+			});
+		}
+		return '';
+	}
+
+	function pollPopupForCallback() {
+		if (!popupRef?.contentWindow) return;
+
+		const checkCallback = () => {
+			try {
+				const popupUrl = popupRef?.contentWindow?.location.href;
+				if (popupUrl && popupUrl.includes('/login/?type=oauth-redirect')) {
+					connection.confirmOAuth();
+					popupRef = null;
+					return;
+				}
+			} catch {}
+			setTimeout(checkCallback, 500);
+		};
+		setTimeout(checkCallback, 500);
+	}
 </script>
 
 {#snippet logo(
-	provider: {id: 'auth0'; connection: string} | {id: 'google' | 'facebook'} | undefined,
+	provider: {id: string; connection?: string} | undefined,
 	animated: boolean,
 )}
 	{#if provider?.id == 'google'}
@@ -31,59 +100,50 @@
 	{:else if provider?.id == 'facebook'}
 		<picture>
 			<img src="/Facebook_Logo_Primary.png" alt="Facebook Logo" class:animated />
-			<!-- {:else if typeof provider === 'object' && provider.type === 'auth0'}
-		<img src="/github-mark.png" alt="Github Logo" class:animated /> -->
 		</picture>
-	{:else if provider?.id === 'auth0' && provider.connection === 'twitter'}
+	{:else if provider?.id === 'twitter'}
 		<picture>
 			<source srcset="/x-logo-white.png" media="(prefers-color-scheme: dark)" />
 			<img alt="X Logo" src="/x-logo-black.png" />
 		</picture>
 	{:else}
 		<div>
-			<p>{animated ? 'Please Wait....' : provider?.id == 'auth0' ? provider.connection : provider}</p>
+			<p>{animated ? 'Please Wait....' : provider?.id}</p>
 			<hr />
 		</div>
 	{/if}
 {/snippet}
 
 <main>
-	{#if !$alchemy || $alchemy.step === 'Initialising' || $alchemy.step === 'Initialised' || $alchemy.step === 'InitialisingMechanism' || $alchemy.step === 'MechanismToChoose' || $alchemy.step === 'MechanismChosen' || $alchemy.step === 'GeneratingAccount'}
+	{#if !$connection || $connection.step === 'Initialising' || $connection.step === 'Initialised' || $connection.step === 'InitialisingMechanism' || $connection.step === 'MechanismToChoose' || $connection.step === 'MechanismChosen' || $connection.step === 'GeneratingAccount'}
 		{@render logo(provider, true)}
-	{:else if $alchemy.step === 'ConfirmOAuth'}
+	{:else if $connection.step === 'ConfirmOAuth'}
 		{@render logo(provider, false)}
 		<div class="wrapper" style="margin-top: 5rem">
-			<button onclick={() => alchemy.connect({type: 'oauth', provider, usePopup: true})} type="submit">continue</button>
+			<button onclick={handleOAuthContinue} type="submit">continue</button>
 		</div>
-	{:else if $alchemy.step === 'WaitingForOAuthResponse'}
+	{:else if $connection.step === 'WaitingForOAuthResponse'}
 		{@render logo(provider, true)}
-	{:else if $alchemy.step === 'InitializingOAuthPopup'}
-		<!-- <div>
-			<p>Logging in, Please wait...</p>
-			<hr />
-		</div> -->
+	{:else if $connection.step === 'InitializingOAuthPopup'}
 		{@render logo(provider, true)}
-	{:else if $alchemy.step === 'SignedIn'}
+	{:else if $connection.step === 'SignedIn'}
 		<div class="wrapper">
-			{#if $alchemy.requireOriginApproval}
-				{#if $alchemy.requireOriginApproval.requestingAccess}
+			{#if ($connection as any).requireOriginApproval}
+				{#if ($connection as any).requireOriginApproval.requestingAccess}
 					<p>
-						{$alchemy.requireOriginApproval.windowOrigin} is requesting access to account from {$alchemy
-							.requireOriginApproval.signingOrigin}
+						{($connection as any).requireOriginApproval.windowOrigin} is requesting access to account from {($connection as any).requireOriginApproval.signingOrigin}
 					</p>
 					<button
 						onclick={() => {
-							alchemy.confirmOriginAccess();
+							connection.confirmOriginAccess();
 							if (continueAfterLogin) {
 								continueAfterLogin();
 							}
 						}}
 						id="origin-accept"
-						type="submit">Accept</button
-					>
+						type="submit">Accept</button>
 					<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
 				{:else if goingToRedirect}
-					<!-- TODO timeout-->
 					<p>Please wait...</p>
 				{:else}
 					<p>Could not log you in, due to redirection failure</p>
@@ -93,7 +153,6 @@
 				<p>You are logged in!</p>
 				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
 			{:else if goingToRedirect}
-				<!-- TODO timeout-->
 				<p>Please wait...</p>
 			{:else}
 				<p>Could not log you in, due to redirection failure</p>

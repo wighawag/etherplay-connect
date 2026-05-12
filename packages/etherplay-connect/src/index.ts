@@ -1387,6 +1387,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	function connectViaPopup(popupSettings: PopupSettings) {
 		let popupURL = new URL(`${popupSettings.walletHost}/login/`);
 		let fullWindow = false;
+
+		const authProvider = (import.meta as any).env?.VITE_AUTH_PROVIDER || 'openfort';
+		popupURL.searchParams.append('provider', authProvider);
+
 		if (popupSettings.mechanism.type === 'mnemonic') {
 			popupURL.searchParams.append('type', 'mnemonic');
 		} else if (popupSettings.mechanism.type === 'email') {

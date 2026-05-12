@@ -1,0 +1,26 @@
+{
+	"name": "@etherplay/auth-provider",
+	"version": "0.0.0",
+	"description": "Abstract interface for auth backends in etherplay-connect",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"files": ["dist", "src"],
+	"dependencies": {
+		"@etherplay/connect-core": "workspace:*"
+	},
+	"devDependencies": {
+		"prettier": "^3.5.3",
+		"typescript": "^5.8.3"
+	},
+	"scripts": {
+		"build": "tsc --project tsconfig.json",
+		"dev": "tsc --project tsconfig.json --watch",
+		"format:check": "prettier --check .",
+		"format": "prettier --write ."
+	}
+}

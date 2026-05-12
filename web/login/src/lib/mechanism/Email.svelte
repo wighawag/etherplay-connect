@@ -1,15 +1,15 @@
 <script lang="ts">
-	import type {AlchemyConnectionStore} from '@etherplay/alchemy';
 	import {debounce} from '../utils';
 	import OTP from './components/OTP.svelte';
+	import type {UnifiedConnectionStore} from '../handler';
 
 	let {
-		alchemy,
+		connection,
 		continueAfterLogin,
 		goingToRedirect,
 		cancel,
 	}: {
-		alchemy: AlchemyConnectionStore;
+		connection: UnifiedConnectionStore;
 		goingToRedirect?: boolean;
 		continueAfterLogin?: () => void;
 		cancel: (error?: {message: string; cause?: any}) => void;
@@ -22,9 +22,8 @@
 	async function _submitOTP(text: string) {
 		console.log({otpCode: text});
 
-		// TODO test
 		try {
-			await alchemy.provideOTP(text);
+			await connection.provideOTP(text);
 		} catch (error) {
 			otp?.clear();
 			return;
@@ -32,34 +31,8 @@
 	}
 	export const submitOTP = debounce(_submitOTP, 500);
 
-	// TODO
-	// async function injectBundle(ev: Event) {
-	// 	ev.preventDefault();
-
-	// 	if (bundleURL === undefined) {
-	// 		// TODO error
-	// 		// alchemy.setError({message: 'no url provided', timeout: 3});
-	// 		return;
-	// 	}
-
-	// 	const signingState = await alchemy.injectBundle(bundleURL);
-	// 	if (signingState.error) {
-	// 		console.error(signingState.error);
-	// 	}
-	// }
-
 	async function onEmailChosen(ev: Event) {
 		ev.preventDefault();
-		// TODO
-		// if ($alchemy?.mechanism?.type != 'email') {
-		// 	// TODO
-		// 	// alchemy.setError({message: 'expected email'});
-		// 	return;
-		// }
-		// if ($alchemy.mechanismUsed.mode == 'saved') {
-		// 	alchemy.setError({message: 'cannot used saved here'});
-		// 	return;
-		// }
 		const emailInput = document.getElementById('email');
 		const email = (emailInput as any).value;
 
@@ -67,8 +40,7 @@
 	}
 
 	async function loginViaEmail(email: string, mode: 'otp' = 'otp') {
-		// TODO 'magicLink' |
-		await alchemy.connect({
+		await connection.connect({
 			type: 'email',
 			email,
 			mode,
@@ -77,9 +49,7 @@
 </script>
 
 <main>
-	<!-- Do not add link as this would disturb the flow -->
 	<div class="logo">
-		<!-- <img src="/logo_wide_with_text_on_black.svg" alt="Etherplay logo" /> -->
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
 			width="128"
@@ -91,14 +61,13 @@
 			stroke-linecap="round"
 			stroke-linejoin="round"
 			class="lucide lucide-mail"
-			><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg
-		>
+			><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg>
 	</div>
 
 	<div>
-		{#if !$alchemy || $alchemy.step === 'Initialising' || $alchemy.step === 'Initialised' || $alchemy.step === 'InitialisingMechanism' || $alchemy.step === 'MechanismToChoose' || $alchemy.step === 'MechanismChosen'}
+		{#if !$connection || $connection.step === 'Initialising' || $connection.step === 'Initialised' || $connection.step === 'InitialisingMechanism' || $connection.step === 'MechanismToChoose' || $connection.step === 'MechanismChosen'}
 			<h1>Please wait...</h1>
-		{:else if $alchemy.step === 'EmailToProvide'}
+		{:else if $connection.step === 'EmailToProvide'}
 			<h1>Sign in via Email</h1>
 			<form>
 				<input
@@ -113,52 +82,36 @@
 				<small id="email-info" style="display: none">Invalid Email</small>
 				<button onclick={onEmailChosen} id="login-submit" type="submit">Login</button>
 			</form>
-			<!-- TODO -->
-			<!-- {:else if $alchemy.step === 'WaitingForMagicLinkVerification'}
-			<p>You should shortly receive an email containing a link to click.</p>
-			<hr />
-
-			<p style="font-size: 1rem">You can also paste that link here:</p>
-			<fieldset>
-				<input autocomplete="off" bind:value={bundleURL} type="text" />
-				<button onclick={injectBundle} id="bundle-inject" type="submit">proceed</button>
-			</fieldset> -->
-		{:else if $alchemy.step === 'WaitingForOTP'}
+		{:else if $connection.step === 'WaitingForOTP'}
 			<p>You should shortly receive an email containing a code.</p>
 			<p id="WaitingForOTPVerification:message"></p>
 			<hr />
 
 			<p style="font-size: 1rem">Paste it here.</p>
-			<!-- TODO -->
-			<!-- <OTP bind:this={otp} onAcknowledge={() => alchemy.acknowledgeError()} onCodeUpdated={submitOTP} /> -->
 			<OTP bind:this={otp} onAcknowledge={() => {}} onCodeUpdated={submitOTP} />
-			<!-- <button id="verify-btn">Verify OTP</button> -->
-		{:else if $alchemy.step === 'VerifyingOTP'}
+		{:else if $connection.step === 'VerifyingOTP'}
 			<p>Verifying OTP...</p>
 			<hr />
-		{:else if $alchemy.step === 'GeneratingAccount'}
+		{:else if $connection.step === 'GeneratingAccount'}
 			<p>Email Verified, Please wait...</p>
 			<hr />
-		{:else if $alchemy.step === 'SignedIn'}
-			{#if $alchemy.requireOriginApproval}
-				{#if $alchemy.requireOriginApproval.requestingAccess}
+		{:else if $connection.step === 'SignedIn'}
+			{#if ($connection as any).requireOriginApproval}
+				{#if ($connection as any).requireOriginApproval.requestingAccess}
 					<p>
-						{$alchemy.requireOriginApproval.windowOrigin} is requesting access to account from {$alchemy
-							.requireOriginApproval.signingOrigin}
+						{($connection as any).requireOriginApproval.windowOrigin} is requesting access to account from {($connection as any).requireOriginApproval.signingOrigin}
 					</p>
 					<button
 						onclick={() => {
-							alchemy.confirmOriginAccess();
+							connection.confirmOriginAccess();
 							if (continueAfterLogin) {
 								continueAfterLogin();
 							}
 						}}
 						id="origin-accept"
-						type="submit">Accept</button
-					>
+						type="submit">Accept</button>
 					<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
 				{:else if goingToRedirect}
-					<!-- TODO timeout-->
 					<p>Please wait...</p>
 				{:else}
 					<p>Could not log you in, due to redirection failure</p>
@@ -168,7 +121,6 @@
 				<p>You are logged in!</p>
 				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
 			{:else if goingToRedirect}
-				<!-- TODO timeout-->
 				<p>Please wait...</p>
 			{:else}
 				<p>Could not log you in, due to redirection failure</p>

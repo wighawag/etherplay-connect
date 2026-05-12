@@ -1,5 +1,6 @@
-import type {AlchemyConnectionStore, AlchemyMechanismIncludingRedirects} from '@etherplay/alchemy';
 import {handle} from './handler';
+import {EthereumAccountGenerator} from '@etherplay/wallet-connector-ethereum';
+import type {UnifiedConnectionStore} from './handler';
 
 const errors: {message: string; canClose: boolean}[] = [];
 
@@ -18,9 +19,6 @@ if ((!source || window.opener.closed) && navigator.userAgent.includes('MetaMaskM
 		});
 	}
 } else if (window.parent != window) {
-	// TODO delete
-	// we should not reach there, this is to be used in a popup
-	// source = window.parent;
 }
 
 export const url = new URL(location.href);
@@ -29,6 +27,7 @@ export const windowOrigin = searchParams.get('origin');
 export const signingOrigin = searchParams.get('signingOrigin');
 export const requestID = searchParams.get('id');
 export const type = searchParams.get('type');
+export const providerType = searchParams.get('provider');
 
 export const debug = searchParams.get('debug');
 export const emailStr = searchParams.get('email');
@@ -45,28 +44,27 @@ const alchemyOrgId = searchParams.get('alchemy-org-id');
 const alchemyIdToken = searchParams.get('alchemy-id-token');
 const alchemyBundle = searchParams.get('alchemy-bundle');
 const alchemyError = searchParams.get('alchemy-error');
-const domainRedirectPublicKey = searchParams.get('domain-redirect-public-key') || undefined;
-const accountType = searchParams.get('account-type') || 'ethereum';
+export const domainRedirectPublicKey = searchParams.get('domain-redirect-public-key') || undefined;
+export const accountType = searchParams.get('account-type') || 'ethereum';
 
 const rpcURL: string | null = searchParams.get('alchemy-api') || import.meta.env.VITE_ALCHEMY_RPC_URL;
 const apiKeyNotRecommended: string | null =
 	searchParams.get('api-key') || import.meta.env.VITE_ALCHEMY_API_KEY_NOT_RECOMMENDED;
 
-let alchemy:
-	| {
-			connection: AlchemyConnectionStore;
-			from: {
-				source?: MessageEventSource;
-				windowOrigin: string;
-				signingOrigin: string;
-				requestID: string;
-				domainRedirectPublicKey?: string;
-				canCloseAutomatically: boolean;
-			};
-	  }
-	| undefined;
+const authProvider = import.meta.env.VITE_AUTH_PROVIDER || 'openfort';
+const usePopupProvider = providerType || authProvider;
 
-let mechanism: AlchemyMechanismIncludingRedirects | undefined;
+let mechanism:
+	| {type: 'email'; email?: string; mode?: 'otp'}
+	| {type: 'oauth'; provider: {id: string; connection?: string}; usePopup?: boolean}
+	| {type: 'oauth-redirect'; provider: {id: string; connection?: string}}
+		& (
+			| {alchemyOrgId: string; alchemyIdToken: string; alchemyBundle: string}
+			| {error: string}
+		)
+	| {type: 'mnemonic'; mnemonic: string; index?: number}
+	| {type: 'magicLink'; bundle: string; orgId: string}
+	| undefined;
 
 if (!type) {
 	if (bundle && orgId) {
@@ -78,48 +76,24 @@ if (!type) {
 	} else {
 		errors.push({message: `invalid magic link url`, canClose: true});
 	}
-	// errors.push({message: `do not support magic links for now`});
 } else {
 	if (type === 'oauth') {
-		if (oauth === 'google' || oauth === 'facebook') {
+		if (oauth) {
 			if (oauthRedirection) {
 				if (!windowOrigin || !requestID) {
-					// TODO errors.push
 					throw new Error(`no origin or requestID`);
 				}
 				mechanism = {
 					type: 'oauth',
-					provider: {id: oauth},
+					provider: {id: oauth, connection: oauthConnection || undefined},
 					usePopup: false,
 				};
 			} else {
 				mechanism = {
 					type: 'oauth',
-					provider: {id: oauth},
+					provider: {id: oauth, connection: oauthConnection || undefined},
 					usePopup: true,
 				};
-			}
-		} else if (oauth === 'auth0') {
-			if (!oauthConnection) {
-				errors.push({message: `invalid oauthConnection: ${oauthConnection}`, canClose: true});
-			} else {
-				if (oauthRedirection) {
-					if (!windowOrigin || !requestID) {
-						// TODO errors.push
-						throw new Error(`no origin or requestID`);
-					}
-					mechanism = {
-						type: 'oauth',
-						provider: {id: oauth, connection: oauthConnection},
-						usePopup: false,
-					};
-				} else {
-					mechanism = {
-						type: 'oauth',
-						provider: {id: oauth, connection: oauthConnection},
-						usePopup: true,
-					};
-				}
 			}
 		} else {
 			errors.push({message: `invalid oauthProviderUsed: ${oauth}`, canClose: true});
@@ -127,63 +101,29 @@ if (!type) {
 	} else if (type === 'oauth-redirect') {
 		if (alchemyError) {
 			if (!windowOrigin || !requestID) {
-				// TODO errors.push
 				throw new Error(`no origin or requestID`);
 			}
-			if (oauth === 'google' || oauth === 'facebook') {
+			if (oauth) {
 				mechanism = {
 					type: 'oauth-redirect',
-					provider: {id: oauth},
+					provider: {id: oauth, connection: oauthConnection || undefined},
 					error: alchemyError,
-					redirection: {
-						origin: windowOrigin,
-						requestID,
-					},
 				};
-			} else if (oauth === 'auth0') {
-				if (!oauthConnection) {
-					errors.push({message: `invalid oauthConnection: ${oauthConnection}`, canClose: true});
-				} else {
-					mechanism = {
-						type: 'oauth-redirect',
-						provider: {id: oauth, connection: oauthConnection},
-						error: alchemyError,
-						redirection: {
-							origin: windowOrigin,
-							requestID,
-						},
-					};
-				}
 			} else {
 				errors.push({message: `invalid oauthProviderUsed: ${oauth}`, canClose: true});
 			}
 		} else if (alchemyBundle && alchemyIdToken && alchemyOrgId && oauth) {
 			if (!windowOrigin || !requestID) {
-				// TODO errors.push
 				throw new Error(`no origin or requestID`);
 			}
-			if (oauth === 'google' || oauth === 'facebook') {
+			if (oauth) {
 				mechanism = {
 					type: 'oauth-redirect',
-					provider: {id: oauth},
-					redirection: {origin: windowOrigin, requestID},
+					provider: {id: oauth, connection: oauthConnection || undefined},
 					alchemyOrgId,
 					alchemyIdToken,
 					alchemyBundle,
 				};
-			} else if (oauth === 'auth0') {
-				if (!oauthConnection) {
-					errors.push({message: `invalid oauthConnection: ${oauthConnection}`, canClose: true});
-				} else {
-					mechanism = {
-						type: 'oauth-redirect',
-						provider: {id: oauth, connection: oauthConnection},
-						redirection: {origin: windowOrigin, requestID},
-						alchemyOrgId,
-						alchemyIdToken,
-						alchemyBundle,
-					};
-				}
 			} else {
 				errors.push({message: `invalid oauthProviderUsed: ${oauth}`, canClose: true});
 			}
@@ -211,8 +151,22 @@ if (!type) {
 	}
 }
 
+let connectionStore: UnifiedConnectionStore | undefined;
+let fromProps: {
+	source?: MessageEventSource;
+	windowOrigin: string;
+	signingOrigin: string;
+	requestID: string;
+	domainRedirectPublicKey?: string;
+	canCloseAutomatically: boolean;
+} | undefined;
+
+if (!usePopupProvider) {
+	errors.push({message: `no auth provider configured`, canClose: true});
+}
+
 if (errors.length == 0 && windowOrigin && (rpcURL || apiKeyNotRecommended) && requestID && mechanism && accountType) {
-	console.log(`mechanism`, mechanism);
+	console.log(`mechanism`, mechanism, `provider`, usePopupProvider);
 	let canCloseAutomatically = false;
 	if (type === 'mnemonic') {
 		canCloseAutomatically = true;
@@ -227,28 +181,32 @@ if (errors.length == 0 && windowOrigin && (rpcURL || apiKeyNotRecommended) && re
 	}
 
 	const signingOriginToUse = signingOrigin || windowOrigin;
-	alchemy = {
-		connection: handle({
-			mechanism,
-			rpcURL,
-			apiKeyNotRecommended,
-			windowOrigin,
-			signingOrigin: signingOriginToUse,
-			requestID,
-			accountType,
-		}),
-		from: {
-			source,
-			windowOrigin,
-			signingOrigin: signingOriginToUse,
-			requestID: requestID,
-			domainRedirectPublicKey,
-			canCloseAutomatically,
-		},
+	const accountGenerator: any =
+		accountType === 'ethereum' ? new EthereumAccountGenerator() : undefined;
+
+	connectionStore = handle({
+		mechanism,
+		rpcURL,
+		apiKeyNotRecommended,
+		windowOrigin,
+		signingOrigin: signingOriginToUse,
+		requestID,
+		accountType,
+		provider: usePopupProvider as 'openfort' | 'alchemy',
+		accountGenerator,
+	});
+
+	fromProps = {
+		source,
+		windowOrigin,
+		signingOrigin: signingOriginToUse,
+		requestID: requestID,
+		domainRedirectPublicKey,
+		canCloseAutomatically,
 	};
 
 	if (typeof window !== 'undefined') {
-		(window as any).alchemy = alchemy;
+		(window as any).connection = connectionStore;
 	}
 } else {
 	if (!accountType) {
@@ -271,4 +229,4 @@ if (errors.length == 0 && windowOrigin && (rpcURL || apiKeyNotRecommended) && re
 	}
 }
 
-export {alchemy, errors};
+export {connectionStore, errors, usePopupProvider, fromProps};
