@@ -192,6 +192,9 @@ importers:
       '@scure/bip39':
         specifier: ^1.5.4
         version: 1.6.0
+      sveltore:
+        specifier: ^0.0.2
+        version: 0.0.2
     devDependencies:
       as-soon:
         specifier: ^0.0.11
@@ -4618,6 +4621,9 @@ packages:
   svelte@5.25.12:
     resolution: {integrity: sha512-4Y3mRN4fuZicNwBeb7sPPEUmiNIoN4lwf2NWD6CJdtYM3xVoOvjXhHQayIRbE0pTHG0mgk88n8WZvuOiNbtD8Q==}
     engines: {node: '>=18'}
+
+  sveltore@0.0.2:
+    resolution: {integrity: sha512-MqUEo9y7Mh4qy5sNEF05+t7sxhGHYa5dv25+xZSulxFMHFlAYUIPAVXp3Eeu6XtpdV0w6P3izmzgwJf07+3UOw==}
 
   symbol-tree@3.2.4:
     resolution: {integrity: sha512-9QNk5KwDF+Bvz+PyObkmSYjI5ksVUYtjW7AU22r2NKcfLJcXp96hkDWU3+XndOsUb+AQ9QhfzfCT2O+CNWT5Tw==}
@@ -10451,6 +10457,8 @@ snapshots:
       locate-character: 3.0.0
       magic-string: 0.30.17
       zimmerframe: 1.1.2
+
+  sveltore@0.0.2: {}
 
   symbol-tree@3.2.4:
     optional: true

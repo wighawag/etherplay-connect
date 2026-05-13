@@ -1,20 +1,20 @@
 <script lang="ts">
-	import type {ConnectionStore} from '../handler';
+	import type {AuthProvider} from '@etherplay/connect-core';
 
 	let {
-		connection,
+		authProvider,
 		continueAfterLogin,
 		goingToRedirect,
 		cancel,
 	}: {
-		connection: ConnectionStore;
+		authProvider: AuthProvider;
 		continueAfterLogin?: () => void;
 		goingToRedirect?: boolean;
 		cancel: (error?: {message: string; cause?: any}) => void;
 	} = $props();
 
 	async function pickAccount(index: number) {
-		await connection.provideMnemonicIndex(index);
+		await authProvider.provideMnemonicIndex(index);
 	}
 </script>
 
@@ -38,10 +38,10 @@
 	</div>
 
 	<div>
-		{#if !$connection || $connection.step === 'Idle'}
+		{#if !$authProvider || $authProvider.step === 'Idle'}
 			<h1>Please wait...</h1>
-		{:else if $connection.step === 'SignedIn'}
-			{#if $connection.result}
+		{:else if $authProvider.step === 'SignedIn'}
+			{#if $authProvider.result}
 				{#if continueAfterLogin}
 					<p>You are logged in!</p>
 					<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
@@ -52,8 +52,8 @@
 					<button onclick={() => cancel()}>Return</button>
 				{/if}
 			{/if}
-		{:else if $connection.step === 'Error'}
-			<p>Error: {$connection.message}</p>
+		{:else if $authProvider.error}
+			<p>Error: {$authProvider.error.message}</p>
 			<button onclick={() => cancel()}>Return</button>
 		{/if}
 	</div>

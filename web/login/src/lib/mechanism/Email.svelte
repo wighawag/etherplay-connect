@@ -1,15 +1,15 @@
 <script lang="ts">
+	import type {AuthProvider} from '@etherplay/connect-core';
 	import {debounce} from '../utils';
 	import OTP from './components/OTP.svelte';
-	import type {ConnectionStore} from '../handler';
 
 	let {
-		connection,
+		authProvider,
 		continueAfterLogin,
 		goingToRedirect,
 		cancel,
 	}: {
-		connection: ConnectionStore;
+		authProvider: AuthProvider;
 		goingToRedirect?: boolean;
 		continueAfterLogin?: () => void;
 		cancel: (error?: {message: string; cause?: any}) => void;
@@ -23,7 +23,7 @@
 		console.log({otpCode: text});
 
 		try {
-			await connection.provideOTP(text);
+			await authProvider.provideOTP(text);
 		} catch (error) {
 			otp?.clear();
 			return;
@@ -40,7 +40,7 @@
 	}
 
 	async function loginViaEmail(email: string, mode: 'otp' = 'otp') {
-		await connection.connect({
+		await authProvider.connect({
 			type: 'email',
 			email,
 			mode,
@@ -66,9 +66,9 @@
 	</div>
 
 	<div>
-		{#if !$connection || $connection.step === 'Idle'}
+		{#if !$authProvider || $authProvider.step === 'Idle'}
 			<h1>Please wait...</h1>
-		{:else if $connection.step === 'EmailToProvide'}
+		{:else if $authProvider.step === 'EmailToProvide'}
 			<h1>Sign in via Email</h1>
 			<form>
 				<input
@@ -83,21 +83,21 @@
 				<small id="email-info" style="display: none">Invalid Email</small>
 				<button onclick={onEmailChosen} id="login-submit" type="submit">Login</button>
 			</form>
-		{:else if $connection.step === 'WaitingForOTP'}
+		{:else if $authProvider.step === 'WaitingForOTP'}
 			<p>You should shortly receive an email containing a code.</p>
 			<p id="WaitingForOTPVerification:message"></p>
 			<hr />
 
 			<p style="font-size: 1rem">Paste it here.</p>
 			<OTP bind:this={otp} onAcknowledge={() => {}} onCodeUpdated={submitOTP} />
-		{:else if $connection.step === 'VerifyingOTP'}
+		{:else if $authProvider.step === 'VerifyingOTP'}
 			<p>Verifying OTP...</p>
 			<hr />
-		{:else if $connection.step === 'GeneratingAccount'}
+		{:else if $authProvider.step === 'GeneratingAccount'}
 			<p>Email Verified, Please wait...</p>
 			<hr />
-		{:else if $connection.step === 'SignedIn'}
-			{#if $connection.result}
+		{:else if $authProvider.step === 'SignedIn'}
+			{#if $authProvider.result}
 				{#if continueAfterLogin}
 					<p>You are logged in!</p>
 					<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
@@ -108,8 +108,8 @@
 					<button onclick={() => cancel()}>Return</button>
 				{/if}
 			{/if}
-		{:else if $connection.step === 'Error'}
-			<p>Error: {$connection.message}</p>
+		{:else if $authProvider.error}
+			<p>Error: {$authProvider.error.message}</p>
 			<button onclick={() => cancel()}>Return</button>
 		{/if}
 	</div>

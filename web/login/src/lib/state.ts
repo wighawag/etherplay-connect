@@ -1,6 +1,5 @@
-import type {AuthMechanism} from '@etherplay/connect-core';
-import {createConnection} from './handler';
-import type {ConnectionStore} from './handler';
+import type {AuthMechanism, AuthProvider} from '@etherplay/connect-core';
+import {createAuthProvider} from './handler';
 import {EthereumAccountGenerator} from '@etherplay/wallet-connector-ethereum';
 
 const errors: {message: string; canClose: boolean}[] = [];
@@ -112,7 +111,7 @@ if (!type) {
 	}
 }
 
-let connectionStore: ConnectionStore | undefined;
+let authProvider: AuthProvider | undefined;
 let fromProps:
 	| {
 			source?: MessageEventSource;
@@ -154,14 +153,14 @@ if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType 
 
 	const signingOriginToUse = signingOrigin || windowOrigin;
 
-	connectionStore = createConnection(accountGenerator, windowOrigin, signingOriginToUse);
+	authProvider = createAuthProvider(accountGenerator, windowOrigin, signingOriginToUse);
 
 	// Trigger the auth flow
 	// if (mechanism.type === 'oauth-redirect') {
-	// 	connectionStore.confirmOAuth().catch(console.error);
+	// 	authProvider.confirmOAuth().catch(console.error);
 	// } else
 	// if (mechanism.type === 'email' || mechanism.type === 'oauth' || mechanism.type === 'mnemonic') {
-	connectionStore.connect(mechanism).catch(console.error);
+	authProvider.connect(mechanism).catch(console.error);
 	// }
 
 	fromProps = {
@@ -174,7 +173,7 @@ if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType 
 	};
 
 	if (typeof window !== 'undefined') {
-		(window as any).connection = connectionStore;
+		(window as any).authProvider = authProvider;
 	}
 } else {
 	if (!accountType) {
@@ -192,4 +191,4 @@ if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType 
 	}
 }
 
-export {connectionStore, errors, authProviderType, fromProps};
+export {authProvider, errors, authProviderType, fromProps};

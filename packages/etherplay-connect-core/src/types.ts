@@ -131,10 +131,17 @@ export type AuthState = {error?: {message: string; cause?: any}} & (
 	  }
 );
 
-export interface AuthProvider {
+type Readable<T> = {
+	subscribe(func: (state: T) => void): () => void;
+};
+
+export interface AuthProvider extends Readable<AuthState> {
 	init(settings: AuthProviderSettings): Promise<void>;
 	connect(mechanism: AuthMechanism): Promise<void>;
+	provideEmail: (email: string) => Promise<void>;
 	provideOTP(otp: string): Promise<void>;
+	provideMnemonicIndex: (index: number) => Promise<void>;
 	confirmOAuth(): Promise<void>;
+	generateOriginAccount: (origin: string) => Promise<OriginAccount>;
 	getState(): AuthState;
 }

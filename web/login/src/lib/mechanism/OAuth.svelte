@@ -1,13 +1,13 @@
 <script lang="ts">
-	import type {ConnectionStore} from '../handler';
+	import type {AuthProvider} from '@etherplay/connect-core';
 
 	let {
-		connection,
+		authProvider,
 		continueAfterLogin,
 		goingToRedirect,
 		cancel,
 	}: {
-		connection: ConnectionStore;
+		authProvider: AuthProvider;
 		continueAfterLogin?: () => void;
 		goingToRedirect?: boolean;
 		cancel: (error?: {message: string; cause?: any}) => void;
@@ -16,17 +16,17 @@
 	let popupRef: {contentWindow?: Window | null} | null = null;
 
 	let provider = $derived(
-		$connection && $connection.step === 'ConfirmOAuth' ? ($connection as any).provider || 'unknown' : 'unknown',
+		$authProvider && $authProvider.step === 'ConfirmOAuth' ? ($authProvider as any).provider || 'unknown' : 'unknown',
 	);
 
 	let usePopup = $derived(
-		$connection && ($connection as any).mechanism?.type === 'oauth'
-			? ($connection as any).mechanism?.usePopup !== false
+		'mechanism' in $authProvider && $authProvider.mechanism?.type === 'oauth'
+			? ($authProvider as any).mechanism?.usePopup !== false
 			: true,
 	);
 
 	async function handleOAuthContinue() {
-		const state = $connection;
+		const state = $authProvider;
 		if (state?.step === 'ConfirmOAuth') {
 			popupRef = window.open('', '_blank', 'width=600,height=600');
 			if (popupRef?.contentWindow) {
@@ -76,18 +76,18 @@
 {/snippet}
 
 <main>
-	{#if !$connection || $connection.step === 'Idle'}
+	{#if !$authProvider || $authProvider.step === 'Idle'}
 		{@render logo(provider, true)}
-	{:else if $connection.step === 'ConfirmOAuth'}
+	{:else if $authProvider.step === 'ConfirmOAuth'}
 		{@render logo(provider, false)}
 		<div class="wrapper" style="margin-top: 5rem">
 			<button onclick={handleOAuthContinue} type="submit">continue</button>
 		</div>
-	{:else if $connection.step === 'WaitingForOAuthResponse'}
+	{:else if $authProvider.step === 'WaitingForOAuthResponse'}
 		{@render logo(provider, true)}
-	{:else if $connection.step === 'SignedIn'}
+	{:else if $authProvider.step === 'SignedIn'}
 		<div class="wrapper">
-			{#if $connection.result}
+			{#if $authProvider.result}
 				{#if continueAfterLogin}
 					<p>You are logged in!</p>
 					<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
@@ -99,8 +99,8 @@
 				{/if}
 			{/if}
 		</div>
-	{:else if $connection.step === 'Error'}
-		<p>Error: {$connection.message}</p>
+	{:else if $authProvider.error}
+		<p>Error: {$authProvider.error.message}</p>
 		<button onclick={() => cancel()}>Return</button>
 	{/if}
 </main>

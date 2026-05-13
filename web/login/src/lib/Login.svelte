@@ -4,13 +4,13 @@
 	import Email from './mechanism/Email.svelte';
 	import Loading from './Loading.svelte';
 	import {debug} from './state';
-	import type {ConnectionStore} from './handler';
+	import type {AuthProvider} from '@etherplay/connect-core';
 
 	let {
-		connection,
+		authProvider,
 		from,
 	}: {
-		connection: ConnectionStore;
+		authProvider: AuthProvider;
 		from: {
 			source?: MessageEventSource;
 			windowOrigin: string;
@@ -64,7 +64,7 @@
 			}
 		}, 10000);
 
-		connection?.subscribe((v) => {
+		authProvider.subscribe((v) => {
 			if (v?.step === 'SignedIn') {
 				if (from.domainRedirectPublicKey) {
 				} else {
@@ -84,11 +84,11 @@
 	});
 
 	async function continueAfterLogin() {
-		if ($connection?.step !== 'SignedIn') {
+		if ($authProvider.step !== 'SignedIn') {
 			throw new Error(`not signed in`);
 		}
 
-		if ($connection.requireOriginApproval && $connection.requireOriginApproval.requestingAccess) {
+		if ($authProvider.requireOriginApproval && $authProvider.requireOriginApproval.requestingAccess) {
 			throw new Error(`origin not approved`);
 		}
 		await postResultIfNotAlreadyPosted();
@@ -106,15 +106,15 @@
 		}
 		if (!resultPosted) {
 			try {
-				if ($connection?.step === 'SignedIn' && $connection.result) {
-					const result = await connection.generateOriginAccount(from.signingOrigin, $connection.result);
+				if ($authProvider.step === 'SignedIn' && $authProvider.result) {
+					const result = await authProvider.generateOriginAccount(from.signingOrigin, $authProvider.result);
 					if (debug) {
 						console.log('postMessage', {result, id: from.requestID}, {targetOrigin: from.windowOrigin});
 					}
 					from.source.postMessage({result, id: from.requestID}, {targetOrigin: from.windowOrigin});
 					resultPosted = true;
 				} else {
-					throw new Error(`invalid step: ${$connection?.step}`);
+					throw new Error(`invalid step: ${$authProvider.step}`);
 				}
 			} catch (e) {
 				console.error(e);
@@ -159,29 +159,29 @@
 </script>
 
 <div class="root">
-	{#if $connection?.step === 'Error'}
+	{#if $authProvider.error}
 		<div class="banner">
-			<p>{$connection.message}</p>
+			<p>{$authProvider.error}</p>
 		</div>
 	{/if}
-	{#if !$connection || ($connection.step !== 'EmailToProvide' && $connection.step !== 'WaitingForOTP' && $connection.step !== 'VerifyingOTP' && $connection.step !== 'ConfirmOAuth' && $connection.step !== 'WaitingForOAuthResponse' && $connection.step !== 'GeneratingAccount' && $connection.step !== 'SignedIn')}
+	{#if !$authProvider || ($authProvider.step !== 'EmailToProvide' && $authProvider.step !== 'WaitingForOTP' && $authProvider.step !== 'VerifyingOTP' && $connection.step !== 'ConfirmOAuth' && $connection.step !== 'WaitingForOAuthResponse' && $connection.step !== 'GeneratingAccount' && $connection.step !== 'SignedIn')}
 		<Loading />
-	{:else if $connection.step === 'WaitingForOTP' || $connection.step === 'VerifyingOTP'}
+	{:else if $authProvider.step === 'WaitingForOTP' || $authProvider.step === 'VerifyingOTP'}
 		<Email
-			connection={connection!}
+			{authProvider}
 			goingToRedirect={!!from.domainRedirectPublicKey}
 			continueAfterLogin={from.source ? continueAfterLogin : undefined}
 			{cancel}
 		/>
-	{:else if $connection.step === 'ConfirmOAuth' || $connection.step === 'WaitingForOAuthResponse'}
+	{:else if $authProvider.step === 'ConfirmOAuth' || $authProvider.step === 'WaitingForOAuthResponse'}
 		<OAuth
-			connection={connection!}
+			{authProvider}
 			goingToRedirect={!!from.domainRedirectPublicKey}
 			continueAfterLogin={from.source ? continueAfterLogin : undefined}
 			{cancel}
 		/>
-	{:else if $connection.step === 'SignedIn'}
-		{#if $connection.result}
+	{:else if $authProvider.step === 'SignedIn'}
+		{#if $authProvider.result}
 			{#if false}
 				<!-- requireOriginApproval is not in AuthState, handled by mechanism components -->
 				<p>Waiting for origin approval...</p>
@@ -195,7 +195,7 @@
 		{/if}
 	{:else}
 		<main>
-			<p>{$connection.step}</p>
+			<p>{$authProvider.step}</p>
 		</main>
 	{/if}
 </div>
