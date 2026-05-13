@@ -2,17 +2,15 @@
 	import {onMount} from 'svelte';
 	import OAuth from './mechanism/OAuth.svelte';
 	import Email from './mechanism/Email.svelte';
-	import Mnemonic from './mechanism/Mnemonic.svelte';
-	import {get} from 'svelte/store';
 	import Loading from './Loading.svelte';
 	import {debug} from './state';
-	import type {UnifiedConnectionStore, UnifiedConnectionState} from './handler';
+	import type {ConnectionStore} from './handler';
 
 	let {
 		connection,
 		from,
 	}: {
-		connection: UnifiedConnectionStore;
+		connection: ConnectionStore;
 		from: {
 			source?: MessageEventSource;
 			windowOrigin: string;
@@ -66,7 +64,7 @@
 			}
 		}, 10000);
 
-		connection.subscribe((v) => {
+		connection?.subscribe((v) => {
 			if (v?.step === 'SignedIn') {
 				if (from.domainRedirectPublicKey) {
 				} else {
@@ -108,16 +106,15 @@
 		}
 		if (!resultPosted) {
 			try {
-				const state = get(connection);
-				if (state?.step === 'SignedIn') {
-					const result = await connection.generateOriginAccount(from.signingOrigin, state.account);
+				if ($connection?.step === 'SignedIn' && $connection.result) {
+					const result = await connection.generateOriginAccount(from.signingOrigin, $connection.result);
 					if (debug) {
 						console.log('postMessage', {result, id: from.requestID}, {targetOrigin: from.windowOrigin});
 					}
 					from.source.postMessage({result, id: from.requestID}, {targetOrigin: from.windowOrigin});
 					resultPosted = true;
 				} else {
-					throw new Error(`invalid step: ${state?.step}`);
+					throw new Error(`invalid step: ${$connection?.step}`);
 				}
 			} catch (e) {
 				console.error(e);
@@ -167,33 +164,35 @@
 			<p>{$connection.message}</p>
 		</div>
 	{/if}
-	{#if !$connection || $connection.step === 'Initialised' || $connection.step === 'Initialising'}
+	{#if !$connection || ($connection.step !== 'EmailToProvide' && $connection.step !== 'WaitingForOTP' && $connection.step !== 'VerifyingOTP' && $connection.step !== 'ConfirmOAuth' && $connection.step !== 'WaitingForOAuthResponse' && $connection.step !== 'GeneratingAccount' && $connection.step !== 'SignedIn')}
 		<Loading />
-	{:else if $connection.step === 'MechanismToChoose'}
-		<main>
-			<p>Not Supported</p>
-		</main>
-	{:else if $connection.mechanism?.type == 'email'}
+	{:else if $connection.step === 'WaitingForOTP' || $connection.step === 'VerifyingOTP'}
 		<Email
-			connection={$connection as any}
+			connection={connection!}
 			goingToRedirect={!!from.domainRedirectPublicKey}
 			continueAfterLogin={from.source ? continueAfterLogin : undefined}
 			{cancel}
 		/>
-	{:else if $connection.mechanism?.type == 'oauth'}
+	{:else if $connection.step === 'ConfirmOAuth' || $connection.step === 'WaitingForOAuthResponse'}
 		<OAuth
-			connection={$connection as any}
+			connection={connection!}
 			goingToRedirect={!!from.domainRedirectPublicKey}
 			continueAfterLogin={from.source ? continueAfterLogin : undefined}
 			{cancel}
 		/>
-	{:else if $connection.mechanism?.type == 'mnemonic'}
-		<Mnemonic
-			connection={$connection as any}
-			goingToRedirect={!!from.domainRedirectPublicKey}
-			continueAfterLogin={from.source ? continueAfterLogin : undefined}
-			{cancel}
-		/>
+	{:else if $connection.step === 'SignedIn'}
+		{#if $connection.result}
+			{#if false}
+				<!-- requireOriginApproval is not in AuthState, handled by mechanism components -->
+				<p>Waiting for origin approval...</p>
+			{:else if from.source}
+				<p>You are logged in!</p>
+				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
+			{:else}
+				<p>Could not log you in, due to redirection failure</p>
+				<button onclick={() => cancel('redirection failure')}>Return</button>
+			{/if}
+		{/if}
 	{:else}
 		<main>
 			<p>{$connection.step}</p>

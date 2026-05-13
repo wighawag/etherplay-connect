@@ -1,18 +1,13 @@
-import type {
-	AuthProvider,
-	AuthProviderSettings,
-	AuthMechanism,
-	AuthResult,
-	AuthState,
-} from '@etherplay/auth-provider';
 import type {AccountGenerator} from '@etherplay/wallet-connector';
 import {
+	AuthMechanism,
+	AuthProvider,
+	AuthProviderSettings,
+	AuthState,
 	fromEntropyKeyToMnemonic,
 	fromSignatureToKey,
+	OriginAccount,
 	originKeyMessage,
-	type ProviderEmailMechanism,
-	type ProviderMnemonicMechanism,
-	type ProviderOauthMechanism,
 } from '@etherplay/connect-core';
 import {mnemonicToEntropy} from '@scure/bip39';
 import {bytesToHex} from '@noble/hashes/utils';
@@ -54,9 +49,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 
 		openfortInstance = new OpenfortSDK.Openfort({
 			baseConfiguration: {publishableKey: pk},
-			shieldConfiguration: shield
-				? {shieldPublishableKey: shield}
-				: undefined,
+			shieldConfiguration: shield ? {shieldPublishableKey: shield} : undefined,
 		});
 
 		await openfortInstance.waitForInitialization();
@@ -69,7 +62,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 		}
 
 		if (mechanism.type === 'email') {
-			const emailMech = mechanism as ProviderEmailMechanism;
+			const emailMech = mechanism;
 			currentEmail = emailMech.email;
 
 			if (!currentEmail) {
@@ -80,7 +73,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			currentState = {step: 'WaitingForOTP', email: currentEmail};
 			await openfortInstance.auth.requestEmailOtp({email: currentEmail});
 		} else if (mechanism.type === 'oauth') {
-			const oauthMech = mechanism as ProviderOauthMechanism;
+			const oauthMech = mechanism;
 			const providerId = oauthMech.provider.id;
 
 			// Map provider id to Openfort OAuth provider enum
@@ -126,7 +119,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				}
 			}
 		} else if (mechanism.type === 'mnemonic') {
-			const mnemonicMech = mechanism as ProviderMnemonicMechanism;
+			const mnemonicMech = mechanism;
 			const mnemonic = mnemonicMech.mnemonic || settings.accountGenerator.type;
 			const index = mnemonicMech.index ?? 0;
 
@@ -148,7 +141,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				const originMnemonic = fromEntropyKeyToMnemonic(originKey);
 				const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
 
-				const result: AuthResult = {
+				const result: OriginAccount = {
 					address,
 					signer: {
 						origin: settings.signingOrigin,
@@ -195,7 +188,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			const originMnemonic = fromEntropyKeyToMnemonic(originKey);
 			const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
 
-			const result: AuthResult = {
+			const result: OriginAccount = {
 				address: (await openfortInstance.embeddedWallet.getAddress()) as `0x${string}`,
 				signer: {
 					origin: settings.signingOrigin,
@@ -248,7 +241,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			const originMnemonic = fromEntropyKeyToMnemonic(originKey);
 			const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
 
-			const result: AuthResult = {
+			const result: OriginAccount = {
 				address: (await openfortInstance.embeddedWallet.getAddress()) as `0x${string}`,
 				signer: {
 					origin: settings.signingOrigin,

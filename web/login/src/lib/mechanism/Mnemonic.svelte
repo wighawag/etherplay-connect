@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type {UnifiedConnectionStore} from '../handler';
+	import type {ConnectionStore} from '../handler';
 
 	let {
 		connection,
@@ -7,7 +7,7 @@
 		goingToRedirect,
 		cancel,
 	}: {
-		connection: UnifiedConnectionStore;
+		connection: ConnectionStore;
 		continueAfterLogin?: () => void;
 		goingToRedirect?: boolean;
 		cancel: (error?: {message: string; cause?: any}) => void;
@@ -33,53 +33,28 @@
 			class="lucide lucide-venetian-mask"
 			><path d="M18 11c-1.5 0-2.5.5-3 2" /><path
 				d="M4 6a2 2 0 0 0-2 2v4a5 5 0 0 0 5 5 8 8 0 0 1 5 2 8 8 0 0 1 5-2 5 5 0 0 0 5-5V8a2 2 0 0 0-2-2h-3a8 8 0 0 0-5 2 8 8 0 0 0-5-2z"
-			/><path d="M6 11c1.5 0 2.5.5 3 2" /></svg>
+			/><path d="M6 11c1.5 0 2.5.5 3 2" /></svg
+		>
 	</div>
 
 	<div>
-		{#if !$connection || $connection.step === 'Initialising' || $connection.step === 'Initialised' || $connection.step === 'InitialisingMechanism' || $connection.step === 'MechanismToChoose' || $connection.step === 'MechanismChosen'}
+		{#if !$connection || $connection.step === 'Idle'}
 			<h1>Please wait...</h1>
-		{:else if $connection.step === 'MnemonicIndexToProvide'}
-			<h1>Pick an Account</h1>
-			<div class="container">
-				{#each [0, 1, 2, 3, 4, 5, 6, 7, 8] as i}
-					<button onclick={() => pickAccount(i)} id={`account-${i}`}>{i}</button>
-				{/each}
-			</div>
-		{:else if $connection.step === 'GeneratingAccount'}
-			<p>Please wait...</p>
-			<hr />
 		{:else if $connection.step === 'SignedIn'}
-			{#if ($connection as any).requireOriginApproval}
-				{#if ($connection as any).requireOriginApproval.requestingAccess}
-					<p>
-						{($connection as any).requireOriginApproval.windowOrigin} is requesting access to account from {($connection as any).requireOriginApproval.signingOrigin}
-					</p>
-					<button
-						onclick={() => {
-							connection.confirmOriginAccess();
-							if (continueAfterLogin) {
-								continueAfterLogin();
-							}
-						}}
-						id="origin-accept"
-						type="submit">Accept</button>
-					<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
+			{#if $connection.result}
+				{#if continueAfterLogin}
+					<p>You are logged in!</p>
+					<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
 				{:else if goingToRedirect}
 					<p>Please wait...</p>
 				{:else}
 					<p>Could not log you in, due to redirection failure</p>
 					<button onclick={() => cancel()}>Return</button>
 				{/if}
-			{:else if continueAfterLogin}
-				<p>You are logged in!</p>
-				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
-			{:else if goingToRedirect}
-				<p>Please wait...</p>
-			{:else}
-				<p>Could not log you in, due to redirection failure</p>
-				<button onclick={() => cancel()}>Return</button>
 			{/if}
+		{:else if $connection.step === 'Error'}
+			<p>Error: {$connection.message}</p>
+			<button onclick={() => cancel()}>Return</button>
 		{/if}
 	</div>
 

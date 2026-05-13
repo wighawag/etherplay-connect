@@ -98,19 +98,6 @@ importers:
         specifier: ^5.8.3
         version: 5.8.3
 
-  packages/etherplay-auth-provider:
-    dependencies:
-      '@etherplay/connect-core':
-        specifier: workspace:*
-        version: link:../etherplay-connect-core
-    devDependencies:
-      prettier:
-        specifier: ^3.5.3
-        version: 3.5.3
-      typescript:
-        specifier: ^5.8.3
-        version: 5.8.3
-
   packages/etherplay-connect:
     dependencies:
       '@etherplay/connect-core':
@@ -190,9 +177,6 @@ importers:
 
   packages/etherplay-openfort:
     dependencies:
-      '@etherplay/auth-provider':
-        specifier: workspace:*
-        version: link:../etherplay-auth-provider
       '@etherplay/connect-core':
         specifier: workspace:*
         version: link:../etherplay-connect-core
@@ -282,9 +266,6 @@ importers:
       '@etherplay/alchemy':
         specifier: workspace:*
         version: link:../packages/etherplay-alchemy
-      '@etherplay/auth-provider':
-        specifier: workspace:*
-        version: link:../packages/etherplay-auth-provider
       '@etherplay/connect-core':
         specifier: workspace:*
         version: link:../packages/etherplay-connect-core

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {debounce} from '../utils';
 	import OTP from './components/OTP.svelte';
-	import type {UnifiedConnectionStore} from '../handler';
+	import type {ConnectionStore} from '../handler';
 
 	let {
 		connection,
@@ -9,7 +9,7 @@
 		goingToRedirect,
 		cancel,
 	}: {
-		connection: UnifiedConnectionStore;
+		connection: ConnectionStore;
 		goingToRedirect?: boolean;
 		continueAfterLogin?: () => void;
 		cancel: (error?: {message: string; cause?: any}) => void;
@@ -61,11 +61,12 @@
 			stroke-linecap="round"
 			stroke-linejoin="round"
 			class="lucide lucide-mail"
-			><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg>
+			><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg
+		>
 	</div>
 
 	<div>
-		{#if !$connection || $connection.step === 'Initialising' || $connection.step === 'Initialised' || $connection.step === 'InitialisingMechanism' || $connection.step === 'MechanismToChoose' || $connection.step === 'MechanismChosen'}
+		{#if !$connection || $connection.step === 'Idle'}
 			<h1>Please wait...</h1>
 		{:else if $connection.step === 'EmailToProvide'}
 			<h1>Sign in via Email</h1>
@@ -96,36 +97,20 @@
 			<p>Email Verified, Please wait...</p>
 			<hr />
 		{:else if $connection.step === 'SignedIn'}
-			{#if ($connection as any).requireOriginApproval}
-				{#if ($connection as any).requireOriginApproval.requestingAccess}
-					<p>
-						{($connection as any).requireOriginApproval.windowOrigin} is requesting access to account from {($connection as any).requireOriginApproval.signingOrigin}
-					</p>
-					<button
-						onclick={() => {
-							connection.confirmOriginAccess();
-							if (continueAfterLogin) {
-								continueAfterLogin();
-							}
-						}}
-						id="origin-accept"
-						type="submit">Accept</button>
-					<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
+			{#if $connection.result}
+				{#if continueAfterLogin}
+					<p>You are logged in!</p>
+					<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
 				{:else if goingToRedirect}
 					<p>Please wait...</p>
 				{:else}
 					<p>Could not log you in, due to redirection failure</p>
 					<button onclick={() => cancel()}>Return</button>
 				{/if}
-			{:else if continueAfterLogin}
-				<p>You are logged in!</p>
-				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
-			{:else if goingToRedirect}
-				<p>Please wait...</p>
-			{:else}
-				<p>Could not log you in, due to redirection failure</p>
-				<button onclick={() => cancel()}>Return</button>
 			{/if}
+		{:else if $connection.step === 'Error'}
+			<p>Error: {$connection.message}</p>
+			<button onclick={() => cancel()}>Return</button>
 		{/if}
 	</div>
 

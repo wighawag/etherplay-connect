@@ -15,11 +15,12 @@ import {
 	originPublicKeyPublicationMessage,
 	originKeyMessage,
 	fromSignatureToKey,
-	AlchemyMechanism,
+	AuthMechanism,
 } from '@etherplay/connect-core';
 
 export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage};
-export type {OriginAccount};
+
+export type {OriginAccount, AuthMechanism};
 
 export type {UnderlyingEthereumProvider};
 
@@ -62,7 +63,7 @@ export type ChainInfo<WalletProviderType> = ChainInfoWithRPCUrl | ChainInfoWithP
 
 export type PopupSettings = {
 	walletHost: string;
-	mechanism: AlchemyMechanism;
+	mechanism: AuthMechanism;
 	// extraParams?: Record<string, string>;
 };
 
@@ -71,9 +72,9 @@ export type WalletMechanism<WalletName extends string | undefined, Address exten
 } & (WalletName extends undefined ? {name?: undefined} : {name: WalletName}) &
 	(Address extends undefined ? {address?: undefined} : {address: Address});
 
-export type Mechanism = AlchemyMechanism | WalletMechanism<string | undefined, `0x${string}` | undefined>;
+export type Mechanism = AuthMechanism | WalletMechanism<string | undefined, `0x${string}` | undefined>;
 
-export type FullfilledMechanism = AlchemyMechanism | WalletMechanism<string, `0x${string}`>;
+export type FullfilledMechanism = AuthMechanism | WalletMechanism<string, `0x${string}`>;
 
 export type TargetStep = 'WalletConnected' | 'SignedIn';
 
@@ -104,7 +105,7 @@ type WalletConnected<WalletProviderType> = {
 type SignedIn<WalletProviderType> =
 	| {
 			step: 'SignedIn';
-			mechanism: AlchemyMechanism;
+			mechanism: AuthMechanism;
 			account: OriginAccount;
 			wallet: undefined;
 	  }
@@ -139,7 +140,7 @@ export type Connection<WalletProviderType> = {
 			step: 'PopupLaunched';
 			wallet: undefined;
 			popupClosed: boolean;
-			mechanism: AlchemyMechanism;
+			mechanism: AuthMechanism;
 	  }
 	// If the user has chosen to use web3-wallet there might be multi-choice for it
 	| {
@@ -568,7 +569,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					if (existingAccount && existingAccount.signer) {
 						autoConnectHandled = true;
 						const mechanismUsed = existingAccount.mechanismUsed as
-							| AlchemyMechanism
+							| AuthMechanism
 							| WalletMechanism<string, `0x${string}`>;
 						if (mechanismUsed.type == 'wallet') {
 							const walletMechanism = mechanismUsed as WalletMechanism<string, `0x${string}`>;

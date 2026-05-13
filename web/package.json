@@ -24,7 +24,6 @@
   },
   "dependencies": {
     "@etherplay/alchemy": "workspace:*",
-    "@etherplay/auth-provider": "workspace:*",
     "@etherplay/connect-core": "workspace:*",
     "@etherplay/openfort": "workspace:*",
     "@etherplay/wallet-connector": "workspace:*",

@@ -2,11 +2,16 @@ layout {
 	pane {
 		pane {}
 		pane split_direction="vertical" {
+			pane name="CORE" command="bash"  {
+				args "-c" "pnpm run --filter ./packages/etherplay-connect-core dev; cd ./packages/etherplay-connect-core; ${SHELL-bash}"
+			}
+			
 			pane name="CONNECT" command="bash"  {
 				args "-c" "pnpm run --filter ./packages/etherplay-connect dev; cd ./packages/etherplay-connect; ${SHELL-bash}"
 			}
-			pane name="ALCHEMY" command="bash"  {
-				args "-c" "pnpm run --filter ./packages/etherplay-alchemy dev; cd ./packages/etherplay-alchemy; ${SHELL-bash}"
+		
+			pane name="OPENFORT" command="bash"  {
+				args "-c" "pnpm run --filter ./packages/etherplay-openfort dev; cd ./packages/etherplay-openfort; ${SHELL-bash}"
 			}
 		}
 

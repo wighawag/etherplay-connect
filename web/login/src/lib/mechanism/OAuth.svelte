@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type {UnifiedConnectionStore} from '../handler';
+	import type {ConnectionStore} from '../handler';
 
 	let {
 		connection,
@@ -7,7 +7,7 @@
 		goingToRedirect,
 		cancel,
 	}: {
-		connection: UnifiedConnectionStore;
+		connection: ConnectionStore;
 		continueAfterLogin?: () => void;
 		goingToRedirect?: boolean;
 		cancel: (error?: {message: string; cause?: any}) => void;
@@ -16,59 +16,23 @@
 	let popupRef: {contentWindow?: Window | null} | null = null;
 
 	let provider = $derived(
-		$connection && $connection.mechanism?.type === 'oauth'
-			? ($connection.mechanism.provider || {id: 'unknown'})
-			: ({id: 'unknown'} as const),
+		$connection && $connection.step === 'ConfirmOAuth' ? ($connection as any).provider || 'unknown' : 'unknown',
 	);
 
 	let usePopup = $derived(
-		$connection && $connection.mechanism?.type === 'oauth'
-			? ($connection.mechanism as any).usePopup !== false
+		$connection && ($connection as any).mechanism?.type === 'oauth'
+			? ($connection as any).mechanism?.usePopup !== false
 			: true,
 	);
 
 	async function handleOAuthContinue() {
-		const mechanism = $connection?.mechanism;
-		if (!mechanism || mechanism.type !== 'oauth') return;
-
-		const oauthMech = {
-			type: 'oauth' as const,
-			provider: mechanism.provider,
-			usePopup: usePopup,
-		};
-
-		await connection.connect(oauthMech);
-
-		if (usePopup) {
-			const state = $connection;
-			if (state?.step === 'ConfirmOAuth') {
-				popupRef = window.open('', '_blank', 'width=600,height=600');
-				if (popupRef?.contentWindow) {
-					const oauthUrl = await getOAuthUrl();
-					popupRef.contentWindow.location.href = oauthUrl;
-				}
-				pollPopupForCallback();
-			}
-		} else {
-			const oauthUrl = await getOAuthUrl();
-			window.location.href = oauthUrl;
-		}
-	}
-
-	async function getOAuthUrl(): Promise<string> {
 		const state = $connection;
 		if (state?.step === 'ConfirmOAuth') {
-			return new Promise((resolve) => {
-				const checkSignedIn = () => {
-					const s = $connection;
-					if (s?.step === 'SignedIn') {
-						resolve('');
-					}
-				};
-				setTimeout(checkSignedIn, 100);
-			});
+			popupRef = window.open('', '_blank', 'width=600,height=600');
+			if (popupRef?.contentWindow) {
+				pollPopupForCallback();
+			}
 		}
-		return '';
 	}
 
 	function pollPopupForCallback() {
@@ -89,33 +53,30 @@
 	}
 </script>
 
-{#snippet logo(
-	provider: {id: string; connection?: string} | undefined,
-	animated: boolean,
-)}
-	{#if provider?.id == 'google'}
+{#snippet logo(provider: string, animated: boolean)}
+	{#if provider == 'google'}
 		<picture>
 			<img src="/google_logo.png" alt="Google Logo" class:animated />
 		</picture>
-	{:else if provider?.id == 'facebook'}
+	{:else if provider == 'facebook'}
 		<picture>
 			<img src="/Facebook_Logo_Primary.png" alt="Facebook Logo" class:animated />
 		</picture>
-	{:else if provider?.id === 'twitter'}
+	{:else if provider === 'twitter'}
 		<picture>
 			<source srcset="/x-logo-white.png" media="(prefers-color-scheme: dark)" />
 			<img alt="X Logo" src="/x-logo-black.png" />
 		</picture>
 	{:else}
 		<div>
-			<p>{animated ? 'Please Wait....' : provider?.id}</p>
+			<p>{animated ? 'Please Wait....' : provider}</p>
 			<hr />
 		</div>
 	{/if}
 {/snippet}
 
 <main>
-	{#if !$connection || $connection.step === 'Initialising' || $connection.step === 'Initialised' || $connection.step === 'InitialisingMechanism' || $connection.step === 'MechanismToChoose' || $connection.step === 'MechanismChosen' || $connection.step === 'GeneratingAccount'}
+	{#if !$connection || $connection.step === 'Idle'}
 		{@render logo(provider, true)}
 	{:else if $connection.step === 'ConfirmOAuth'}
 		{@render logo(provider, false)}
@@ -124,41 +85,23 @@
 		</div>
 	{:else if $connection.step === 'WaitingForOAuthResponse'}
 		{@render logo(provider, true)}
-	{:else if $connection.step === 'InitializingOAuthPopup'}
-		{@render logo(provider, true)}
 	{:else if $connection.step === 'SignedIn'}
 		<div class="wrapper">
-			{#if ($connection as any).requireOriginApproval}
-				{#if ($connection as any).requireOriginApproval.requestingAccess}
-					<p>
-						{($connection as any).requireOriginApproval.windowOrigin} is requesting access to account from {($connection as any).requireOriginApproval.signingOrigin}
-					</p>
-					<button
-						onclick={() => {
-							connection.confirmOriginAccess();
-							if (continueAfterLogin) {
-								continueAfterLogin();
-							}
-						}}
-						id="origin-accept"
-						type="submit">Accept</button>
-					<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
+			{#if $connection.result}
+				{#if continueAfterLogin}
+					<p>You are logged in!</p>
+					<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
 				{:else if goingToRedirect}
 					<p>Please wait...</p>
 				{:else}
 					<p>Could not log you in, due to redirection failure</p>
 					<button onclick={() => cancel()}>Return</button>
 				{/if}
-			{:else if continueAfterLogin}
-				<p>You are logged in!</p>
-				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
-			{:else if goingToRedirect}
-				<p>Please wait...</p>
-			{:else}
-				<p>Could not log you in, due to redirection failure</p>
-				<button onclick={() => cancel()}>Return</button>
 			{/if}
 		</div>
+	{:else if $connection.step === 'Error'}
+		<p>Error: {$connection.message}</p>
+		<button onclick={() => cancel()}>Return</button>
 	{/if}
 </main>
 

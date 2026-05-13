@@ -11,7 +11,6 @@
 	},
 	"files": ["dist", "src"],
 	"dependencies": {
-		"@etherplay/auth-provider": "workspace:*",
 		"@etherplay/connect-core": "workspace:*",
 		"@etherplay/wallet-connector": "workspace:*",
 		"@noble/hashes": "^1.7.1",
