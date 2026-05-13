@@ -38,7 +38,6 @@ export type OriginAccount = {
 // --- AUTH
 
 export type AuthProviderSettings = {
-	walletHost: string;
 	[key: string]: unknown;
 };
 
@@ -136,7 +135,7 @@ type Readable<T> = {
 };
 
 export interface AuthProvider extends Readable<AuthState> {
-	init(settings: AuthProviderSettings): Promise<void>;
+	init(settings?: AuthProviderSettings): Promise<void>;
 	connect(mechanism: AuthMechanism): Promise<void>;
 	provideEmail: (email: string) => Promise<void>;
 	provideOTP(otp: string): Promise<void>;

@@ -111,7 +111,6 @@ if (!type) {
 	}
 }
 
-let authProvider: AuthProvider | undefined;
 let fromProps:
 	| {
 			source?: MessageEventSource;
@@ -136,6 +135,7 @@ if (!accountGenerator) {
 	errors.push({message: `unsupported account type: ${accountType}`, canClose: true});
 }
 
+let authProvider: AuthProvider | undefined;
 if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType && accountGenerator) {
 	console.log(`mechanism`, mechanism, `provider`, authProviderType);
 	let canCloseAutomatically = false;
@@ -153,15 +153,19 @@ if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType 
 
 	const signingOriginToUse = signingOrigin || windowOrigin;
 
-	authProvider = createAuthProvider(authProviderType, accountGenerator, windowOrigin, signingOriginToUse);
+	const authProviderToUse = createAuthProvider(authProviderType, accountGenerator, windowOrigin, signingOriginToUse);
 
 	// Trigger the auth flow
 	// if (mechanism.type === 'oauth-redirect') {
 	// 	authProvider.confirmOAuth().catch(console.error);
 	// } else
 	// if (mechanism.type === 'email' || mechanism.type === 'oauth' || mechanism.type === 'mnemonic') {
-	authProvider.connect(mechanism).catch(console.error);
+	authProviderToUse
+		.init()
+		.then(() => authProviderToUse.connect(mechanism))
+		.catch(console.error);
 	// }
+	authProvider = authProviderToUse;
 
 	fromProps = {
 		source,

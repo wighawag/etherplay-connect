@@ -14,6 +14,7 @@ import {mnemonicToEntropy} from '@scure/bip39';
 import {bytesToHex} from '@noble/hashes/utils';
 import {wordlist} from '@scure/bip39/wordlists/english';
 import {writable, get} from 'sveltore';
+import {Openfort} from '@openfort/openfort-js';
 
 type OpenfortSettings = {
 	publishableKey: string;
@@ -39,25 +40,24 @@ async function loadOpenfortSDK(): Promise<any> {
 }
 
 export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider {
-	let openfortInstance: any = null;
-	let currentEmail: string | undefined;
+	let openfortInstance: Openfort | null = null;
 
 	const store = writable<AuthState>({step: 'Idle'});
 
-	async function init(providerSettings: AuthProviderSettings): Promise<void> {
+	async function init(providerSettings?: AuthProviderSettings): Promise<void> {
 		// TODO auto
 		store.set({step: 'Initialising', auto: true});
 		await loadOpenfortSDK();
 
-		const pk = (providerSettings as any).publishableKey || settings.publishableKey;
-		const shield = (providerSettings as any).shieldPublishableKey || settings.shieldPublishableKey;
+		const pk = providerSettings?.publishableKey || settings.publishableKey;
+		const shield = providerSettings?.shieldPublishableKey || settings.shieldPublishableKey;
 
 		openfortInstance = new OpenfortSDK.Openfort({
 			baseConfiguration: {publishableKey: pk},
 			shieldConfiguration: shield ? {shieldPublishableKey: shield} : undefined,
 		});
 
-		await openfortInstance.waitForInitialization();
+		await openfortInstance!.waitForInitialization();
 		store.set({step: 'Initialised'});
 	}
 
@@ -71,7 +71,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				store.set({step: 'EmailToProvide', mechanism: mechanism as EmailMechanism<undefined>});
 			} else {
 				store.set({step: 'WaitingForOTP', mechanism: mechanism as EmailMechanism<string>});
-				await openfortInstance.auth.requestEmailOtp({email: currentEmail});
+				await openfortInstance.auth.requestEmailOtp({email: mechanism.email});
 			}
 		} else if (mechanism.type === 'oauth') {
 			const oauthMech = mechanism;
@@ -193,8 +193,12 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			const originMnemonic = fromEntropyKeyToMnemonic(originKey);
 			const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
 
+			// const privateKey = await openfortInstance.embeddedWallet.exportPrivateKey();
+			const walletProvider = await openfortInstance.embeddedWallet.getEthereumProvider();
+			const addresses = await walletProvider.request({method: 'eth_accounts'});
+			const address = addresses[0];
 			const result: OriginAccount = {
-				address: (await openfortInstance.embeddedWallet.getAddress()) as `0x${string}`,
+				address: address as `0x${string}`,
 				signer: {
 					origin: settings.signingOrigin,
 					address: originAccount.address,
@@ -207,6 +211,8 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				savedPublicKeyPublicationSignature: undefined,
 				accountType: settings.accountGenerator.type,
 			};
+
+			console.log(result);
 
 			// TODO requireOriginApproval
 			store.set({step: 'SignedIn', mechanism: currentMechanism, requireOriginApproval: false});
@@ -261,8 +267,13 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			const originMnemonic = fromEntropyKeyToMnemonic(originKey);
 			const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
 
+			// const privateKey = await openfortInstance.embeddedWallet.exportPrivateKey();
+			const walletProvider = await openfortInstance.embeddedWallet.getEthereumProvider();
+			const addresses = await walletProvider.request({method: 'eth_accounts'});
+			const address = addresses[0];
+
 			const result: OriginAccount = {
-				address: (await openfortInstance.embeddedWallet.getAddress()) as `0x${string}`,
+				address: address as `0x${string}`,
 				signer: {
 					origin: settings.signingOrigin,
 					address: originAccount.address,
@@ -275,6 +286,8 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				savedPublicKeyPublicationSignature: undefined,
 				accountType: settings.accountGenerator.type,
 			};
+
+			console.log(result);
 
 			// TODO requireOriginApproval
 			store.set({step: 'SignedIn', mechanism: currentMechanism, requireOriginApproval: false});
