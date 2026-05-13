@@ -7,7 +7,7 @@ export type MnemonicMechanism<T extends number | undefined> = {
 export type OauthMechanism = {
 	type: 'oauth';
 
-	provider: {id: 'google' | 'facebook'} | {id: 'auth0'; connection: string};
+	provider: {id: string} & ({} | {connection: string});
 } & ({usePopup: true} | {usePopup: false});
 
 export type EmailMechanism<T extends string | undefined> = {
@@ -43,6 +43,9 @@ export type AuthProviderSettings = {
 };
 
 export type AuthState = {error?: {message: string; cause?: any}} & (
+	| {
+			step: 'Idle';
+	  }
 	| {
 			step: 'Initialising';
 			auto: boolean;

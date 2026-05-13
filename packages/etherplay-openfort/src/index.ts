@@ -4,6 +4,7 @@ import {
 	AuthProvider,
 	AuthProviderSettings,
 	AuthState,
+	EmailMechanism,
 	fromEntropyKeyToMnemonic,
 	fromSignatureToKey,
 	OriginAccount,
@@ -62,16 +63,12 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 		}
 
 		if (mechanism.type === 'email') {
-			const emailMech = mechanism;
-			currentEmail = emailMech.email;
-
-			if (!currentEmail) {
-				currentState = {step: 'EmailToProvide'};
-				return;
+			if (!mechanism.email) {
+				currentState = {step: 'EmailToProvide', mechanism: mechanism as EmailMechanism<undefined>};
+			} else {
+				currentState = {step: 'WaitingForOTP', mechanism: mechanism as EmailMechanism<string>};
+				await openfortInstance.auth.requestEmailOtp({email: currentEmail});
 			}
-
-			currentState = {step: 'WaitingForOTP', email: currentEmail};
-			await openfortInstance.auth.requestEmailOtp({email: currentEmail});
 		} else if (mechanism.type === 'oauth') {
 			const oauthMech = mechanism;
 			const providerId = oauthMech.provider.id;
@@ -93,8 +90,8 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				}
 			} catch (err) {
 				currentState = {
-					step: 'Error',
-					message: `Unsupported OAuth provider: ${providerId}`,
+					...currentState,
+					error: {message: `Unsupported OAuth provider: ${providerId}`},
 				};
 				throw err;
 			}
@@ -105,15 +102,16 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			if (isPopup) {
 				// For popup flow, we'll redirect the popup to the OAuth URL
 				// and wait for the callback
-				currentState = {step: 'ConfirmOAuth', provider: providerId};
+				currentState = {step: 'ConfirmOAuth', mechanism};
 			} else {
+				// TODO another step here while waiting for await
 				// For redirect flow, initiate OAuth and redirect
 				const callbackUrl = `${baseUrl}/login/?type=oauth-redirect`;
 				const oauthUrl = await openfortInstance.auth.initOAuth({
 					provider: openfortProvider,
 					redirectTo: callbackUrl,
 				});
-				currentState = {step: 'WaitingForOAuthResponse'};
+				currentState = {step: 'WaitingForOAuthResponse', mechanism};
 				if (typeof window !== 'undefined') {
 					window.location.href = oauthUrl;
 				}
@@ -124,7 +122,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			const index = mnemonicMech.index ?? 0;
 
 			// Mnemonic flow is custom, not through Openfort SDK
-			currentState = {step: 'GeneratingAccount'};
+			currentState = {step: 'GeneratingAccount', mechanism};
 
 			try {
 				const keyUint8Array = mnemonicToEntropy(mnemonic, wordlist);
@@ -156,9 +154,10 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 					accountType: settings.accountGenerator.type,
 				};
 
-				currentState = {step: 'SignedIn', result};
+				// TODO requireOriginApproval
+				currentState = {step: 'SignedIn', mechanism, requireOriginApproval: false};
 			} catch (err) {
-				currentState = {step: 'Error', message: (err as Error).message};
+				currentState = {...currentState, error: {message: 'failed to generate account', cause: err}};
 				throw err;
 			}
 		}
@@ -173,8 +172,9 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			throw new Error('Not in WaitingForOTP state');
 		}
 
-		const email = currentState.email;
-		currentState = {step: 'VerifyingOTP', email};
+		const currentMechanism = currentState.mechanism;
+		const email = currentMechanism.email;
+		currentState = {step: 'VerifyingOTP', mechanism: currentMechanism};
 
 		try {
 			await openfortInstance.auth.logInWithEmailOtp({email, otp});
@@ -203,9 +203,10 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				accountType: settings.accountGenerator.type,
 			};
 
-			currentState = {step: 'SignedIn', result};
+			// TODO requireOriginApproval
+			currentState = {step: 'SignedIn', mechanism: currentMechanism, requireOriginApproval: false};
 		} catch (err) {
-			currentState = {step: 'WaitingForOTP', email: currentEmail || ''};
+			currentState = {...currentState, error: {message: 'failed to generate account after OTP', cause: err}};
 			throw err;
 		}
 	}
@@ -215,7 +216,17 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			throw new Error('Openfort not initialized');
 		}
 
-		currentState = {step: 'WaitingForOAuthResponse'};
+		if (!('mechanism' in currentState)) {
+			throw new Error(`no mechanism`);
+		}
+
+		const currentMechanism = currentState.mechanism;
+
+		if (!(currentMechanism.type === 'oauth')) {
+			throw new Error(`not oauth mechanism`);
+		}
+
+		currentState = {step: 'WaitingForOAuthResponse', mechanism: currentMechanism};
 
 		try {
 			// Extract token and user_id from current URL
@@ -256,9 +267,10 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				accountType: settings.accountGenerator.type,
 			};
 
-			currentState = {step: 'SignedIn', result};
+			// TODO requireOriginApproval
+			currentState = {step: 'SignedIn', mechanism: currentMechanism, requireOriginApproval: false};
 		} catch (err) {
-			currentState = {step: 'Error', message: (err as Error).message};
+			currentState = {...currentState, error: {message: 'failed to generate account after oauth', cause: err}};
 			throw err;
 		}
 	}

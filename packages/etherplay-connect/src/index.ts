@@ -1405,7 +1405,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		} else if (popupSettings.mechanism.type === 'oauth') {
 			popupURL.searchParams.append('type', 'oauth');
 
-			if (popupSettings.mechanism.provider.id === 'auth0') {
+			if ('connection' in popupSettings.mechanism.provider) {
 				popupURL.searchParams.append('oauth-provider', popupSettings.mechanism.provider.id);
 				popupURL.searchParams.append('oauth-connection', popupSettings.mechanism.provider.connection);
 			} else {
