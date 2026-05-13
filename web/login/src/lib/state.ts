@@ -153,7 +153,7 @@ if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType 
 
 	const signingOriginToUse = signingOrigin || windowOrigin;
 
-	authProvider = createAuthProvider(accountGenerator, windowOrigin, signingOriginToUse);
+	authProvider = createAuthProvider(authProviderType, accountGenerator, windowOrigin, signingOriginToUse);
 
 	// Trigger the auth flow
 	// if (mechanism.type === 'oauth-redirect') {
