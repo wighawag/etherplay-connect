@@ -19,6 +19,7 @@
 </script>
 
 <main>
+	<!-- Do not add link as this would disturb the flow -->
 	<div class="logo">
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -38,23 +39,54 @@
 	</div>
 
 	<div>
-		{#if !$authProvider || $authProvider.step === 'Idle'}
+		{#if $authProvider.step === 'Idle' || $authProvider.step === 'Initialising' || $authProvider.step === 'Initialised' || $authProvider.step === 'InitialisingMechanism' || $authProvider.step === 'MechanismToChoose' || $authProvider.step === 'MechanismChosen'}
 			<h1>Please wait...</h1>
+		{:else if $authProvider.step === 'MnemonicIndexToProvide'}
+			<h1>Pick an Account</h1>
+			<div class="container">
+				{#each [0, 1, 2, 3, 4, 5, 6, 7, 8] as i}
+					<button onclick={() => pickAccount(i)} id={`account-${i}`}>{i}</button>
+				{/each}
+			</div>
+		{:else if $authProvider.step === 'GeneratingAccount'}
+			<p>Please wait...</p>
+			<hr />
 		{:else if $authProvider.step === 'SignedIn'}
-			{#if $authProvider.result}
-				{#if continueAfterLogin}
-					<p>You are logged in!</p>
-					<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
+			{#if $authProvider.requireOriginApproval}
+				{#if $authProvider.requireOriginApproval.requestingAccess}
+					<p>
+						{$authProvider.requireOriginApproval.windowOrigin} is requesting access to account from {$authProvider
+							.requireOriginApproval.signingOrigin}
+					</p>
+					<!-- TODO -->
+					<!-- <button
+						onclick={() => {
+							authProvider.confirmOriginAccess();
+							if (continueAfterLogin) {
+								continueAfterLogin();
+							}
+						}}
+						id="origin-accept"
+						type="submit">Accept</button
+					> -->
+					<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
 				{:else if goingToRedirect}
+					<!-- TODO timeout-->
 					<p>Please wait...</p>
 				{:else}
 					<p>Could not log you in, due to redirection failure</p>
 					<button onclick={() => cancel()}>Return</button>
 				{/if}
+			{:else if continueAfterLogin}
+				<p>You are logged in!</p>
+				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
+			{:else if goingToRedirect}
+				<!-- TODO timeout-->
+				<p>Please wait...</p>
+			{:else}
+				<p>Could not log you in, due to redirection failure</p>
+				<button onclick={() => cancel()}>Return</button>
 			{/if}
-		{:else if $authProvider.error}
-			<p>Error: {$authProvider.error.message}</p>
-			<button onclick={() => cancel()}>Return</button>
 		{/if}
 	</div>
 

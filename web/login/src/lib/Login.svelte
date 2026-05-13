@@ -5,6 +5,7 @@
 	import Loading from './Loading.svelte';
 	import {debug} from './state';
 	import type {AuthProvider} from '@etherplay/connect-core';
+	import Mnemonic from './mechanism/Mnemonic.svelte';
 
 	let {
 		authProvider,
@@ -53,20 +54,13 @@
 
 	onMount(() => {
 		enableCancelOnClose();
-
-		let closed = false;
-		window.addEventListener('message', onMessage);
-		const sourceTimeoutId = setTimeout(() => {
-			if (!from.source) {
-			}
-			if (!closed) {
-				window.removeEventListener('message', onMessage);
-			}
-		}, 10000);
-
-		authProvider.subscribe((v) => {
-			if (v?.step === 'SignedIn') {
+		const unsubscribeFromAuthProvider = authProvider.subscribe((v) => {
+			if (v?.step == 'WaitingForOAuthResponse') {
+				disableCancelOnClose();
+			} else if (v?.step === 'SignedIn') {
 				if (from.domainRedirectPublicKey) {
+					// TODO encrypt
+					window.location.href = `${from.windowOrigin}/_etherplay_accounts.html#myencryptedresult`;
 				} else {
 					if (!v.requireOriginApproval || (v.requireOriginApproval && !v.requireOriginApproval.requestingAccess)) {
 						postResultIfNotAlreadyPosted(from.canCloseAutomatically);
@@ -75,13 +69,32 @@
 			}
 		});
 
+		let closed = false;
+		window.addEventListener('message', onMessage);
+		const sourceTimeoutId = setTimeout(() => {
+			if (!from.source) {
+				//TODO
+				// authProvider.setError({message: 'timeout waiting for source'});
+				// TODO allow to cancel flow
+			}
+			if (!closed) {
+				window.removeEventListener('message', onMessage);
+			}
+		}, 10000);
+
 		return () => {
 			clearTimeout(sourceTimeoutId);
 			closed = true;
 			window.removeEventListener('message', onMessage);
 			disableCancelOnClose();
+			unsubscribeFromAuthProvider();
 		};
 	});
+
+	function acknowledgeError() {
+		// TODO
+		// alchemy.acknowledgeError();
+	}
 
 	async function continueAfterLogin() {
 		if ($authProvider.step !== 'SignedIn') {
@@ -97,6 +110,8 @@
 		} else {
 			window.close();
 		}
+
+		// setTimeout(() => window.close(), 300);
 	}
 
 	let resultPosted = false;
@@ -106,8 +121,9 @@
 		}
 		if (!resultPosted) {
 			try {
-				if ($authProvider.step === 'SignedIn' && $authProvider.result) {
-					const result = await authProvider.generateOriginAccount(from.signingOrigin, $authProvider.result);
+				if ($authProvider.step === 'SignedIn') {
+					// TODO
+					const result = await authProvider.generateOriginAccount(from.signingOrigin);
 					if (debug) {
 						console.log('postMessage', {result, id: from.requestID}, {targetOrigin: from.windowOrigin});
 					}
@@ -117,6 +133,7 @@
 					throw new Error(`invalid step: ${$authProvider.step}`);
 				}
 			} catch (e) {
+				// TODO
 				console.error(e);
 			}
 		}
@@ -159,40 +176,44 @@
 </script>
 
 <div class="root">
+	<!-- TODO -->
+	<!-- {#if $authProvider?.error && !$authProvider.error.delay} -->
 	{#if $authProvider.error}
 		<div class="banner">
 			<p>{$authProvider.error}</p>
+			<!-- {#if !$authProvider.error.timeout}
+				<button onclick={() => acknowledgeError()} id="error-acknowledge">ok</button>
+			{/if} -->
 		</div>
 	{/if}
-	{#if !$authProvider || ($authProvider.step !== 'EmailToProvide' && $authProvider.step !== 'WaitingForOTP' && $authProvider.step !== 'VerifyingOTP' && $connection.step !== 'ConfirmOAuth' && $connection.step !== 'WaitingForOAuthResponse' && $connection.step !== 'GeneratingAccount' && $connection.step !== 'SignedIn')}
+	{#if $authProvider.step === 'Initialised' || $authProvider.step === 'Initialising' || $authProvider.step === 'Idle'}
 		<Loading />
-	{:else if $authProvider.step === 'WaitingForOTP' || $authProvider.step === 'VerifyingOTP'}
+	{:else if $authProvider.step === 'MechanismToChoose'}
+		<!-- TODO? -->
+		<main>
+			<p>Not Supported</p>
+		</main>
+	{:else if $authProvider.mechanism.type == 'email'}
 		<Email
 			{authProvider}
 			goingToRedirect={!!from.domainRedirectPublicKey}
 			continueAfterLogin={from.source ? continueAfterLogin : undefined}
 			{cancel}
 		/>
-	{:else if $authProvider.step === 'ConfirmOAuth' || $authProvider.step === 'WaitingForOAuthResponse'}
+	{:else if $authProvider.mechanism.type == 'oauth'}
 		<OAuth
 			{authProvider}
 			goingToRedirect={!!from.domainRedirectPublicKey}
 			continueAfterLogin={from.source ? continueAfterLogin : undefined}
 			{cancel}
 		/>
-	{:else if $authProvider.step === 'SignedIn'}
-		{#if $authProvider.result}
-			{#if false}
-				<!-- requireOriginApproval is not in AuthState, handled by mechanism components -->
-				<p>Waiting for origin approval...</p>
-			{:else if from.source}
-				<p>You are logged in!</p>
-				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
-			{:else}
-				<p>Could not log you in, due to redirection failure</p>
-				<button onclick={() => cancel('redirection failure')}>Return</button>
-			{/if}
-		{/if}
+	{:else if $authProvider.mechanism.type == 'mnemonic'}
+		<Mnemonic
+			{authProvider}
+			goingToRedirect={!!from.domainRedirectPublicKey}
+			continueAfterLogin={from.source ? continueAfterLogin : undefined}
+			{cancel}
+		/>
 	{:else}
 		<main>
 			<p>{$authProvider.step}</p>

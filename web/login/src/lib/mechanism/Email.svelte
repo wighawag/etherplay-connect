@@ -17,11 +17,10 @@
 
 	let otp: OTP | undefined = $state(undefined);
 
-	let bundleURL: string | undefined = $state(undefined);
-
 	async function _submitOTP(text: string) {
 		console.log({otpCode: text});
 
+		// TODO test
 		try {
 			await authProvider.provideOTP(text);
 		} catch (error) {
@@ -33,6 +32,16 @@
 
 	async function onEmailChosen(ev: Event) {
 		ev.preventDefault();
+		// TODO
+		// if ($alchemy?.mechanism?.type != 'email') {
+		// 	// TODO
+		// 	// alchemy.setError({message: 'expected email'});
+		// 	return;
+		// }
+		// if ($alchemy.mechanismUsed.mode == 'saved') {
+		// 	alchemy.setError({message: 'cannot used saved here'});
+		// 	return;
+		// }
 		const emailInput = document.getElementById('email');
 		const email = (emailInput as any).value;
 
@@ -66,7 +75,7 @@
 	</div>
 
 	<div>
-		{#if !$authProvider || $authProvider.step === 'Idle'}
+		{#if $authProvider.step === 'Initialising' || $authProvider.step === 'Initialised' || $authProvider.step === 'InitialisingMechanism' || $authProvider.step === 'MechanismToChoose' || $authProvider.step === 'MechanismChosen' || $authProvider.step == 'Idle'}
 			<h1>Please wait...</h1>
 		{:else if $authProvider.step === 'EmailToProvide'}
 			<h1>Sign in via Email</h1>
@@ -83,13 +92,26 @@
 				<small id="email-info" style="display: none">Invalid Email</small>
 				<button onclick={onEmailChosen} id="login-submit" type="submit">Login</button>
 			</form>
+			<!-- TODO -->
+			<!-- {:else if $alchemy.step === 'WaitingForMagicLinkVerification'}
+			<p>You should shortly receive an email containing a link to click.</p>
+			<hr />
+
+			<p style="font-size: 1rem">You can also paste that link here:</p>
+			<fieldset>
+				<input autocomplete="off" bind:value={bundleURL} type="text" />
+				<button onclick={injectBundle} id="bundle-inject" type="submit">proceed</button>
+			</fieldset> -->
 		{:else if $authProvider.step === 'WaitingForOTP'}
 			<p>You should shortly receive an email containing a code.</p>
 			<p id="WaitingForOTPVerification:message"></p>
 			<hr />
 
 			<p style="font-size: 1rem">Paste it here.</p>
+			<!-- TODO -->
+			<!-- <OTP bind:this={otp} onAcknowledge={() => alchemy.acknowledgeError()} onCodeUpdated={submitOTP} /> -->
 			<OTP bind:this={otp} onAcknowledge={() => {}} onCodeUpdated={submitOTP} />
+			<!-- <button id="verify-btn">Verify OTP</button> -->
 		{:else if $authProvider.step === 'VerifyingOTP'}
 			<p>Verifying OTP...</p>
 			<hr />
@@ -97,20 +119,41 @@
 			<p>Email Verified, Please wait...</p>
 			<hr />
 		{:else if $authProvider.step === 'SignedIn'}
-			{#if $authProvider.result}
-				{#if continueAfterLogin}
-					<p>You are logged in!</p>
-					<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
+			{#if $authProvider.requireOriginApproval}
+				{#if $authProvider.requireOriginApproval.requestingAccess}
+					<p>
+						{$authProvider.requireOriginApproval.windowOrigin} is requesting access to account from {$authProvider
+							.requireOriginApproval.signingOrigin}
+					</p>
+					<!-- TODO -->
+					<!-- <button
+						onclick={() => {
+							authProvider.confirmOriginAccess();
+							if (continueAfterLogin) {
+								continueAfterLogin();
+							}
+						}}
+						id="origin-accept"
+						type="submit">Accept</button
+					> -->
+					<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
 				{:else if goingToRedirect}
+					<!-- TODO timeout-->
 					<p>Please wait...</p>
 				{:else}
 					<p>Could not log you in, due to redirection failure</p>
 					<button onclick={() => cancel()}>Return</button>
 				{/if}
+			{:else if continueAfterLogin}
+				<p>You are logged in!</p>
+				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
+			{:else if goingToRedirect}
+				<!-- TODO timeout-->
+				<p>Please wait...</p>
+			{:else}
+				<p>Could not log you in, due to redirection failure</p>
+				<button onclick={() => cancel()}>Return</button>
 			{/if}
-		{:else if $authProvider.error}
-			<p>Error: {$authProvider.error.message}</p>
-			<button onclick={() => cancel()}>Return</button>
 		{/if}
 	</div>
 
