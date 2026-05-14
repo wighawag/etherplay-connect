@@ -24,6 +24,8 @@ import {
 	OAuthProvider,
 	Openfort,
 	RecoveryMethod,
+	SessionError,
+	OPENFORT_AUTH_ERROR_CODES,
 } from '@openfort/openfort-js';
 
 type OpenfortSettings = {
@@ -40,6 +42,34 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 	let openfortInstance: Openfort | null = null;
 
 	const store = writable<AuthState>({step: 'Idle'});
+
+	async function tryGetCurrentUser() {
+		if (!openfortInstance) return null;
+		try {
+			return await openfortInstance.user.get();
+		} catch (error) {
+			if (error instanceof SessionError && error.code === OPENFORT_AUTH_ERROR_CODES.NOT_LOGGED_IN) {
+				return null;
+			}
+			throw error;
+		}
+	}
+
+	async function completeLogin(
+		mechanism: EmailMechanism<string>,
+		currentUser?: { email?: string; id: string },
+	): Promise<void> {
+		await setupOpenfortAccount();
+		const key = await generateKey(localKeyMessage());
+
+		const email = currentUser?.email || mechanism.email;
+		const account = await generateAccount({
+			key,
+			mechanism: {...mechanism, email} as EmailMechanism<string>,
+		});
+
+		store.set({step: 'SignedIn', mechanism, account, requireOriginApproval: false});
+	}
 
 	async function init(providerSettings?: AuthProviderSettings): Promise<void> {
 		// TODO auto
@@ -62,17 +92,24 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			throw new Error('Openfort not initialized. Call init() first.');
 		}
 
-		// for now: Always logout first
-		//  later we can check if same email
-		await openfortInstance.auth.logout();
-
 		if (mechanism.type === 'email') {
 			if (!mechanism.email) {
 				store.set({step: 'EmailToProvide', mechanism: mechanism as EmailMechanism<undefined>});
-			} else {
-				store.set({step: 'WaitingForOTP', mechanism: mechanism as EmailMechanism<string>});
-				await openfortInstance.auth.requestEmailOtp({email: mechanism.email});
+				return;
 			}
+
+			const currentUser = await tryGetCurrentUser();
+			if (currentUser && currentUser.email === mechanism.email) {
+				await completeLogin(mechanism as EmailMechanism<string>, currentUser);
+				return;
+			}
+
+			if (currentUser) {
+				await openfortInstance.auth.logout();
+			}
+
+			store.set({step: 'WaitingForOTP', mechanism: mechanism as EmailMechanism<string>});
+			await openfortInstance.auth.requestEmailOtp({email: mechanism.email});
 		} else if (mechanism.type === 'oauth') {
 			const oauthMech = mechanism;
 			const providerId = oauthMech.provider.id;
@@ -202,11 +239,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 
 			console.log({resultFromLoginWithOTP});
 
-			await setupOpenfortAccount();
-			const key = await generateKey(localKeyMessage());
-			const account = await generateAccount({key, mechanism: currentMechanism});
-
-			store.set({step: 'SignedIn', mechanism: currentMechanism, account, requireOriginApproval: false});
+			await completeLogin(currentMechanism);
 		} catch (err) {
 			const message = 'failed to generate account after OTP';
 			store.update((currentState) => ({
