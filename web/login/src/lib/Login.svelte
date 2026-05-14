@@ -180,7 +180,7 @@
 	<!-- {#if $authProvider?.error && !$authProvider.error.delay} -->
 	{#if $authProvider.error}
 		<div class="banner">
-			<p>{$authProvider.error}</p>
+			<p>{$authProvider.error.message}</p>
 			<!-- {#if !$authProvider.error.timeout}
 				<button onclick={() => acknowledgeError()} id="error-acknowledge">ok</button>
 			{/if} -->

@@ -14,7 +14,7 @@ import {mnemonicToEntropy} from '@scure/bip39';
 import {bytesToHex} from '@noble/hashes/utils';
 import {wordlist} from '@scure/bip39/wordlists/english';
 import {writable, get} from 'sveltore';
-import {Openfort} from '@openfort/openfort-js';
+import {AccountTypeEnum, ChainTypeEnum, EmbeddedState, Openfort, RecoveryMethod} from '@openfort/openfort-js';
 
 type OpenfortSettings = {
 	publishableKey: string;
@@ -23,6 +23,7 @@ type OpenfortSettings = {
 	accountGenerator: AccountGenerator;
 	signingOrigin: string;
 	windowOrigin: string;
+	encryptionSessionEndpoint: string;
 };
 
 let OpenfortSDK: any = null;
@@ -67,6 +68,10 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 		}
 
 		if (mechanism.type === 'email') {
+			// for now: Always logout first
+			//  later we can check if same email
+			await openfortInstance.auth.logout();
+
 			if (!mechanism.email) {
 				store.set({step: 'EmailToProvide', mechanism: mechanism as EmailMechanism<undefined>});
 			} else {
@@ -182,46 +187,101 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 		store.set({step: 'VerifyingOTP', mechanism: currentMechanism});
 
 		try {
-			await openfortInstance.auth.logInWithEmailOtp({email, otp});
+			const resultFromLoginWithOTP = await openfortInstance.auth.logInWithEmailOtp({email, otp});
 
-			// Sign origin key message
-			const originKeyMsg = originKeyMessage(settings.signingOrigin);
-			const signature = await openfortInstance.embeddedWallet.signMessage(originKeyMsg);
+			console.log({resultFromLoginWithOTP});
 
-			// Derive origin account
-			const originKey = fromSignatureToKey(signature as `0x${string}`);
-			const originMnemonic = fromEntropyKeyToMnemonic(originKey);
-			const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
+			// TODO options:
+			const chainType = ChainTypeEnum.EVM;
 
-			// const privateKey = await openfortInstance.embeddedWallet.exportPrivateKey();
-			const walletProvider = await openfortInstance.embeddedWallet.getEthereumProvider();
-			const addresses = await walletProvider.request({method: 'eth_accounts'});
-			const address = addresses[0];
-			const result: OriginAccount = {
-				address: address as `0x${string}`,
-				signer: {
-					origin: settings.signingOrigin,
-					address: originAccount.address,
-					publicKey: originAccount.publicKey,
-					privateKey: originAccount.privateKey,
-					mnemonicKey: originKey,
-				},
-				metadata: {email},
-				mechanismUsed: {type: 'email', email, mode: 'otp'},
-				savedPublicKeyPublicationSignature: undefined,
-				accountType: settings.accountGenerator.type,
-			};
+			const embeddedWalletState = await openfortInstance.embeddedWallet.getEmbeddedState();
+			if (embeddedWalletState === EmbeddedState.UNAUTHENTICATED) {
+				throw new Error(`not authenticated, cannot setup embedded wallet`);
+			} else if (embeddedWalletState === EmbeddedState.EMBEDDED_SIGNER_NOT_CONFIGURED) {
+				const res = await fetch(`${settings.encryptionSessionEndpoint}/protected-create-encryption-session`, {
+					method: 'POST',
+				});
+				const {session: encryptionSession} = await res.json();
 
-			console.log(result);
+				const accounts = await openfortInstance.embeddedWallet.list({chainType});
+
+				if (accounts.length > 0) {
+					// Wallet exists — recover the first one
+					const account = await openfortInstance.embeddedWallet.recover({
+						account: accounts[0].id,
+						recoveryParams: {
+							recoveryMethod: RecoveryMethod.AUTOMATIC,
+							encryptionSession,
+						},
+					});
+					console.log({accountRecovered: account});
+				} else {
+					// No wallet — create one
+					const account = await openfortInstance.embeddedWallet.create({
+						chainType,
+						accountType: AccountTypeEnum.EOA,
+						recoveryParams: {
+							recoveryMethod: RecoveryMethod.AUTOMATIC,
+							encryptionSession,
+						},
+					});
+					console.log({accountCreated: account});
+				}
+			} else if (embeddedWalletState === EmbeddedState.READY) {
+				console.log(`embedded wallet ready, we can continue`);
+			} else {
+				throw new Error(`embedded wallet state: ${embeddedWalletState}`);
+			}
+
+			const provider = await openfortInstance.embeddedWallet.getEthereumProvider();
+			const addresses = await provider.request({method: 'eth_accounts'});
+
+			console.log({address: addresses[0]});
+
+			const signature = await openfortInstance.embeddedWallet.signMessage('hello');
+
+			console.log({signature});
+
+			// // Sign origin key message
+			// const originKeyMsg = originKeyMessage(settings.signingOrigin);
+			// const signature = await openfortInstance.embeddedWallet.signMessage(originKeyMsg);
+
+			// // Derive origin account
+			// const originKey = fromSignatureToKey(signature as `0x${string}`);
+			// const originMnemonic = fromEntropyKeyToMnemonic(originKey);
+			// const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
+
+			// // const privateKey = await openfortInstance.embeddedWallet.exportPrivateKey();
+			// const walletProvider = await openfortInstance.embeddedWallet.getEthereumProvider();
+			// const addresses = await walletProvider.request({method: 'eth_accounts'});
+			// const address = addresses[0];
+			// const result: OriginAccount = {
+			// 	address: address as `0x${string}`,
+			// 	signer: {
+			// 		origin: settings.signingOrigin,
+			// 		address: originAccount.address,
+			// 		publicKey: originAccount.publicKey,
+			// 		privateKey: originAccount.privateKey,
+			// 		mnemonicKey: originKey,
+			// 	},
+			// 	metadata: {email},
+			// 	mechanismUsed: {type: 'email', email, mode: 'otp'},
+			// 	savedPublicKeyPublicationSignature: undefined,
+			// 	accountType: settings.accountGenerator.type,
+			// };
+
+			// console.log(result);
 
 			// TODO requireOriginApproval
 			store.set({step: 'SignedIn', mechanism: currentMechanism, requireOriginApproval: false});
 		} catch (err) {
+			const message = 'failed to generate account after OTP';
 			store.update((currentState) => ({
 				...currentState,
-				error: {message: 'failed to generate account after OTP', cause: err},
+				error: {message, cause: err},
 			}));
-			throw err;
+			console.error(message, err);
+			// throw err;
 		}
 	}
 
