@@ -123,7 +123,7 @@
 			try {
 				if ($authProvider.step === 'SignedIn') {
 					// TODO
-					const result = await authProvider.generateOriginAccount(from.signingOrigin);
+					const result = await authProvider.generateOriginAccount(from.signingOrigin, $authProvider.account);
 					if (debug) {
 						console.log('postMessage', {result, id: from.requestID}, {targetOrigin: from.windowOrigin});
 					}

@@ -41,6 +41,19 @@ export type AuthProviderSettings = {
 	[key: string]: unknown;
 };
 
+export type EtherplayAccount = {
+	localAccount: {
+		address: `0x${string}`;
+		index: number;
+		key: `0x${string}`;
+	};
+	signer: {
+		mechanismUsed: AuthMechanism;
+		[key: string]: unknown;
+	};
+	accountType: string;
+};
+
 export type AuthState = {error?: {message: string; cause?: any}} & (
 	| {
 			step: 'Idle';
@@ -118,8 +131,7 @@ export type AuthState = {error?: {message: string; cause?: any}} & (
 	| {
 			step: 'SignedIn';
 			mechanism: AuthMechanism;
-			// account: EtherplayAccount; // TODO ?
-			// originAccount ?
+			account: EtherplayAccount;
 			requireOriginApproval:
 				| false
 				| {
@@ -141,6 +153,6 @@ export interface AuthProvider extends Readable<AuthState> {
 	provideOTP(otp: string): Promise<void>;
 	provideMnemonicIndex: (index: number) => Promise<void>;
 	confirmOAuth(): Promise<void>;
-	generateOriginAccount: (origin: string) => Promise<OriginAccount>;
+	generateOriginAccount: (origin: string, account: EtherplayAccount) => Promise<OriginAccount>;
 	getState(): AuthState;
 }

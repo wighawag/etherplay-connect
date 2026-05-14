@@ -5,10 +5,13 @@ import {
 	AuthProviderSettings,
 	AuthState,
 	EmailMechanism,
+	EtherplayAccount,
 	fromEntropyKeyToMnemonic,
 	fromSignatureToKey,
+	localKeyMessage,
 	OriginAccount,
 	originKeyMessage,
+	originPublicKeyPublicationMessage,
 } from '@etherplay/connect-core';
 import {mnemonicToEntropy} from '@scure/bip39';
 import {bytesToHex} from '@noble/hashes/utils';
@@ -126,49 +129,51 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				}
 			}
 		} else if (mechanism.type === 'mnemonic') {
-			const mnemonicMech = mechanism;
-			const mnemonic = mnemonicMech.mnemonic || settings.accountGenerator.type;
-			const index = mnemonicMech.index ?? 0;
+			if (mechanism.index === undefined) {
+				store.set({
+					step: 'MnemonicIndexToProvide',
+					mechanism: {type: 'mnemonic', mnemonic: mechanism.mnemonic, index: undefined},
+				});
+				return;
+			}
 
-			// Mnemonic flow is custom, not through Openfort SDK
 			store.set({step: 'GeneratingAccount', mechanism});
 
-			try {
-				const keyUint8Array = mnemonicToEntropy(mnemonic, wordlist);
-				const key = `0x${bytesToHex(keyUint8Array)}` as `0x${string}`;
-				const viemAccount = settings.accountGenerator.fromMnemonicToAccount(mnemonic, index);
-				const address = viemAccount.address.toLowerCase() as `0x${string}`;
+			const mnemonicMech = mechanism;
+			const mnemonic = mnemonicMech.mnemonic;
+			const index = mnemonicMech.index ?? 0;
 
-				const originKeySignature = await settings.accountGenerator.signTextMessage(
-					originKeyMessage(settings.signingOrigin),
-					viemAccount.privateKey,
-				);
-
-				const originKey = fromSignatureToKey(originKeySignature);
-				const originMnemonic = fromEntropyKeyToMnemonic(originKey);
-				const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
-
-				const result: OriginAccount = {
+			const viemAccount = settings.accountGenerator.fromMnemonicToAccount(mnemonic, index);
+			const keyUint8Array = mnemonicToEntropy(mnemonic, wordlist);
+			const key = `0x${bytesToHex(keyUint8Array)}` as `0x${string}`;
+			const address = viemAccount.address.toLowerCase() as `0x${string}`;
+			const account: EtherplayAccount = {
+				localAccount: {
 					address,
-					signer: {
-						origin: settings.signingOrigin,
-						address: originAccount.address,
-						publicKey: originAccount.publicKey,
-						privateKey: originAccount.privateKey,
-						mnemonicKey: originKey,
-					},
-					metadata: {},
+					index,
+					key,
+				},
+				signer: {
 					mechanismUsed: mechanism,
-					savedPublicKeyPublicationSignature: undefined,
-					accountType: settings.accountGenerator.type,
-				};
+					user: {
+						address,
+						orgId: 'mnemonic',
+						userId: `${index}@mnemonic.id`,
+						email: `${index}@mnemonic.id`,
+					},
+				},
+				accountType: settings.accountGenerator.type,
+			};
 
-				// TODO requireOriginApproval
-				store.set({step: 'SignedIn', mechanism, requireOriginApproval: false});
-			} catch (err) {
-				store.update((currentState) => ({...currentState, error: {message: 'failed to generate account', cause: err}}));
-				throw err;
-			}
+			store.set({
+				step: 'SignedIn',
+				mechanism,
+				account,
+				requireOriginApproval:
+					settings.windowOrigin != settings.signingOrigin
+						? {windowOrigin: settings.windowOrigin, signingOrigin: settings.signingOrigin, requestingAccess: true}
+						: false,
+			});
 		}
 	}
 
@@ -191,89 +196,11 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 
 			console.log({resultFromLoginWithOTP});
 
-			// TODO options:
-			const chainType = ChainTypeEnum.EVM;
+			await setupOpenfortAccount();
+			const key = await generateKey(localKeyMessage());
+			const account = await generateAccount({key, mechanism: currentMechanism});
 
-			const embeddedWalletState = await openfortInstance.embeddedWallet.getEmbeddedState();
-			if (embeddedWalletState === EmbeddedState.UNAUTHENTICATED) {
-				throw new Error(`not authenticated, cannot setup embedded wallet`);
-			} else if (embeddedWalletState === EmbeddedState.EMBEDDED_SIGNER_NOT_CONFIGURED) {
-				const res = await fetch(`${settings.encryptionSessionEndpoint}/protected-create-encryption-session`, {
-					method: 'POST',
-				});
-				const {session: encryptionSession} = await res.json();
-
-				const accounts = await openfortInstance.embeddedWallet.list({chainType});
-
-				if (accounts.length > 0) {
-					// Wallet exists — recover the first one
-					const account = await openfortInstance.embeddedWallet.recover({
-						account: accounts[0].id,
-						recoveryParams: {
-							recoveryMethod: RecoveryMethod.AUTOMATIC,
-							encryptionSession,
-						},
-					});
-					console.log({accountRecovered: account});
-				} else {
-					// No wallet — create one
-					const account = await openfortInstance.embeddedWallet.create({
-						chainType,
-						accountType: AccountTypeEnum.EOA,
-						recoveryParams: {
-							recoveryMethod: RecoveryMethod.AUTOMATIC,
-							encryptionSession,
-						},
-					});
-					console.log({accountCreated: account});
-				}
-			} else if (embeddedWalletState === EmbeddedState.READY) {
-				console.log(`embedded wallet ready, we can continue`);
-			} else {
-				throw new Error(`embedded wallet state: ${embeddedWalletState}`);
-			}
-
-			const provider = await openfortInstance.embeddedWallet.getEthereumProvider();
-			const addresses = await provider.request({method: 'eth_accounts'});
-
-			console.log({address: addresses[0]});
-
-			const signature = await openfortInstance.embeddedWallet.signMessage('hello');
-
-			console.log({signature});
-
-			// // Sign origin key message
-			// const originKeyMsg = originKeyMessage(settings.signingOrigin);
-			// const signature = await openfortInstance.embeddedWallet.signMessage(originKeyMsg);
-
-			// // Derive origin account
-			// const originKey = fromSignatureToKey(signature as `0x${string}`);
-			// const originMnemonic = fromEntropyKeyToMnemonic(originKey);
-			// const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
-
-			// // const privateKey = await openfortInstance.embeddedWallet.exportPrivateKey();
-			// const walletProvider = await openfortInstance.embeddedWallet.getEthereumProvider();
-			// const addresses = await walletProvider.request({method: 'eth_accounts'});
-			// const address = addresses[0];
-			// const result: OriginAccount = {
-			// 	address: address as `0x${string}`,
-			// 	signer: {
-			// 		origin: settings.signingOrigin,
-			// 		address: originAccount.address,
-			// 		publicKey: originAccount.publicKey,
-			// 		privateKey: originAccount.privateKey,
-			// 		mnemonicKey: originKey,
-			// 	},
-			// 	metadata: {email},
-			// 	mechanismUsed: {type: 'email', email, mode: 'otp'},
-			// 	savedPublicKeyPublicationSignature: undefined,
-			// 	accountType: settings.accountGenerator.type,
-			// };
-
-			// console.log(result);
-
-			// TODO requireOriginApproval
-			store.set({step: 'SignedIn', mechanism: currentMechanism, requireOriginApproval: false});
+			store.set({step: 'SignedIn', mechanism: currentMechanism, account, requireOriginApproval: false});
 		} catch (err) {
 			const message = 'failed to generate account after OTP';
 			store.update((currentState) => ({
@@ -318,39 +245,12 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				userId,
 			});
 
-			// Sign origin key message
-			const originKeyMsg = originKeyMessage(settings.signingOrigin);
-			const signature = await openfortInstance.embeddedWallet.signMessage(originKeyMsg);
-
-			// Derive origin account
-			const originKey = fromSignatureToKey(signature as `0x${string}`);
-			const originMnemonic = fromEntropyKeyToMnemonic(originKey);
-			const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
-
-			// const privateKey = await openfortInstance.embeddedWallet.exportPrivateKey();
-			const walletProvider = await openfortInstance.embeddedWallet.getEthereumProvider();
-			const addresses = await walletProvider.request({method: 'eth_accounts'});
-			const address = addresses[0];
-
-			const result: OriginAccount = {
-				address: address as `0x${string}`,
-				signer: {
-					origin: settings.signingOrigin,
-					address: originAccount.address,
-					publicKey: originAccount.publicKey,
-					privateKey: originAccount.privateKey,
-					mnemonicKey: originKey,
-				},
-				metadata: {},
-				mechanismUsed: {type: 'oauth', provider: {id: 'unknown'}},
-				savedPublicKeyPublicationSignature: undefined,
-				accountType: settings.accountGenerator.type,
-			};
-
-			console.log(result);
+			await setupOpenfortAccount();
+			const key = await generateKey(localKeyMessage());
+			const account = await generateAccount({key, mechanism: currentMechanism});
 
 			// TODO requireOriginApproval
-			store.set({step: 'SignedIn', mechanism: currentMechanism, requireOriginApproval: false});
+			store.set({step: 'SignedIn', mechanism: currentMechanism, account, requireOriginApproval: false});
 		} catch (err) {
 			store.update((currentState) => ({
 				...currentState,
@@ -360,39 +260,127 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 		}
 	}
 
-	async function generateOriginAccount(origin: string): Promise<OriginAccount> {
-		throw new Error(`TODO`);
-		// if (!currentAccount) {
-		// 	throw new Error('No account available');
-		// }
+	async function setupOpenfortAccount() {
+		if (!openfortInstance) {
+			throw new Error('Openfort not initialized');
+		}
+		// TODO options:
+		const chainType = ChainTypeEnum.EVM;
 
-		// const accountMnemonic = fromEntropyKeyToMnemonic(currentAccount.signer.mnemonicKey);
-		// const accountObject = accountGenerator.fromMnemonicToAccount(accountMnemonic, 0);
+		const embeddedWalletState = await openfortInstance.embeddedWallet.getEmbeddedState();
+		if (embeddedWalletState === EmbeddedState.UNAUTHENTICATED) {
+			throw new Error(`not authenticated, cannot setup embedded wallet`);
+		} else if (embeddedWalletState === EmbeddedState.EMBEDDED_SIGNER_NOT_CONFIGURED) {
+			const res = await fetch(`${settings.encryptionSessionEndpoint}/protected-create-encryption-session`, {
+				method: 'POST',
+			});
+			const {session: encryptionSession} = await res.json();
 
-		// const originKeySignature = await accountGenerator.signTextMessage(
-		// 	originKeyMessage(origin),
-		// 	accountObject.privateKey,
-		// );
+			const accounts = await openfortInstance.embeddedWallet.list({chainType});
 
-		// const originKey = fromSignatureToKey(originKeySignature);
-		// const originMnemonic = fromEntropyKeyToMnemonic(originKey);
-		// const originAccount = accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
-
-		// return {
-		// 	address: account.address,
-		// 	signer: {
-		// 		origin,
-		// 		address: originAccount.address,
-		// 		publicKey: originAccount.publicKey,
-		// 		privateKey: originAccount.privateKey,
-		// 		mnemonicKey: originKey,
-		// 	},
-		// 	metadata: account.metadata,
-		// 	mechanismUsed: account.mechanismUsed,
-		// 	savedPublicKeyPublicationSignature: account.savedPublicKeyPublicationSignature,
-		// 	accountType: account.accountType,
-		// };
+			if (accounts.length > 0) {
+				// Wallet exists — recover the first one
+				const account = await openfortInstance.embeddedWallet.recover({
+					account: accounts[0].id,
+					recoveryParams: {
+						recoveryMethod: RecoveryMethod.AUTOMATIC,
+						encryptionSession,
+					},
+				});
+				console.log({accountRecovered: account});
+			} else {
+				// No wallet — create one
+				const account = await openfortInstance.embeddedWallet.create({
+					chainType,
+					accountType: AccountTypeEnum.EOA,
+					recoveryParams: {
+						recoveryMethod: RecoveryMethod.AUTOMATIC,
+						encryptionSession,
+					},
+				});
+				console.log({accountCreated: account});
+			}
+		} else if (embeddedWalletState === EmbeddedState.READY) {
+			console.log(`embedded wallet ready, we can continue`);
+		} else {
+			throw new Error(`embedded wallet state: ${embeddedWalletState}`);
+		}
 	}
+
+	async function generateKey(message: string): Promise<`0x${string}`> {
+		if (!openfortInstance) {
+			throw new Error('Openfort not initialized');
+		}
+		const signature = await openfortInstance.embeddedWallet.signMessage(message);
+		const signatureUsingMessageHash = await openfortInstance.embeddedWallet.signMessage(message, {hashMessage: true});
+		console.log({
+			signature,
+			signatureUsingMessageHash,
+			privateKey: await openfortInstance.embeddedWallet.exportPrivateKey(),
+		});
+		return fromSignatureToKey(signature as `0x${string}`);
+	}
+
+	// TODO extract it from hhere, not openfort specific, except for signer metadata, which we do not provide for now
+	async function generateAccount({key, mechanism}: {key: `0x${string}`; mechanism: AuthMechanism}) {
+		const mnemonic = fromEntropyKeyToMnemonic(key);
+		const etherplayAccount: EtherplayAccount = {
+			localAccount: {
+				// TODO should use the connector so it create an account matching the connector chain type (ethereum, fuel, starknet...)
+				// this way a user can leave Etherplay account and come back to the same account by providing the same mnemonic
+				address: settings.accountGenerator.fromMnemonicToAccount(mnemonic, 0).address,
+				index: 0,
+				key,
+			},
+			signer: {
+				mechanismUsed: mechanism,
+				// TODO user: signerUser.user,
+			},
+			accountType: settings.accountGenerator.type,
+		};
+
+		// TODO option ?
+		// again should not be handled in openfort specific provider
+		// saveEtherplayAccount(etherplayAccount);
+
+		return etherplayAccount;
+	}
+
+	// TODO extract it from hhere, not openfort specific, except for signer metadata, which we do not provide for now
+	async function generateOriginAccount(origin: string, account: EtherplayAccount): Promise<OriginAccount> {
+		const accountMnemonic = fromEntropyKeyToMnemonic(account.localAccount.key);
+
+		const accountObject = settings.accountGenerator.fromMnemonicToAccount(accountMnemonic, account.localAccount.index);
+		const originKeySignature = await settings.accountGenerator.signTextMessage(
+			originKeyMessage(origin),
+			accountObject.privateKey,
+		);
+
+		const originKey = fromSignatureToKey(originKeySignature);
+		const originMnemonic = fromEntropyKeyToMnemonic(originKey);
+
+		const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
+
+		const savedPublicKeyPublicationSignature = await settings.accountGenerator.signTextMessage(
+			originPublicKeyPublicationMessage(origin, originAccount.publicKey),
+			accountObject.privateKey,
+		);
+		return {
+			address: account.localAccount.address,
+			signer: {
+				origin,
+				publicKey: originAccount.publicKey,
+				address: originAccount.address,
+				privateKey: originAccount.privateKey,
+				mnemonicKey: originKey,
+			},
+			metadata: {},
+			mechanismUsed: account.signer.mechanismUsed,
+			savedPublicKeyPublicationSignature,
+			accountType: settings.accountGenerator.type,
+		};
+	}
+
 	async function provideEmail(email: string) {
 		await connect({type: 'email', email, mode: 'otp'});
 	}
