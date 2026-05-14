@@ -16,7 +16,7 @@ export function createAuthProvider(
 			accountGenerator,
 			signingOrigin,
 			windowOrigin,
-			encryptionSessionEndpoint: 'https://openfort-backend-cf-worker-production.rim.workers.dev/api',
+			encryptionSessionEndpoint: import.meta.env.VITE_OPENFORT_ENCRYPTION_SESSION_ENDPOINT,
 		});
 	}
 	// openfort only for now
