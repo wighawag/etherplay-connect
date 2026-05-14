@@ -17,7 +17,14 @@ import {mnemonicToEntropy} from '@scure/bip39';
 import {bytesToHex} from '@noble/hashes/utils';
 import {wordlist} from '@scure/bip39/wordlists/english';
 import {writable, get} from 'sveltore';
-import {AccountTypeEnum, ChainTypeEnum, EmbeddedState, Openfort, RecoveryMethod} from '@openfort/openfort-js';
+import {
+	AccountTypeEnum,
+	ChainTypeEnum,
+	EmbeddedState,
+	OAuthProvider,
+	Openfort,
+	RecoveryMethod,
+} from '@openfort/openfort-js';
 
 type OpenfortSettings = {
 	publishableKey: string;
@@ -29,20 +36,6 @@ type OpenfortSettings = {
 	encryptionSessionEndpoint: string;
 };
 
-let OpenfortSDK: any = null;
-
-async function loadOpenfortSDK(): Promise<any> {
-	if (OpenfortSDK) return OpenfortSDK;
-	try {
-		const mod = await import('@openfort/openfort-js');
-		OpenfortSDK = mod;
-		return OpenfortSDK;
-	} catch (err) {
-		console.error('Failed to load Openfort SDK:', err);
-		throw err;
-	}
-}
-
 export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider {
 	let openfortInstance: Openfort | null = null;
 
@@ -51,12 +44,11 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 	async function init(providerSettings?: AuthProviderSettings): Promise<void> {
 		// TODO auto
 		store.set({step: 'Initialising', auto: true});
-		await loadOpenfortSDK();
 
-		const pk = providerSettings?.publishableKey || settings.publishableKey;
-		const shield = providerSettings?.shieldPublishableKey || settings.shieldPublishableKey;
+		const pk = (providerSettings?.publishableKey as string) || settings.publishableKey;
+		const shield = (providerSettings?.shieldPublishableKey as string) || settings.shieldPublishableKey;
 
-		openfortInstance = new OpenfortSDK.Openfort({
+		openfortInstance = new Openfort({
 			baseConfiguration: {publishableKey: pk},
 			shieldConfiguration: shield ? {shieldPublishableKey: shield} : undefined,
 		});
@@ -70,11 +62,11 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			throw new Error('Openfort not initialized. Call init() first.');
 		}
 
-		if (mechanism.type === 'email') {
-			// for now: Always logout first
-			//  later we can check if same email
-			await openfortInstance.auth.logout();
+		// for now: Always logout first
+		//  later we can check if same email
+		await openfortInstance.auth.logout();
 
+		if (mechanism.type === 'email') {
 			if (!mechanism.email) {
 				store.set({step: 'EmailToProvide', mechanism: mechanism as EmailMechanism<undefined>});
 			} else {
@@ -88,13 +80,14 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			// Map provider id to Openfort OAuth provider enum
 			let openfortProvider: any;
 			try {
-				const {OAuthProvider} = await loadOpenfortSDK();
 				const providerMap: Record<string, any> = {
-					google: OAuthProvider.Google,
-					facebook: OAuthProvider.Facebook,
-					twitter: OAuthProvider.Twitter,
-					discord: OAuthProvider.Discord,
-					apple: OAuthProvider.Apple,
+					google: OAuthProvider.GOOGLE,
+					facebook: OAuthProvider.FACEBOOK,
+					twitter: OAuthProvider.TWITTER,
+					discord: OAuthProvider.DISCORD,
+					apple: OAuthProvider.APPLE,
+					epic: OAuthProvider.EPIC_GAMES,
+					line: OAuthProvider.LINE,
 				};
 				openfortProvider = providerMap[providerId];
 				if (!openfortProvider) {
@@ -111,21 +104,34 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			const isPopup = oauthMech.usePopup !== false;
 			const baseUrl = settings.walletHost || window.location.origin;
 
-			if (isPopup) {
+			const currentState = get(store);
+			if (isPopup && currentState.step !== 'ConfirmOAuth') {
 				// For popup flow, we'll redirect the popup to the OAuth URL
 				// and wait for the callback
 				store.set({step: 'ConfirmOAuth', mechanism});
 			} else {
+				store.set({step: 'WaitingForOAuthResponse', mechanism});
 				// TODO another step here while waiting for await
 				// For redirect flow, initiate OAuth and redirect
 				const callbackUrl = `${baseUrl}/login/?type=oauth-redirect`;
-				const oauthUrl = await openfortInstance.auth.initOAuth({
-					provider: openfortProvider,
-					redirectTo: callbackUrl,
-				});
-				store.set({step: 'WaitingForOAuthResponse', mechanism});
-				if (typeof window !== 'undefined') {
-					window.location.href = oauthUrl;
+
+				try {
+					const oauthUrl = await openfortInstance.auth.initOAuth({
+						provider: openfortProvider,
+						redirectTo: callbackUrl,
+					});
+
+					console.log({oauthUrl});
+
+					if (typeof window !== 'undefined') {
+						window.location.href = oauthUrl;
+					}
+				} catch (err) {
+					store.update((currentState) => ({
+						...currentState,
+						error: {message: `failed to redirect`, cause: err},
+					}));
+					throw err;
 				}
 			}
 		} else if (mechanism.type === 'mnemonic') {
@@ -386,10 +392,10 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 	}
 	async function provideMnemonicIndex(index: number) {
 		const currentState = get(store);
-		if (currentState.step !== 'SignedIn') {
-			throw new Error('Not signed in');
+		if (currentState.step !== 'MnemonicIndexToProvide') {
+			throw new Error('no mnemonic index to provide');
 		}
-		await connect({type: 'mnemonic', mnemonic: '', index});
+		await connect({type: 'mnemonic', mnemonic: currentState.mechanism.mnemonic, index});
 	}
 
 	function getState(): AuthState {
