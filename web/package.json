@@ -23,7 +23,6 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
   },
   "dependencies": {
-    "@etherplay/alchemy": "workspace:*",
     "@etherplay/connect-core": "workspace:*",
     "@etherplay/openfort": "workspace:*",
     "@etherplay/wallet-connector": "workspace:*",

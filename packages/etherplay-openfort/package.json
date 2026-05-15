@@ -9,13 +9,17 @@
 			"default": "./dist/index.js"
 		}
 	},
-	"files": ["dist", "src"],
+	"files": [
+		"dist",
+		"src"
+	],
 	"dependencies": {
 		"@etherplay/connect-core": "workspace:*",
 		"@etherplay/wallet-connector": "workspace:*",
 		"@noble/hashes": "^1.7.1",
 		"@openfort/openfort-js": "^1.3.3",
-		"@scure/bip39": "^1.5.4"
+		"@scure/bip39": "^1.5.4",
+		"sveltore": "^0.0.2"
 	},
 	"peerDependencies": {
 		"svelte": "^5.0.0"

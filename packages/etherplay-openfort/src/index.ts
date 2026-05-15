@@ -48,7 +48,8 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 		try {
 			return await openfortInstance.user.get();
 		} catch (error) {
-			if (error instanceof SessionError && error.code === OPENFORT_AUTH_ERROR_CODES.NOT_LOGGED_IN) {
+			if (error instanceof SessionError) {
+				console.log(`SessionError`, error);
 				return null;
 			}
 			throw error;
@@ -57,7 +58,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 
 	async function completeLogin(
 		mechanism: EmailMechanism<string>,
-		currentUser?: { email?: string; id: string },
+		currentUser?: {email?: string; id: string},
 	): Promise<void> {
 		await setupOpenfortAccount();
 		const key = await generateKey(localKeyMessage());
@@ -111,6 +112,8 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			store.set({step: 'WaitingForOTP', mechanism: mechanism as EmailMechanism<string>});
 			await openfortInstance.auth.requestEmailOtp({email: mechanism.email});
 		} else if (mechanism.type === 'oauth') {
+			await openfortInstance.auth.logout();
+
 			const oauthMech = mechanism;
 			const providerId = oauthMech.provider.id;
 
@@ -151,6 +154,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				// TODO another step here while waiting for await
 				// For redirect flow, initiate OAuth and redirect
 				const callbackUrl = `${baseUrl}/login/?type=oauth-redirect`;
+				console.log({callbackUrl});
 
 				try {
 					const oauthUrl = await openfortInstance.auth.initOAuth({
