@@ -9,9 +9,11 @@ import {
 	fromEntropyKeyToMnemonic,
 	fromSignatureToKey,
 	localKeyMessage,
+	OauthMechanism,
 	OriginAccount,
 	originKeyMessage,
 	originPublicKeyPublicationMessage,
+	Redirection,
 } from '@etherplay/connect-core';
 import {mnemonicToEntropy} from '@scure/bip39';
 import {bytesToHex} from '@noble/hashes/utils';
@@ -88,7 +90,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 		store.set({step: 'Initialised'});
 	}
 
-	async function connect(mechanism: AuthMechanism): Promise<void> {
+	async function connect(mechanism: AuthMechanism, redirection?: Redirection): Promise<void> {
 		if (!openfortInstance) {
 			throw new Error('Openfort not initialized. Call init() first.');
 		}
@@ -112,6 +114,10 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			store.set({step: 'WaitingForOTP', mechanism: mechanism as EmailMechanism<string>});
 			await openfortInstance.auth.requestEmailOtp({email: mechanism.email});
 		} else if (mechanism.type === 'oauth') {
+			if (!redirection) {
+				throw new Error(`no redirection data provided`);
+			}
+
 			await openfortInstance.auth.logout();
 
 			const oauthMech = mechanism;
@@ -152,14 +158,42 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			} else {
 				store.set({step: 'WaitingForOAuthResponse', mechanism});
 				// TODO another step here while waiting for await
-				// For redirect flow, initiate OAuth and redirect
-				const callbackUrl = `${baseUrl}/login/?type=oauth-redirect`;
-				console.log({callbackUrl});
+
+				const authProviderId = mechanism.provider.id;
+				const auth0Connection = 'connection' in mechanism.provider ? mechanism.provider.connection : undefined;
+
+				const currentURL = new URL(location.href);
+
+				let accountTypeStr = '';
+				if (currentURL.searchParams.has('account-type')) {
+					const value = currentURL.searchParams.get('account-type');
+					accountTypeStr = value ? `&account-type=${value}` : '&account-type';
+				}
+
+				let erudaStr = '';
+				if (currentURL.searchParams.has('eruda')) {
+					const value = currentURL.searchParams.get('eruda');
+					erudaStr = value ? `&eruda=${value}` : '&eruda';
+				}
+
+				let debugStr = '';
+				if (currentURL.searchParams.has('debug')) {
+					const value = currentURL.searchParams.get('debug');
+					debugStr = value ? `&debug=${value}` : '&debug';
+				}
+
+				let logStr = '';
+				if (currentURL.searchParams.has('log')) {
+					const value = currentURL.searchParams.get('log');
+					logStr = value ? `&log=${value}` : '&log';
+				}
+
+				const redirectUrl = `${baseUrl}/login/?oauth-callback=true&oauth-redirection=true&type=oauth&origin=${redirection.windowOrigin}&signingOrigin=${redirection.signingOrigin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${accountTypeStr}${erudaStr}${debugStr}${logStr}`;
 
 				try {
 					const oauthUrl = await openfortInstance.auth.initOAuth({
 						provider: openfortProvider,
-						redirectTo: callbackUrl,
+						redirectTo: redirectUrl,
 					});
 
 					console.log({oauthUrl});
@@ -255,45 +289,39 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 		}
 	}
 
-	async function confirmOAuth(): Promise<void> {
+	async function confirmOAuth(
+		mechanism: OauthMechanism,
+		searchParams: URLSearchParams,
+		redirection: Redirection,
+	): Promise<void> {
 		if (!openfortInstance) {
 			throw new Error('Openfort not initialized');
 		}
 
-		const currentState = get(store);
-		if (!('mechanism' in currentState)) {
-			throw new Error(`no mechanism`);
-		}
+		const access_token = searchParams.get('access_token');
+		const user_id = searchParams.get('user_id');
 
-		const currentMechanism = currentState.mechanism;
-
-		if (!(currentMechanism.type === 'oauth')) {
-			throw new Error(`not oauth mechanism`);
-		}
-
-		store.set({step: 'WaitingForOAuthResponse', mechanism: currentMechanism});
+		store.set({step: 'WaitingForOAuthResponse', mechanism});
 
 		try {
 			// Extract token and user_id from current URL
 			const url = new URL(window.location.href);
-			const token = url.searchParams.get('token');
-			const userId = url.searchParams.get('user_id');
 
-			if (!token || !userId) {
+			if (!access_token || !user_id) {
 				throw new Error('Missing token or user_id in callback URL');
 			}
 
 			await openfortInstance.auth.storeCredentials({
-				token,
-				userId,
+				token: access_token,
+				userId: user_id,
 			});
 
 			await setupOpenfortAccount();
 			const key = await generateKey(localKeyMessage());
-			const account = await generateAccount({key, mechanism: currentMechanism});
+			const account = await generateAccount({key, mechanism});
 
 			// TODO requireOriginApproval
-			store.set({step: 'SignedIn', mechanism: currentMechanism, account, requireOriginApproval: false});
+			store.set({step: 'SignedIn', mechanism, account, requireOriginApproval: false});
 		} catch (err) {
 			store.update((currentState) => ({
 				...currentState,
