@@ -31,11 +31,10 @@ export const windowOrigin = searchParams.get('origin');
 export const signingOrigin = searchParams.get('signingOrigin');
 // Id for tracking
 export const requestID = searchParams.get('id');
+
+// -- AUTH TYPE ------------------------------------------------------------------
 // type of auth used (email, oauth, mnemonic, etc...)
 export const type = searchParams.get('type');
-
-// debug flag that can for exampel stop the popup for auto closign so we can inspect the console logs
-export const debug = searchParams.get('debug');
 // email for email auth
 export const emailStr = searchParams.get('email');
 // emailMode, only otp supported for now
@@ -48,14 +47,20 @@ export const oauth = searchParams.get('oauth-provider') || undefined;
 export const oauthConnection = searchParams.get('oauth-connection') || undefined;
 // this indicate we are requesting oauth flow in the same popup, no extra popup, only one supported for now
 export const oauthRedirection = searchParams.get('oauth-redirection') === 'true';
+// -------------------------------------------------------------------------------
+
 // this indicate we are back into the popup through a redirection
 export const isCallback = searchParams.get('oauth-callback') === 'true';
 // this allow for encryption to allow the game domain to be intermediary in the popup flow so it can talk to the game
 const domainRedirectPublicKey = searchParams.get('domain-redirect-public-key') || undefined;
+
 // account type, for now ethereum is the only one well supported
 const accountType = searchParams.get('account-type') || 'ethereum';
 // for now we use openfort
 const authProviderType = searchParams.get('provider') || import.meta.env.VITE_AUTH_PROVIDER || 'openfort';
+
+// debug flag that for example stop the popup for auto closing so we can inspect the console logs
+export const debug = searchParams.get('debug');
 
 console.log({
 	source,
@@ -166,7 +171,7 @@ if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType 
 			);
 
 	authProviderConnecting.catch(console.error);
-	// }
+
 	authProvider = authProviderToUse;
 
 	fromProps = {
