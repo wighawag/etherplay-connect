@@ -155,6 +155,4 @@ export interface AuthProvider extends Readable<AuthState> {
 	provideOTP(otp: string): Promise<void>;
 	provideMnemonicIndex: (index: number) => Promise<void>;
 	confirmOAuth(mechanism: OauthMechanism, searchParams: URLSearchParams, redirection: Redirection): Promise<void>;
-	generateOriginAccount: (origin: string, account: EtherplayAccount) => Promise<OriginAccount>;
-	getState(): AuthState;
 }

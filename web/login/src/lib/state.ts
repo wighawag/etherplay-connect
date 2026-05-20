@@ -202,4 +202,4 @@ if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType 
 	}
 }
 
-export {authProvider, errors, authProviderType, fromProps};
+export {authProvider, errors, authProviderType, fromProps, accountGenerator};

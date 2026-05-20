@@ -6,12 +6,16 @@
 	import {debug} from './state';
 	import type {AuthProvider} from '@etherplay/connect-core';
 	import Mnemonic from './mechanism/Mnemonic.svelte';
+	import {deriveOriginAccount} from '@etherplay/connect-core';
+	import type {AccountGenerator} from '@etherplay/wallet-connector';
 
 	let {
 		authProvider,
+		accountGenerator,
 		from,
 	}: {
 		authProvider: AuthProvider;
+		accountGenerator: AccountGenerator;
 		from: {
 			source?: MessageEventSource;
 			windowOrigin: string;
@@ -119,11 +123,15 @@
 		if (!from.source) {
 			throw new Error(`no source`);
 		}
+
+		// TODO option ?
+		// again should not be handled in openfort specific provider
+		// saveEtherplayAccount(etherplayAccount);
+
 		if (!resultPosted) {
 			try {
 				if ($authProvider.step === 'SignedIn') {
-					// TODO
-					const result = await authProvider.generateOriginAccount(from.signingOrigin, $authProvider.account);
+					const result = await deriveOriginAccount(from.signingOrigin, $authProvider.account, accountGenerator);
 					if (debug) {
 						console.log('postMessage', {result, id: from.requestID}, {targetOrigin: from.windowOrigin});
 					}

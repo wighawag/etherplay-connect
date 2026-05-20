@@ -28,6 +28,7 @@
 		"src"
 	],
 	"dependencies": {
+		"@etherplay/wallet-connector": "workspace:*",
 		"@noble/curves": "^1.8.1",
 		"@noble/hashes": "^1.7.1",
 		"@noble/secp256k1": "^2.2.3",

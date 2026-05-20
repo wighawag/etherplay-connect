@@ -4,6 +4,7 @@ import {
 	AuthProvider,
 	AuthProviderSettings,
 	AuthState,
+	deriveEtherplayAccount,
 	EmailMechanism,
 	EtherplayAccount,
 	fromEntropyKeyToMnemonic,
@@ -392,64 +393,8 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 		return fromSignatureToKey(signature as `0x${string}`);
 	}
 
-	// TODO extract it from hhere, not openfort specific, except for signer metadata, which we do not provide for now
 	async function generateAccount({key, mechanism}: {key: `0x${string}`; mechanism: AuthMechanism}) {
-		const mnemonic = fromEntropyKeyToMnemonic(key);
-		const etherplayAccount: EtherplayAccount = {
-			localAccount: {
-				// TODO should use the connector so it create an account matching the connector chain type (ethereum, fuel, starknet...)
-				// this way a user can leave Etherplay account and come back to the same account by providing the same mnemonic
-				address: settings.accountGenerator.fromMnemonicToAccount(mnemonic, 0).address,
-				index: 0,
-				key,
-			},
-			signer: {
-				mechanismUsed: mechanism,
-				// TODO user: signerUser.user,
-			},
-			accountType: settings.accountGenerator.type,
-		};
-
-		// TODO option ?
-		// again should not be handled in openfort specific provider
-		// saveEtherplayAccount(etherplayAccount);
-
-		return etherplayAccount;
-	}
-
-	// TODO extract it from hhere, not openfort specific, except for signer metadata, which we do not provide for now
-	async function generateOriginAccount(origin: string, account: EtherplayAccount): Promise<OriginAccount> {
-		const accountMnemonic = fromEntropyKeyToMnemonic(account.localAccount.key);
-
-		const accountObject = settings.accountGenerator.fromMnemonicToAccount(accountMnemonic, account.localAccount.index);
-		const originKeySignature = await settings.accountGenerator.signTextMessage(
-			originKeyMessage(origin),
-			accountObject.privateKey,
-		);
-
-		const originKey = fromSignatureToKey(originKeySignature);
-		const originMnemonic = fromEntropyKeyToMnemonic(originKey);
-
-		const originAccount = settings.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
-
-		const savedPublicKeyPublicationSignature = await settings.accountGenerator.signTextMessage(
-			originPublicKeyPublicationMessage(origin, originAccount.publicKey),
-			accountObject.privateKey,
-		);
-		return {
-			address: account.localAccount.address,
-			signer: {
-				origin,
-				publicKey: originAccount.publicKey,
-				address: originAccount.address,
-				privateKey: originAccount.privateKey,
-				mnemonicKey: originKey,
-			},
-			metadata: {},
-			mechanismUsed: account.signer.mechanismUsed,
-			savedPublicKeyPublicationSignature,
-			accountType: settings.accountGenerator.type,
-		};
+		return deriveEtherplayAccount(key, mechanism, settings.accountGenerator);
 	}
 
 	async function provideEmail(email: string) {
@@ -463,10 +408,6 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 		await connect({type: 'mnemonic', mnemonic: currentState.mechanism.mnemonic, index});
 	}
 
-	function getState(): AuthState {
-		return get(store);
-	}
-
 	return {
 		subscribe: store.subscribe,
 		init,
@@ -475,7 +416,5 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 		provideOTP,
 		provideMnemonicIndex,
 		confirmOAuth,
-		generateOriginAccount,
-		getState,
 	};
 }

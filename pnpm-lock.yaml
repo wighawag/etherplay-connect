@@ -100,6 +100,9 @@ importers:
 
   packages/etherplay-connect-core:
     dependencies:
+      '@etherplay/wallet-connector':
+        specifier: workspace:*
+        version: link:../etherplay-wallet-connector
       '@noble/curves':
         specifier: ^1.8.1
         version: 1.8.1

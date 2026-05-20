@@ -4,6 +4,8 @@ import {wordlist} from '@scure/bip39/wordlists/english';
 import {HDKey} from '@scure/bip32';
 import {keccak_256} from '@noble/hashes/sha3';
 import {secp256k1} from '@noble/curves/secp256k1';
+import type {AccountGenerator} from '@etherplay/wallet-connector';
+import type {AuthMechanism, EtherplayAccount, OriginAccount} from './types.js';
 
 export function originKeyMessage(orig: string): string {
 	return `Origin: ${orig}\n\nIMPORTANT: Only sign on trusted websites.\n\nThis grants access to your private session account.\n\nVerify before proceeding.`;
@@ -28,6 +30,63 @@ export function fromMnemonicToHDKey(mnemonic: string, index: number): HDKey {
 	const seed = mnemonicToSeedSync(mnemonic);
 	const hd = HDKey.fromMasterSeed(seed);
 	return hd.derive(`m/44'/60'/0'/0/${index}`);
+}
+
+export function deriveEtherplayAccount(
+	key: `0x${string}`,
+	mechanism: AuthMechanism,
+	accountGenerator: AccountGenerator,
+): EtherplayAccount {
+	const mnemonic = fromEntropyKeyToMnemonic(key);
+	return {
+		localAccount: {
+			address: accountGenerator.fromMnemonicToAccount(mnemonic, 0).address,
+			index: 0,
+			key,
+		},
+		signer: {
+			mechanismUsed: mechanism,
+		},
+		accountType: accountGenerator.type,
+	};
+}
+
+export async function deriveOriginAccount(
+	origin: string,
+	account: EtherplayAccount,
+	accountGenerator: AccountGenerator,
+): Promise<OriginAccount> {
+	const accountMnemonic = fromEntropyKeyToMnemonic(account.localAccount.key);
+	const accountObject = accountGenerator.fromMnemonicToAccount(accountMnemonic, account.localAccount.index);
+
+	const originKeySignature = await accountGenerator.signTextMessage(
+		originKeyMessage(origin),
+		accountObject.privateKey,
+	);
+
+	const originKey = fromSignatureToKey(originKeySignature);
+	const originMnemonic = fromEntropyKeyToMnemonic(originKey);
+	const originAccount = accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
+
+	const savedPublicKeyPublicationSignature = await accountGenerator.signTextMessage(
+		originPublicKeyPublicationMessage(origin, originAccount.publicKey),
+		accountObject.privateKey,
+	);
+
+	return {
+		address: account.localAccount.address,
+		signer: {
+			origin,
+			publicKey: originAccount.publicKey,
+			address: originAccount.address,
+			privateKey: originAccount.privateKey,
+			mnemonicKey: originKey,
+		},
+		metadata: {},
+		mechanismUsed: account.signer.mechanismUsed,
+		savedPublicKeyPublicationSignature,
+		accountType: accountGenerator.type,
+	};
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
