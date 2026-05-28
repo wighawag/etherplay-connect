@@ -199,9 +199,9 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 
 					console.log({oauthUrl});
 
-					if (typeof window !== 'undefined') {
-						window.location.href = oauthUrl;
-					}
+					// if (typeof window !== 'undefined') {
+					// 	window.location.href = oauthUrl;
+					// }
 				} catch (err) {
 					store.update((currentState) => ({
 						...currentState,
