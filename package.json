@@ -12,7 +12,7 @@
     "release": "pnpm prepublishOnly && git push --all && pnpm changeset publish && git push --tags",
     "format": "pnpm run -r format",
     "format:check": "pnpm run -r format:check",
-    "build:packages": "pnpm build:etherplay-connect-core && pnpm build:etherplay-wallet-connector && pnpm build:etherplay-wallet-connector-ethereum && pnpm build:etherplay-openfort && pnpm build:etherplay-connect && pnpm build:etherplay-wallet-connector-ethereum",
+    "build:packages": "pnpm build:etherplay-wallet-connector  && pnpm build:etherplay-connect-core && pnpm build:etherplay-wallet-connector-ethereum && pnpm build:etherplay-openfort && pnpm build:etherplay-connect && pnpm build:etherplay-wallet-connector-ethereum",
     "build:etherplay-connect-core": "pnpm run --filter @etherplay/connect-core build",
     "build:etherplay-connect": "pnpm run --filter @etherplay/connect build",
     "build:etherplay-openfort": "pnpm run --filter @etherplay/openfort build",
