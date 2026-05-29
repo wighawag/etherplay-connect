@@ -143,3 +143,4 @@ export function fromPrivateKey(key: string | Uint8Array): string {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 export type * from './types.js';
+export * from './crypto.js';

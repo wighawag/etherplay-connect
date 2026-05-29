@@ -6,7 +6,14 @@
 	import {debug} from './state';
 	import type {AuthProvider} from '@etherplay/connect-core';
 	import Mnemonic from './mechanism/Mnemonic.svelte';
-	import {deriveOriginAccount} from '@etherplay/connect-core';
+	import {
+		deriveOriginAccount,
+		generateEcdhKeyPair,
+		importPublicKeyB64,
+		deriveAesKey,
+		bufToB64,
+		exportPublicKeyB64,
+	} from '@etherplay/connect-core';
 	import type {AccountGenerator} from '@etherplay/wallet-connector';
 
 	let {
@@ -28,6 +35,32 @@
 
 	function cancelOnClose() {
 		_cancel();
+	}
+
+	// Same-Origin Callback Bridge: encrypt the result and redirect to the bridge
+	// page on the parent's own origin (ECDH P-256 + AES-GCM, native Web Crypto).
+	async function encryptAndRedirect(payload: any, parentPubB64: string, parentOrigin: string, requestId: string) {
+		const parentPub = await importPublicKeyB64(parentPubB64);
+		const ephemeral = await generateEcdhKeyPair();
+		const aesKey = await deriveAesKey(ephemeral.privateKey, parentPub, ['encrypt']);
+
+		const iv = window.crypto.getRandomValues(new Uint8Array(12));
+		const ct = await window.crypto.subtle.encrypt(
+			{name: 'AES-GCM', iv},
+			aesKey,
+			new TextEncoder().encode(JSON.stringify(payload)),
+		);
+
+		const dataB64 = bufToB64(ct);
+		const ivB64 = bufToB64(iv);
+		const ephPubB64 = await exportPublicKeyB64(ephemeral.publicKey);
+
+		window.location.href =
+			`${parentOrigin}/_etherplay_accounts.html` +
+			`#data=${encodeURIComponent(dataB64)}` +
+			`&iv=${encodeURIComponent(ivB64)}` +
+			`&pubKey=${encodeURIComponent(ephPubB64)}` +
+			`&id=${encodeURIComponent(requestId)}`;
 	}
 
 	let cancelOnCloseEnabled = false;
@@ -58,15 +91,34 @@
 
 	onMount(() => {
 		enableCancelOnClose();
-		const unsubscribeFromAuthProvider = authProvider.subscribe((v) => {
+		const unsubscribeFromAuthProvider = authProvider.subscribe(async (v) => {
 			if (v?.step == 'WaitingForOAuthResponse') {
 				disableCancelOnClose();
 			} else if (v?.step === 'SignedIn') {
-				if (from.domainRedirectPublicKey) {
-					// TODO encrypt
-					window.location.href = `${from.windowOrigin}/_etherplay_accounts.html#myencryptedresult`;
-				} else {
-					if (!v.requireOriginApproval || (v.requireOriginApproval && !v.requireOriginApproval.requestingAccess)) {
+				if (!v.requireOriginApproval || !v.requireOriginApproval.requestingAccess) {
+					// Delivery is opportunistic: try the direct opener first; only if the
+					// opener was severed AND a domain-redirect-public-key is present do we
+					// fall back to the encrypted same-origin bridge.
+					// Gate on `from.source` only: that is the exact reference
+					// `postResultIfNotAlreadyPosted` posts through (it throws without it),
+					// so "I think I can deliver" matches "I actually can deliver".
+					const openerAlive = !!(from.source && !(from.source as Window).closed);
+
+					if (openerAlive) {
+						// Happy path: link survived. Use the existing postMessage delivery.
+						postResultIfNotAlreadyPosted(from.canCloseAutomatically);
+					} else if (from.domainRedirectPublicKey) {
+						// Opener severed: fall back to the encrypted same-origin bridge.
+						const result = await deriveOriginAccount(from.signingOrigin, v.account, accountGenerator);
+						await encryptAndRedirect(
+							result,
+							from.domainRedirectPublicKey,
+							from.windowOrigin,
+							from.requestID,
+						);
+					} else {
+						// No opener and no bridge configured: keep existing behavior
+						// (will surface the closed-popup UX on the parent side).
 						postResultIfNotAlreadyPosted(from.canCloseAutomatically);
 					}
 				}

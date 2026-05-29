@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>Completing Sign-In...</title>
+		<script>
+			(function () {
+				var hashParams = new URLSearchParams(window.location.hash.slice(1));
+				var data = hashParams.get('data');
+				var iv = hashParams.get('iv');
+				var pubKey = hashParams.get('pubKey');
+				var id = hashParams.get('id');
+
+				if (!(data && iv && pubKey && id)) {
+					document.body.innerHTML = '<p>Error: missing redirect parameters. You can close this window.</p>';
+					return;
+				}
+
+				var payload = {
+					type: 'domain-redirect-result',
+					encryptedResult: data,
+					iv: iv,
+					ephemeralPublicKey: pubKey,
+					id: id,
+				};
+
+				// This page is SAME-ORIGIN with the parent. Two delivery paths are available;
+				// try the direct opener first (often re-established once same-origin),
+				// then fall back to BroadcastChannel. Parent accepts BOTH.
+				var channel = new BroadcastChannel('etherplay-connect');
+
+				// Close only after the parent acknowledges receipt (avoids dropping the message).
+				channel.onmessage = function (event) {
+					if (event && event.data && event.data.type === 'ack' && event.data.id === id) {
+						try {
+							channel.close();
+						} catch (e) {}
+						window.close();
+					}
+				};
+
+				// Path 1: direct opener (same-origin here, so our own origin is fine).
+				try {
+					if (window.opener && !window.opener.closed) {
+						window.opener.postMessage(payload, window.origin);
+					}
+				} catch (e) {}
+
+				// Path 2: BroadcastChannel (works even if opener is null).
+				channel.postMessage(payload);
+
+				// Safety fallback: close even if no ack arrives.
+				setTimeout(function () {
+					try {
+						channel.close();
+					} catch (e) {}
+					window.close();
+				}, 3000);
+			})();
+		</script>
+	</head>
+	<body>
+		<p>Completing sign-in, redirecting back to application...</p>
+	</body>
+</html>

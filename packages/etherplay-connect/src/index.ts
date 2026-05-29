@@ -16,6 +16,8 @@ import {
 	originKeyMessage,
 	fromSignatureToKey,
 	AuthMechanism,
+	generateEcdhKeyPair,
+	exportPublicKeyB64,
 } from '@etherplay/connect-core';
 
 export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage};
@@ -64,6 +66,9 @@ export type ChainInfo<WalletProviderType> = ChainInfoWithRPCUrl | ChainInfoWithP
 export type PopupSettings = {
 	walletHost: string;
 	mechanism: AuthMechanism;
+	// Same-Origin Callback Bridge (domain-redirect fallback)
+	decryptKeyPair?: CryptoKeyPair;
+	domainRedirectPublicKeyB64?: string;
 	// extraParams?: Record<string, string>;
 };
 
@@ -393,6 +398,7 @@ export function createConnection<WalletProviderType>(settings: {
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
+	domainRedirectBridge?: boolean;
 }): ConnectionStore<WalletProviderType, 'SignedIn', true>;
 
 // SignedIn target with walletOnly: true (default Ethereum connector) - walletHost optional
@@ -409,6 +415,7 @@ export function createConnection(settings: {
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
+	domainRedirectBridge?: boolean;
 }): ConnectionStore<UnderlyingEthereumProvider, 'SignedIn', true>;
 
 // SignedIn target (explicit) with custom wallet connector - walletHost required
@@ -425,6 +432,7 @@ export function createConnection<WalletProviderType>(settings: {
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
+	domainRedirectBridge?: boolean;
 }): ConnectionStore<WalletProviderType, 'SignedIn', false>;
 
 // SignedIn target (default) with default Ethereum connector - walletHost required
@@ -441,6 +449,7 @@ export function createConnection(settings: {
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
+	domainRedirectBridge?: boolean;
 }): ConnectionStore<UnderlyingEthereumProvider, 'SignedIn', false>;
 
 // Implementation signature
@@ -457,6 +466,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	chainInfo: ChainInfo<WalletProviderType>;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
+	// opt-in: enable the Same-Origin Callback Bridge (domain-redirect fallback)
+	// for the oauth-redirection flow. Requires hosting `_etherplay_accounts.html`
+	// on the parent origin.
+	domainRedirectBridge?: boolean;
 }): ConnectionStore<WalletProviderType, TargetStep, boolean> {
 	function originToSignWith() {
 		return settings.signingOrigin || origin;
@@ -1195,9 +1208,31 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				if (!settings.walletHost) {
 					throw new Error('walletHost is required for popup-based authentication (email, oauth, mnemonic)');
 				}
+				// Same-Origin Callback Bridge (domain-redirect fallback): only relevant
+				// for the oauth-redirection flow, where the opener can be severed by COOP.
+				let decryptKeyPair: CryptoKeyPair | undefined;
+				let domainRedirectPublicKeyB64: string | undefined;
+				const isOauthRedirection = mechanism.type === 'oauth' && !mechanism.usePopup;
+				if (
+					settings.domainRedirectBridge &&
+					isOauthRedirection &&
+					typeof window !== 'undefined' &&
+					window.crypto?.subtle
+				) {
+					try {
+						decryptKeyPair = await generateEcdhKeyPair();
+						domainRedirectPublicKeyB64 = await exportPublicKeyB64(decryptKeyPair.publicKey);
+					} catch (err) {
+						console.error('failed to set up domain-redirect bridge', err);
+						decryptKeyPair = undefined;
+						domainRedirectPublicKeyB64 = undefined;
+					}
+				}
 				popup = connectViaPopup({
 					mechanism,
 					walletHost: settings.walletHost,
+					decryptKeyPair,
+					domainRedirectPublicKeyB64,
 				});
 				set({
 					step: 'PopupLaunched',
@@ -1389,6 +1424,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		let popupURL = new URL(`${popupSettings.walletHost}/login/`);
 		let fullWindow = false;
 
+		// Same-Origin Callback Bridge (domain-redirect fallback): the parent's public
+		// key is carried through the redirect chain as a query param so it survives
+		// the full-page OAuth round-trip.
+		if (popupSettings.domainRedirectPublicKeyB64) {
+			popupURL.searchParams.append('domain-redirect-public-key', popupSettings.domainRedirectPublicKeyB64);
+		}
+
 		const authProvider = (import.meta as any).env?.VITE_AUTH_PROVIDER || 'openfort';
 		popupURL.searchParams.append('provider', authProvider);
 
@@ -1453,7 +1495,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		for (const entryToAdd of entriesToAdd) {
 			popupURL.searchParams.append(entryToAdd[0], entryToAdd[1]);
 		}
-		return popupLauncher.launchPopup(popupURL.toString(), {fullWindow});
+		return popupLauncher.launchPopup(popupURL.toString(), {
+			fullWindow,
+			decryptKeyPair: popupSettings.decryptKeyPair,
+		});
 	}
 
 	function cancel() {

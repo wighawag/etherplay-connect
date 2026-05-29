@@ -4,7 +4,7 @@
 
 This document details the architecture and implementation plan for the **Same-Origin Callback Bridge** (also known as the Domain-Redirect Fallback). This mechanism provides a robust, future-proof, 100% client-side communication channel between the connection parent window and the login popup, even when browser security policies (like `Cross-Origin-Opener-Policy` or cross-scheme redirects) completely sever the `window.opener` relationship.
 
-**Status**: Drafted — not yet implemented.
+**Status**: Implemented.
 
 > **Note on existing scaffolding**: The codebase ALREADY contains partial scaffolding for this feature. This plan reconciles with and completes that scaffolding rather than inventing new conventions. Specifically:
 > - `web/login/src/lib/state.ts:55` already reads the query param `domain-redirect-public-key` (kebab-case) into `domainRedirectPublicKey`.
@@ -413,16 +413,16 @@ const redirectUrl =
 
 ## Implementation Checklist
 
-1. [ ] Add `packages/etherplay-connect/src/crypto.ts` (Web Crypto helpers).
-2. [ ] `index.ts`: behind an opt-in config flag, for the `oauth-redirection` flow, generate the ECDH keypair, append `domain-redirect-public-key`, and pass `decryptKeyPair` into `launchPopup`.
-3. [ ] `popup.ts`: extend `launchPopup` options with `decryptKeyPair`; add a shared `handleEncryptedResult()` called from BOTH the `window` `message` listener (accepting `expectedOrigin` AND `window.origin`) and a new `BroadcastChannel('etherplay-connect')` listener; **loose `==`** id compare; de-dupe with a `handled` flag; decrypt; ACK on both transports; resolve. Close `channel` in `resolveRecovery`/`rejectRecovery`.
-4. [ ] `popup.ts`: KEEP `watchForPopupClosed` and the existing `popupClosed` UX unchanged. Do NOT add timeout-based auto-reject.
-5. [ ] `etherplay-openfort/src/index.ts`: append `domain-redirect-public-key` to the Openfort `redirectTo` URL so it survives the full-page round-trip.
-6. [ ] `Login.svelte`: replace the `// TODO encrypt` block with the opportunistic delivery (try opener first via `postResultIfNotAlreadyPosted`, else `encryptAndRedirect(...)`).
-7. [ ] Author/ship `_etherplay_accounts.html` (tries `window.opener.postMessage` first, then `BroadcastChannel`; ACK-aware close) and copy it into `web/static` (or equivalent) and the demo's static dir.
-8. [ ] Verify `extractable: true` on parent keygen (export would throw otherwise).
-9. [ ] Verify total redirect URL length stays well under ~8000 chars for real payloads.
-10. [ ] Test: (a) link survives whole way → plain postMessage path works, accurate `popup.closed`; (b) opener severed → bridge path delivers encrypted result; (c) genuine user close → existing "Popup seems to be closed" keep-waiting/cancel UX; (d) decryption failure → clear reject.
+1. [x] Web Crypto helpers added in `packages/etherplay-connect-core/src/crypto.ts` (shared, re-exported from connect-core) with a re-export shim at `packages/etherplay-connect/src/crypto.ts` per plan path convention.
+2. [x] `index.ts`: behind the opt-in `domainRedirectBridge` config flag, for the `oauth-redirection` flow, generate the ECDH keypair, pass `domainRedirectPublicKeyB64` (appended as `domain-redirect-public-key`) and `decryptKeyPair` into `launchPopup` via `PopupSettings`.
+3. [x] `popup.ts`: extended `launchPopup` options with `decryptKeyPair`; added a shared `handleEncryptedResult()` called from BOTH the `window` `message` listener (accepting `expectedOrigin` AND `window.origin`) and a new `BroadcastChannel('etherplay-connect')` listener; **loose `==`** id compare; de-dupe with a `handled` flag; decrypt; ACK on both transports; resolve. Closes `channel` in `resolveRecovery`/`rejectRecovery`.
+4. [x] `popup.ts`: KEPT `watchForPopupClosed` and the existing `popupClosed` UX unchanged. No timeout-based auto-reject added.
+5. [x] `etherplay-openfort/src/index.ts`: appended `domain-redirect-public-key` to the Openfort `redirectTo` URL so it survives the full-page round-trip.
+6. [x] `Login.svelte`: replaced the `// TODO encrypt` block with the opportunistic delivery (try opener first via `postResultIfNotAlreadyPosted`, else `encryptAndRedirect(...)`).
+7. [x] Shipped `_etherplay_accounts.html` (tries `window.opener.postMessage` first, then `BroadcastChannel`; ACK-aware close); copied into `web/public` and `demoes/sveltekit/static`.
+8. [x] `extractable: true` on parent keygen (`generateEcdhKeyPair`).
+9. [x] Redirect URL stays well under ~8000 chars for real account payloads (ciphertext is a few hundred b64 chars).
+10. [ ] Manual/E2E testing in a real browser: (a) link survives whole way → plain postMessage path; (b) opener severed → bridge path delivers encrypted result; (c) genuine user close → existing "Popup seems to be closed" keep-waiting/cancel UX; (d) decryption failure → clear reject.
 
 ---
 

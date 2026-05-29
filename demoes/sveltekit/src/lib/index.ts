@@ -30,12 +30,21 @@ export const chainInfos = {
 
 export const chainId = '1';
 export const chainInfo = chainInfos[chainId];
+
+// Enable the Same-Origin Callback Bridge (domain-redirect fallback) for the
+// oauth-redirection flow only when the page is loaded with `?domainRedirectBridge=true`.
+// Requires hosting `/_etherplay_accounts.html`.
+const domainRedirectBridge =
+	typeof window !== 'undefined' &&
+	new URLSearchParams(window.location.search).get('domainRedirectBridge') === 'true';
+
 export const connection = createConnection({
 	walletHost: PUBLIC_WALLET_HOST,
 	chainInfo,
 	prioritizeWalletProvider: true,
 	requestSignatureAutomaticallyIfPossible: true,
-	autoConnect: true
+	autoConnect: true,
+	domainRedirectBridge
 });
 
 connection.subscribe((c) =>

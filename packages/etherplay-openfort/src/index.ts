@@ -189,7 +189,15 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 					logStr = value ? `&log=${value}` : '&log';
 				}
 
-				const redirectUrl = `${baseUrl}/login/?oauth-callback=true&oauth-redirection=true&type=oauth&origin=${redirection.windowOrigin}&signingOrigin=${redirection.signingOrigin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${accountTypeStr}${erudaStr}${debugStr}${logStr}`;
+				// Same-Origin Callback Bridge: carry the parent's public key through the
+				// full-page Google -> Openfort -> popup round-trip so it survives the
+				// in-memory state reset on the callback load.
+				const domainRedirectPublicKey = currentURL.searchParams.get('domain-redirect-public-key');
+				const drpkStr = domainRedirectPublicKey
+					? `&domain-redirect-public-key=${encodeURIComponent(domainRedirectPublicKey)}`
+					: '';
+
+				const redirectUrl = `${baseUrl}/login/?oauth-callback=true&oauth-redirection=true&type=oauth&origin=${redirection.windowOrigin}&signingOrigin=${redirection.signingOrigin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${accountTypeStr}${erudaStr}${debugStr}${logStr}${drpkStr}`;
 
 				try {
 					const oauthUrl = await openfortInstance.auth.initOAuth({
