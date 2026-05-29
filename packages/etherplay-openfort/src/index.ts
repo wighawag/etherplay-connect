@@ -214,8 +214,20 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 
 					console.log({oauthUrl});
 
-					if (typeof window !== 'undefined' && !debugStr) {
-						window.location.href = oauthUrl;
+					if (typeof window !== 'undefined') {
+						if (debugStr) {
+							// Debug mode: do not auto-redirect. Expose a console function so the
+							// developer can inspect the page first, then proceed manually.
+							(window as any).proceedOAuth = () => {
+								window.location.href = oauthUrl;
+							};
+							console.log(
+								'%c[etherplay-openfort] debug mode: OAuth redirect paused. Run `proceedOAuth()` in the console to continue.',
+								'color: orange; font-weight: bold;',
+							);
+						} else {
+							window.location.href = oauthUrl;
+						}
 					}
 				} catch (err) {
 					store.update((currentState) => ({
