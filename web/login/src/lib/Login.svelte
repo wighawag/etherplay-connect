@@ -55,10 +55,18 @@
 		const ivB64 = bufToB64(iv);
 		const ephPubB64 = await exportPublicKeyB64(ephemeral.publicKey);
 
-		// Testing aid: forward `forceBroadcastChannel` (if present on the popup URL)
-		// to the bridge page as a query param so it can skip the opener path.
-		const forceBroadcastChannel = new URL(location.href).searchParams.get('forceBroadcastChannel');
-		const query = forceBroadcastChannel !== null ? `?forceBroadcastChannel=${encodeURIComponent(forceBroadcastChannel)}` : '';
+		// Forward debug/testing flags (if present on the popup URL) to the bridge
+		// page as query params: `debug` keeps the bridge window open with a manual
+		// close button; `forceBroadcastChannel` skips the opener delivery path.
+		const popupParams = new URL(location.href).searchParams;
+		const bridgeParams = new URLSearchParams();
+		if (popupParams.has('debug')) {
+			bridgeParams.set('debug', popupParams.get('debug') || '');
+		}
+		if (popupParams.has('forceBroadcastChannel')) {
+			bridgeParams.set('forceBroadcastChannel', popupParams.get('forceBroadcastChannel') || '');
+		}
+		const query = bridgeParams.toString() ? `?${bridgeParams.toString()}` : '';
 
 		window.location.href =
 			`${parentOrigin}/_etherplay_accounts.html${query}` +

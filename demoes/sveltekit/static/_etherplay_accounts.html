@@ -3,6 +3,29 @@
 	<head>
 		<meta charset="UTF-8" />
 		<title>Completing Sign-In...</title>
+		<style>
+			body {
+				font-family: system-ui, sans-serif;
+				padding: 16px;
+			}
+			#close-button {
+				display: none;
+				margin-top: 12px;
+				padding: 8px 16px;
+				font-size: 1rem;
+				cursor: pointer;
+			}
+			#debug-log {
+				display: none;
+				margin-top: 12px;
+				white-space: pre-wrap;
+				font-family: monospace;
+				font-size: 0.8rem;
+				background: #f4f4f4;
+				padding: 8px;
+				border-radius: 4px;
+			}
+		</style>
 		<script>
 			(function () {
 				var LOG = '[etherplay-bridge]';
@@ -18,70 +41,128 @@
 				// relationship survived.
 				var forceBroadcastChannel = queryParams.get('forceBroadcastChannel') === 'true';
 
-				console.log(LOG, 'loaded', {id: id, forceBroadcastChannel: forceBroadcastChannel, origin: window.origin});
+				// Debug mode: keep this window open (do NOT auto-close on ack or timeout)
+				// so the popup can be inspected, mirroring the :50000 login app behavior.
+				// A "close" button is shown instead. Activated by `?debug` (any value, even empty).
+				var debug = queryParams.has('debug');
 
-				if (!(data && iv && pubKey && id)) {
-					console.error(LOG, 'missing redirect parameters');
-					document.body.innerHTML = '<p>Error: missing redirect parameters. You can close this window.</p>';
-					return;
-				}
-
-				var payload = {
-					type: 'domain-redirect-result',
-					encryptedResult: data,
-					iv: iv,
-					ephemeralPublicKey: pubKey,
-					id: id,
-				};
-
-				// This page is SAME-ORIGIN with the parent. Two delivery paths are available;
-				// try the direct opener first (often re-established once same-origin),
-				// then fall back to BroadcastChannel. Parent accepts BOTH.
-				var channel = new BroadcastChannel('etherplay-connect');
-
-				// Close only after the parent acknowledges receipt (avoids dropping the message).
-				channel.onmessage = function (event) {
-					if (event && event.data && event.data.type === 'ack' && event.data.id === id) {
-						console.log(LOG, 'received ack, closing');
+				var debugLogEl = null;
+				function log() {
+					var args = Array.prototype.slice.call(arguments);
+					console.log.apply(console, [LOG].concat(args));
+					if (debug && debugLogEl) {
 						try {
-							channel.close();
+							debugLogEl.textContent +=
+								args
+									.map(function (a) {
+										return typeof a === 'string' ? a : JSON.stringify(a);
+									})
+									.join(' ') + '\n';
 						} catch (e) {}
-						window.close();
-					}
-				};
-
-				// Path 1: direct opener (same-origin here, so our own origin is fine).
-				if (forceBroadcastChannel) {
-					console.log(LOG, 'forceBroadcastChannel=true -> skipping window.opener.postMessage path');
-				} else {
-					try {
-						if (window.opener && !window.opener.closed) {
-							console.log(LOG, 'delivering via window.opener.postMessage');
-							window.opener.postMessage(payload, window.origin);
-						} else {
-							console.log(LOG, 'window.opener not available, relying on BroadcastChannel');
-						}
-					} catch (e) {
-						console.warn(LOG, 'window.opener.postMessage failed', e);
 					}
 				}
 
-				// Path 2: BroadcastChannel (works even if opener is null).
-				console.log(LOG, 'delivering via BroadcastChannel');
-				channel.postMessage(payload);
-
-				// Safety fallback: close even if no ack arrives.
-				setTimeout(function () {
-					console.log(LOG, 'no ack within timeout, closing anyway');
-					try {
-						channel.close();
-					} catch (e) {}
+				function closeWindow() {
 					window.close();
-				}, 3000);
+				}
+
+				function onReady() {
+					if (debug) {
+						debugLogEl = document.getElementById('debug-log');
+						debugLogEl.style.display = 'block';
+						var btn = document.getElementById('close-button');
+						btn.style.display = 'inline-block';
+						btn.addEventListener('click', closeWindow);
+						document.getElementById('status').textContent =
+							'Debug mode: result delivered. Inspect the console, then click "close".';
+					}
+					start();
+				}
+
+				function start() {
+					log('loaded', {id: id, forceBroadcastChannel: forceBroadcastChannel, debug: debug, origin: window.origin});
+
+					if (!(data && iv && pubKey && id)) {
+						console.error(LOG, 'missing redirect parameters');
+						document.getElementById('status').textContent =
+							'Error: missing redirect parameters. You can close this window.';
+						return;
+					}
+
+					var payload = {
+						type: 'domain-redirect-result',
+						encryptedResult: data,
+						iv: iv,
+						ephemeralPublicKey: pubKey,
+						id: id,
+					};
+
+					// This page is SAME-ORIGIN with the parent. Two delivery paths are available;
+					// try the direct opener first (often re-established once same-origin),
+					// then fall back to BroadcastChannel. Parent accepts BOTH.
+					var channel = new BroadcastChannel('etherplay-connect');
+
+					// Close only after the parent acknowledges receipt (avoids dropping the message).
+					channel.onmessage = function (event) {
+						if (event && event.data && event.data.type === 'ack' && event.data.id === id) {
+							if (debug) {
+								log('received ack (debug mode: not auto-closing, use the close button)');
+								try {
+									channel.close();
+								} catch (e) {}
+								return;
+							}
+							log('received ack, closing');
+							try {
+								channel.close();
+							} catch (e) {}
+							closeWindow();
+						}
+					};
+
+					// Path 1: direct opener (same-origin here, so our own origin is fine).
+					if (forceBroadcastChannel) {
+						log('forceBroadcastChannel=true -> skipping window.opener.postMessage path');
+					} else {
+						try {
+							if (window.opener && !window.opener.closed) {
+								log('delivering via window.opener.postMessage');
+								window.opener.postMessage(payload, window.origin);
+							} else {
+								log('window.opener not available, relying on BroadcastChannel');
+							}
+						} catch (e) {
+							console.warn(LOG, 'window.opener.postMessage failed', e);
+						}
+					}
+
+					// Path 2: BroadcastChannel (works even if opener is null).
+					log('delivering via BroadcastChannel');
+					channel.postMessage(payload);
+
+					// Safety fallback: close even if no ack arrives. Skipped in debug mode.
+					if (!debug) {
+						setTimeout(function () {
+							log('no ack within timeout, closing anyway');
+							try {
+								channel.close();
+							} catch (e) {}
+							closeWindow();
+						}, 3000);
+					}
+				}
+
+				if (document.readyState === 'loading') {
+					document.addEventListener('DOMContentLoaded', onReady);
+				} else {
+					onReady();
+				}
 			})();
 		</script>
 	</head>
 	<body>
-		<p>Completing sign-in, redirecting back to application...</p>
+		<p id="status">Completing sign-in, redirecting back to application...</p>
+		<button id="close-button" type="button">close</button>
+		<pre id="debug-log"></pre>
 	</body>
 </html>
