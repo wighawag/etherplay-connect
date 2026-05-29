@@ -1487,6 +1487,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		if (currentURL.searchParams.has('log')) {
 			entriesToAdd.push(['log', currentURL.searchParams.get('log') || '']);
 		}
+		// Testing aid for the domain-redirect bridge: forces the BroadcastChannel
+		// delivery path on the bridge page (skips window.opener.postMessage).
+		if (currentURL.searchParams.has('forceBroadcastChannel')) {
+			entriesToAdd.push(['forceBroadcastChannel', currentURL.searchParams.get('forceBroadcastChannel') || '']);
+		}
 
 		if (settings.signingOrigin) {
 			entriesToAdd.push(['signingOrigin', settings.signingOrigin]);

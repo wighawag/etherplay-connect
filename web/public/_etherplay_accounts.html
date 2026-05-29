@@ -5,13 +5,23 @@
 		<title>Completing Sign-In...</title>
 		<script>
 			(function () {
+				var LOG = '[etherplay-bridge]';
 				var hashParams = new URLSearchParams(window.location.hash.slice(1));
+				var queryParams = new URLSearchParams(window.location.search);
 				var data = hashParams.get('data');
 				var iv = hashParams.get('iv');
 				var pubKey = hashParams.get('pubKey');
 				var id = hashParams.get('id');
 
+				// Testing aid: `?forceBroadcastChannel=true` skips the direct opener path
+				// so the BroadcastChannel fallback can be exercised even when the opener
+				// relationship survived.
+				var forceBroadcastChannel = queryParams.get('forceBroadcastChannel') === 'true';
+
+				console.log(LOG, 'loaded', {id: id, forceBroadcastChannel: forceBroadcastChannel, origin: window.origin});
+
 				if (!(data && iv && pubKey && id)) {
+					console.error(LOG, 'missing redirect parameters');
 					document.body.innerHTML = '<p>Error: missing redirect parameters. You can close this window.</p>';
 					return;
 				}
@@ -32,6 +42,7 @@
 				// Close only after the parent acknowledges receipt (avoids dropping the message).
 				channel.onmessage = function (event) {
 					if (event && event.data && event.data.type === 'ack' && event.data.id === id) {
+						console.log(LOG, 'received ack, closing');
 						try {
 							channel.close();
 						} catch (e) {}
@@ -40,17 +51,28 @@
 				};
 
 				// Path 1: direct opener (same-origin here, so our own origin is fine).
-				try {
-					if (window.opener && !window.opener.closed) {
-						window.opener.postMessage(payload, window.origin);
+				if (forceBroadcastChannel) {
+					console.log(LOG, 'forceBroadcastChannel=true -> skipping window.opener.postMessage path');
+				} else {
+					try {
+						if (window.opener && !window.opener.closed) {
+							console.log(LOG, 'delivering via window.opener.postMessage');
+							window.opener.postMessage(payload, window.origin);
+						} else {
+							console.log(LOG, 'window.opener not available, relying on BroadcastChannel');
+						}
+					} catch (e) {
+						console.warn(LOG, 'window.opener.postMessage failed', e);
 					}
-				} catch (e) {}
+				}
 
 				// Path 2: BroadcastChannel (works even if opener is null).
+				console.log(LOG, 'delivering via BroadcastChannel');
 				channel.postMessage(payload);
 
 				// Safety fallback: close even if no ack arrives.
 				setTimeout(function () {
+					console.log(LOG, 'no ack within timeout, closing anyway');
 					try {
 						channel.close();
 					} catch (e) {}

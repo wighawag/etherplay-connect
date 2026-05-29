@@ -118,13 +118,21 @@ export function createPopupLauncher<T>() {
 		// Handles the encrypted `domain-redirect-result` package coming from the
 		// bridge page (`_etherplay_accounts.html`). It can arrive via the window
 		// `message` listener (window.opener.postMessage) OR via BroadcastChannel.
-		async function handleEncryptedResult(d: any, source?: MessageEventSource | null) {
-			if (handled) return;
+		async function handleEncryptedResult(
+			d: any,
+			transport: 'window message' | 'BroadcastChannel',
+			source?: MessageEventSource | null,
+		) {
 			if (!d || d.type !== 'domain-redirect-result') return;
 			// loose compare: `id` is a number here but arrives as a string
 			if (id != d.id) return;
+			if (handled) {
+				console.log(`[domain-redirect] duplicate result via ${transport} ignored (already handled)`);
+				return;
+			}
 			if (!options?.decryptKeyPair) return;
 			handled = true;
+			console.log(`[domain-redirect] result delivered via ${transport}`);
 			try {
 				const popupPub = await importPublicKeyB64(d.ephemeralPublicKey);
 				const aesKey = await deriveAesKey(options.decryptKeyPair.privateKey, popupPub, ['decrypt']);
@@ -154,7 +162,7 @@ export function createPopupLauncher<T>() {
 				// the expected popup origin AND our own origin. The encrypted payload
 				// + id match are the real authentication.
 				if (messageEvent.origin === expectedOrigin || messageEvent.origin === window.origin) {
-					handleEncryptedResult(data, messageEvent.source);
+					handleEncryptedResult(data, 'window message', messageEvent.source);
 				}
 				return;
 			}
@@ -253,7 +261,7 @@ export function createPopupLauncher<T>() {
 				// encrypted result when the opener relationship was severed.
 				if (options?.decryptKeyPair && typeof BroadcastChannel !== 'undefined') {
 					channel = new BroadcastChannel('etherplay-connect');
-					channel.onmessage = (event) => handleEncryptedResult(event.data);
+					channel.onmessage = (event) => handleEncryptedResult(event.data, 'BroadcastChannel');
 				}
 
 				watchForPopupClosed(popup);

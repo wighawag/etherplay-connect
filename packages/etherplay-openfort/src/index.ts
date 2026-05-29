@@ -197,7 +197,14 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 					? `&domain-redirect-public-key=${encodeURIComponent(domainRedirectPublicKey)}`
 					: '';
 
-				const redirectUrl = `${baseUrl}/login/?oauth-callback=true&oauth-redirection=true&type=oauth&origin=${redirection.windowOrigin}&signingOrigin=${redirection.signingOrigin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${accountTypeStr}${erudaStr}${debugStr}${logStr}${drpkStr}`;
+				// Testing aid: forces the BroadcastChannel delivery path on the bridge page.
+				const forceBroadcastChannel = currentURL.searchParams.get('forceBroadcastChannel');
+				const fbcStr =
+					forceBroadcastChannel !== null
+						? `&forceBroadcastChannel=${encodeURIComponent(forceBroadcastChannel)}`
+						: '';
+
+				const redirectUrl = `${baseUrl}/login/?oauth-callback=true&oauth-redirection=true&type=oauth&origin=${redirection.windowOrigin}&signingOrigin=${redirection.signingOrigin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${accountTypeStr}${erudaStr}${debugStr}${logStr}${drpkStr}${fbcStr}`;
 
 				try {
 					const oauthUrl = await openfortInstance.auth.initOAuth({

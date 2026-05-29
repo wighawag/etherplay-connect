@@ -55,8 +55,13 @@
 		const ivB64 = bufToB64(iv);
 		const ephPubB64 = await exportPublicKeyB64(ephemeral.publicKey);
 
+		// Testing aid: forward `forceBroadcastChannel` (if present on the popup URL)
+		// to the bridge page as a query param so it can skip the opener path.
+		const forceBroadcastChannel = new URL(location.href).searchParams.get('forceBroadcastChannel');
+		const query = forceBroadcastChannel !== null ? `?forceBroadcastChannel=${encodeURIComponent(forceBroadcastChannel)}` : '';
+
 		window.location.href =
-			`${parentOrigin}/_etherplay_accounts.html` +
+			`${parentOrigin}/_etherplay_accounts.html${query}` +
 			`#data=${encodeURIComponent(dataB64)}` +
 			`&iv=${encodeURIComponent(ivB64)}` +
 			`&pubKey=${encodeURIComponent(ephPubB64)}` +
