@@ -59,10 +59,7 @@ export async function deriveOriginAccount(
 	const accountMnemonic = fromEntropyKeyToMnemonic(account.localAccount.key);
 	const accountObject = accountGenerator.fromMnemonicToAccount(accountMnemonic, account.localAccount.index);
 
-	const originKeySignature = await accountGenerator.signTextMessage(
-		originKeyMessage(origin),
-		accountObject.privateKey,
-	);
+	const originKeySignature = await accountGenerator.signTextMessage(originKeyMessage(origin), accountObject.privateKey);
 
 	const originKey = fromSignatureToKey(originKeySignature);
 	const originMnemonic = fromEntropyKeyToMnemonic(originKey);
