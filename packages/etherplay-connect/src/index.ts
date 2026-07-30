@@ -263,6 +263,33 @@ export type EnsureConnectedOptions = ConnectOptions & {
 	skipChainCheck?: boolean; // Skip chain validation for WalletConnected step
 };
 
+// Error thrown by `ensureConnected` when a connection attempt ends without reaching the target step.
+// `cause` (and the convenience `code` copied from it) is the underlying error reported by the wallet,
+// so callers can distinguish a user rejection (EIP-1193 code 4001) from a genuine failure.
+export class ConnectionFailure extends Error {
+	name = 'ConnectionFailure';
+	readonly code?: unknown;
+	constructor(message: string, cause?: unknown) {
+		super(message);
+		this.cause = cause;
+		this.code = (cause as {code?: unknown} | undefined)?.code;
+	}
+}
+
+// Steps where a connection attempt is actively in progress: reaching one of them means an attempt started,
+// and staying in one means we should keep waiting.
+const stepsInProgress: readonly string[] = [
+	'FetchingWallets',
+	'WaitingForWalletConnection',
+	'ChooseWalletAccount',
+	'PopupLaunched',
+	'WaitingForSignature',
+];
+// Steps where the flow is at rest, waiting for a brand new user decision.
+// Note these are also the steps `ensureConnected` is commonly called from (the picker is showing),
+// so being in one of them is NOT a failure by itself: only a transition back into one after an attempt started is.
+const stepsAtRest: readonly string[] = ['Idle', 'MechanismToChoose', 'WalletToChoose'];
+
 export type ConnectionStore<
 	WalletProviderType,
 	Target extends TargetStep = 'SignedIn',
@@ -1337,6 +1364,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			(resolve, reject) => {
 				let forceConnect = false;
 
+				// The error (if any) already sitting in the store before we start.
+				// Only an error that appears after this point tells us that *our* attempt failed.
+				const errorOnEntry = $connection.error;
+
 				// Helper to check if resolution conditions are met
 				const canResolve = (connection: Connection<WalletProviderType>): boolean => {
 					// Must be at the target step
@@ -1368,21 +1399,63 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				if (!idlePassed || forceConnect) {
 					connect(mechanism, opts);
 				}
-				const unsubscribe = _store.subscribe((connection) => {
+
+				// An attempt is considered started once we observe a step where the connection is in progress.
+				// Falling back to a resting step from there means the attempt ended without reaching the target.
+				let attemptStarted = false;
+				let settled = false;
+				let unsubscribe: (() => void) | undefined;
+				const settle = (perform: () => void) => {
+					if (settled) {
+						return;
+					}
+					settled = true;
+					// unsubscribe can still be undefined here if the store settles during the initial (synchronous) subscription
+					unsubscribe?.();
+					perform();
+				};
+
+				unsubscribe = _store.subscribe((connection) => {
+					if (settled) {
+						return;
+					}
 					// Reject on disconnect/back to Idle
 					if (connection.step === 'Idle' && idlePassed) {
-						unsubscribe();
-						reject(new Error('Connection cancelled'));
+						settle(() => reject(new ConnectionFailure('Connection cancelled')));
+						return;
 					}
 					if (!idlePassed && connection.step !== 'Idle') {
 						idlePassed = true;
 					}
 					// Check full resolution conditions including chain validity
 					if (canResolve(connection)) {
-						unsubscribe();
-						resolve(connection as any);
+						settle(() => resolve(connection as any));
+						return;
+					}
+
+					if (stepsInProgress.includes(connection.step)) {
+						// still going, nothing to decide yet
+						attemptStarted = true;
+						return;
+					}
+
+					// A fresh error means the attempt failed (rejected wallet prompt, no accounts, unusable wallet, ...).
+					// The failure handlers set it at the very moment they fall back to a non-target step.
+					const error = connection.error;
+					if (error && error !== errorOnEntry) {
+						settle(() => reject(new ConnectionFailure(error.message, error.cause)));
+						return;
+					}
+
+					// The attempt went back to a resting step without an error: it was aborted (back/cancel).
+					// This must never trigger on a resting step we merely started from, hence `attemptStarted`.
+					if (attemptStarted && stepsAtRest.includes(connection.step)) {
+						settle(() => reject(new ConnectionFailure('Connection cancelled')));
 					}
 				});
+				if (settled) {
+					unsubscribe();
+				}
 			},
 		);
 
