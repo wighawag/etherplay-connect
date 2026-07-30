@@ -261,6 +261,10 @@ export type ConnectOptions = {
 
 export type EnsureConnectedOptions = ConnectOptions & {
 	skipChainCheck?: boolean; // Skip chain validation for WalletConnected step
+	// Initiate a connection attempt even when the flow is at rest on a picker step.
+	// Only use it when you know no picker is on screen: it connects with the given (or default) mechanism
+	// instead of waiting for the user's choice.
+	forceConnect?: boolean;
 };
 
 // Error thrown by `ensureConnected` when a connection attempt ends without reaching the target step.
@@ -535,6 +539,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// Determine target step (defaults to 'SignedIn')
 	const targetStep: TargetStep = settings.targetStep || 'SignedIn';
 
+	// Determine walletOnly (defaults to false, but true implies WalletConnected target behavior for mechanism)
+	const walletOnly = settings.walletOnly || targetStep === 'WalletConnected';
+
 	let autoConnect = true;
 	if (typeof settings.autoConnect !== 'undefined') {
 		autoConnect = settings.autoConnect;
@@ -551,6 +558,29 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		$connection = connection;
 		_store.set($connection);
 		return $connection;
+	}
+	// Where the flow comes to rest when a connection attempt fails.
+	//
+	// The rule: rest on the step that offers the user a real next decision, and never on a step this app has
+	// no reason to render. In wallet-only mode the mechanism picker is never shown (`connect` always defaults
+	// the mechanism to `{type: 'wallet'}`), so resting on `MechanismToChoose` there is a dead end: the app
+	// renders nothing and the user can neither retry nor cancel.
+	// - not wallet-only: `MechanismToChoose`, the user can pick another mechanism.
+	// - wallet-only with several wallets detected: `WalletToChoose`, the user can pick another wallet.
+	// - wallet-only with a single (or no) wallet: `Idle`, there is no choice left to offer.
+	// The error is always kept, since the UI uses it to explain the failure next to the picker.
+	//
+	// Auto-connect failures follow the same rule and rest on `Idle`: the user asked for nothing, so there is
+	// no decision to offer them. A cancelled popup is likewise a cancellation, not a failure, and rests on `Idle`.
+	function setConnectionFailure(error: {message: string; cause?: any}) {
+		const wallets = $connection.wallets;
+		if (!walletOnly) {
+			set({step: 'MechanismToChoose', wallets, wallet: undefined, error});
+		} else if (wallets.length > 1) {
+			set({step: 'WalletToChoose', mechanism: {type: 'wallet'}, wallets, wallet: undefined, error});
+		} else {
+			set({step: 'Idle', loading: false, wallets, wallet: undefined, error});
+		}
 	}
 	function setError(error: {message: string; cause?: any}) {
 		if ($connection) {
@@ -1123,12 +1153,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										watchForAccountChange(_wallet.provider);
 									}
 								} else {
-									set({
-										step: 'MechanismToChoose',
-										wallets: $connection.wallets,
-										wallet: undefined,
-										error: {message: 'could not get any accounts'},
-									});
+									setConnectionFailure({message: 'could not get any accounts'});
 								}
 							} else {
 								let account = accounts[0];
@@ -1200,21 +1225,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								}
 							}
 						} catch (err) {
-							set({
-								step: 'MechanismToChoose',
-								wallets: $connection.wallets,
-								wallet: undefined,
-								error: {message: `failed to connect to wallet`, cause: err},
-							});
+							setConnectionFailure({message: `failed to connect to wallet`, cause: err});
 						}
 					} else {
 						console.error(`failed to get wallet ${walletName}`, $connection.wallets);
-						set({
-							step: 'MechanismToChoose',
-							wallets: $connection.wallets,
-							wallet: undefined,
-							error: {message: `failed to get wallet ${walletName}`},
-						});
+						setConnectionFailure({message: `failed to get wallet ${walletName}`});
 					}
 				} else {
 					// TODO can also be done automatically before hand
@@ -1308,6 +1323,19 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		}
 	}
 
+	/**
+	 * Resolve once the flow reaches `step`, initiating a connection attempt when needed.
+	 *
+	 * It never sits doing nothing: it either initiates an attempt, resolves, or rejects with
+	 * a `ConnectionFailure` (whose `cause`/`code` carry the underlying wallet error, so a user
+	 * rejection shows up as EIP-1193 code 4001).
+	 *
+	 * It initiates from `Idle`, and from a picker step (`MechanismToChoose`, `WalletToChoose`) that still
+	 * carries the error of a previous failed attempt, which is what makes a retry after a rejected wallet
+	 * prompt work. It deliberately does NOT initiate from a picker step without an error: that means the
+	 * user is mid-choice with the picker on screen, and connecting there would hijack their choice. In that
+	 * case it waits for the user to pick (or cancel). Pass `{forceConnect: true}` to connect anyway.
+	 */
 	// ensureConnected overloads - the default step depends on targetStep
 	function ensureConnected(
 		options?: EnsureConnectedOptions,
@@ -1396,7 +1424,14 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					return;
 				}
 				let idlePassed = $connection.step != 'Idle';
-				if (!idlePassed || forceConnect) {
+
+				// Initiating from a picker step is only safe when we can tell it apart from "the user is choosing
+				// right now": a picker still carrying the error of a previous attempt means that attempt failed and
+				// nothing has driven the flow since, so re-initiating is exactly what the caller asked for. It cannot
+				// hijack a choice either: when a choice is genuinely needed, `connect` with a default mechanism just
+				// re-enters the same picker (and clears the stale error), and we keep waiting for the user.
+				const retryingAfterFailure = idlePassed && stepsAtRest.includes($connection.step) && !!errorOnEntry;
+				if (!idlePassed || forceConnect || opts?.forceConnect || retryingAfterFailure) {
 					connect(mechanism, opts);
 				}
 
@@ -1419,11 +1454,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					if (settled) {
 						return;
 					}
-					// Reject on disconnect/back to Idle
-					if (connection.step === 'Idle' && idlePassed) {
-						settle(() => reject(new ConnectionFailure('Connection cancelled')));
-						return;
-					}
 					if (!idlePassed && connection.step !== 'Idle') {
 						idlePassed = true;
 					}
@@ -1440,10 +1470,18 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					}
 
 					// A fresh error means the attempt failed (rejected wallet prompt, no accounts, unusable wallet, ...).
-					// The failure handlers set it at the very moment they fall back to a non-target step.
+					// The failure handlers set it at the very moment they fall back to a resting step, which can be `Idle`,
+					// so this is checked before the cancellation case below to report the actual cause rather than
+					// a generic cancellation.
 					const error = connection.error;
 					if (error && error !== errorOnEntry) {
 						settle(() => reject(new ConnectionFailure(error.message, error.cause)));
+						return;
+					}
+
+					// Reject on disconnect/back to Idle
+					if (connection.step === 'Idle' && idlePassed) {
+						settle(() => reject(new ConnectionFailure('Connection cancelled')));
 						return;
 					}
 
@@ -1780,9 +1818,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			}
 		}
 	}
-
-	// Determine walletOnly (defaults to false, but true implies WalletConnected target behavior for mechanism)
-	const walletOnly = settings.walletOnly || targetStep === 'WalletConnected';
 
 	// Method on the store to check if target step is reached
 	function storeIsTargetStepReached(connection: Connection<WalletProviderType>): boolean {

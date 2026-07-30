@@ -1070,8 +1070,8 @@ describe('createConnection', () => {
 			await expect(ensurePromise).rejects.toThrow('Connection cancelled');
 		});
 
-		// Regression: the store settles on MechanismToChoose carrying an error (it does NOT go back to Idle),
-		// which used to satisfy neither the reject condition nor the resolve condition, leaving the promise pending forever.
+		// Regression: the store settles on a resting step carrying an error, which used to satisfy neither the
+		// reject condition nor the resolve condition, leaving the promise pending forever.
 		it('should reject (not hang) when the user rejects the wallet connection prompt', async () => {
 			const mockHandle = createMockWalletHandle('MockWallet', []);
 			const userRejection = Object.assign(new Error('User rejected the request.'), {code: 4001});
@@ -1113,8 +1113,9 @@ describe('createConnection', () => {
 			await settled;
 
 			expect(resolved).toBe(false);
-			expect(steps).toEqual(['Idle', 'WaitingForWalletConnection', 'MechanismToChoose']);
-			expect(currentState?.step).toBe('MechanismToChoose');
+			// wallet-only with a single wallet: no choice left to offer, so back to Idle carrying the error
+			expect(steps).toEqual(['Idle', 'WaitingForWalletConnection', 'Idle']);
+			expect(currentState?.step).toBe('Idle');
 			expect(currentState?.error?.message).toBe('failed to connect to wallet');
 
 			expect(caught).toBeInstanceOf(Error);
@@ -1124,7 +1125,66 @@ describe('createConnection', () => {
 			expect(caught.code).toBe(4001);
 		}, 2000);
 
-		it('should still resolve when called while the picker is showing (even after a previous failure)', async () => {
+		// Multi-mechanism apps show a mechanism picker: being on it is a user decision in progress, not a failure.
+		it('should not auto-connect when called while the mechanism picker is showing, and resolve once the user picks', async () => {
+			const mockHandle = createMockWalletHandle('MockWallet', ['0xuser123' as `0x${string}`]);
+			const requestAccounts = mockHandle.walletProvider.requestAccounts as ReturnType<typeof vi.fn>;
+
+			const walletConnector = createMockWalletConnector([mockHandle]);
+			// not wallet-only: the app offers several mechanisms
+			const store = createConnection({
+				walletHost: 'https://wallet.example.com',
+				chainInfo: defaultChainInfo,
+				walletConnector,
+				autoConnect: false,
+			});
+
+			// Wait for wallet to be announced
+			vi.advanceTimersByTime(50);
+
+			let currentState: Connection<MockUnderlyingProvider> | undefined;
+			store.subscribe((state) => {
+				currentState = state;
+			});
+
+			// the app is showing the mechanism picker and the user has not chosen yet
+			const pickerPromise = store.connect();
+			await vi.advanceTimersByTimeAsync(50);
+			await pickerPromise;
+			expect(currentState?.step).toBe('MechanismToChoose');
+
+			let caught: any;
+			let result: any;
+			const ensurePromise = store.ensureConnected('WalletConnected', {type: 'wallet'}).then(
+				(connection) => {
+					result = connection;
+				},
+				(err) => {
+					caught = err;
+				},
+			);
+			await vi.advanceTimersByTimeAsync(200);
+
+			// it must neither hijack the choice nor reject on that resting step: it waits for the user
+			expect(currentState?.step).toBe('MechanismToChoose');
+			expect(requestAccounts).not.toHaveBeenCalled();
+			expect(caught).toBeUndefined();
+			expect(result).toBeUndefined();
+
+			// the user picks the wallet mechanism
+			const connectPromise = store.connect({type: 'wallet'});
+			await vi.advanceTimersByTimeAsync(200);
+			await connectPromise;
+			await ensurePromise;
+
+			expect(caught).toBeUndefined();
+			expect(result?.step).toBe('WalletConnected');
+		}, 2000);
+
+		// Regression: in wallet-only mode the mechanism picker is never shown (`connect` always defaults the
+		// mechanism), so a failure that rested on `MechanismToChoose` was a dead end: nothing rendered it and the
+		// next `ensureConnected` (which only ever initiated from `Idle`) neither prompted nor settled.
+		it('should prompt again and be able to resolve when retried after the user rejected the prompt (wallet-only)', async () => {
 			const mockHandle = createMockWalletHandle('MockWallet', []);
 			const userRejection = Object.assign(new Error('User rejected the request.'), {code: 4001});
 			const getAccounts = mockHandle.walletProvider.getAccounts as ReturnType<typeof vi.fn>;
@@ -1148,19 +1208,19 @@ describe('createConnection', () => {
 				currentState = state;
 			});
 
-			// first attempt fails: the store rests on MechanismToChoose with an error
+			// first attempt: the user rejects the wallet prompt
 			const firstAttempt = expect(store.ensureConnected('WalletConnected', {type: 'wallet'})).rejects.toThrow(
 				'failed to connect to wallet',
 			);
 			await vi.advanceTimersByTimeAsync(200);
 			await firstAttempt;
-			expect(currentState?.step).toBe('MechanismToChoose');
-			expect(currentState?.error).toBeDefined();
+			expect(requestAccounts).toHaveBeenCalledTimes(1);
 
-			// the user retries: ensureConnected is called while the picker is showing (with a stale error),
-			// it must NOT reject on that resting step, it must wait for the user's choice
+			// the user retries, this time accepting the prompt
+			requestAccounts.mockResolvedValue(['0xuser123' as `0x${string}`]);
 			let caught: any;
 			let result: any;
+			// if the second call neither initiates nor settles, the explicit test timeout below fails the test loudly
 			const secondAttempt = store.ensureConnected('WalletConnected', {type: 'wallet'}).then(
 				(connection) => {
 					result = connection;
@@ -1170,16 +1230,140 @@ describe('createConnection', () => {
 				},
 			);
 			await vi.advanceTimersByTimeAsync(200);
-			expect(caught).toBeUndefined();
-			expect(result).toBeUndefined();
-			expect(currentState?.step).toBe('MechanismToChoose');
+			await secondAttempt;
 
-			// this time the user accepts the wallet prompt
-			requestAccounts.mockResolvedValue(['0xuser123' as `0x${string}`]);
-			const connectPromise = store.connect({type: 'wallet'});
+			expect(caught).toBeUndefined();
+			// it prompted the wallet again instead of silently doing nothing
+			expect(requestAccounts).toHaveBeenCalledTimes(2);
+			expect(result?.step).toBe('WalletConnected');
+			expect(currentState?.step).toBe('WalletConnected');
+		}, 2000);
+
+		it('should not rest on MechanismToChoose when a wallet-only connection fails', async () => {
+			const mockHandle = createMockWalletHandle('MockWallet', []);
+			const userRejection = Object.assign(new Error('User rejected the request.'), {code: 4001});
+			(mockHandle.walletProvider.getAccounts as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+			(mockHandle.walletProvider.requestAccounts as ReturnType<typeof vi.fn>).mockRejectedValue(userRejection);
+
+			const walletConnector = createMockWalletConnector([mockHandle]);
+			const store = createConnection({
+				targetStep: 'WalletConnected',
+				chainInfo: defaultChainInfo,
+				walletConnector,
+				autoConnect: false,
+			});
+
+			// Wait for wallet to be announced
+			vi.advanceTimersByTime(50);
+
+			let currentState: Connection<MockUnderlyingProvider> | undefined;
+			store.subscribe((state) => {
+				currentState = state;
+			});
+
+			const attempt = expect(store.ensureConnected('WalletConnected', {type: 'wallet'})).rejects.toThrow(
+				'failed to connect to wallet',
+			);
+			await vi.advanceTimersByTimeAsync(200);
+			await attempt;
+
+			expect(currentState?.step).not.toBe('MechanismToChoose');
+			// a single detected wallet means there is no choice to offer: back to Idle, with the error to explain why
+			expect(currentState?.step).toBe('Idle');
+			expect(currentState?.error?.message).toBe('failed to connect to wallet');
+		}, 2000);
+
+		it('should rest on WalletToChoose when a wallet-only connection fails and other wallets are available', async () => {
+			const handleA = createMockWalletHandle('WalletA', []);
+			const handleB = createMockWalletHandle('WalletB', ['0xuserB' as `0x${string}`]);
+			const userRejection = Object.assign(new Error('User rejected the request.'), {code: 4001});
+			(handleA.walletProvider.getAccounts as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+			(handleA.walletProvider.requestAccounts as ReturnType<typeof vi.fn>).mockRejectedValue(userRejection);
+
+			const walletConnector = createMockWalletConnector([handleA, handleB]);
+			const store = createConnection({
+				targetStep: 'WalletConnected',
+				chainInfo: defaultChainInfo,
+				walletConnector,
+				autoConnect: false,
+			});
+
+			// Wait for both wallets to be announced
+			vi.advanceTimersByTime(50);
+
+			let currentState: Connection<MockUnderlyingProvider> | undefined;
+			store.subscribe((state) => {
+				currentState = state;
+			});
+
+			const attempt = expect(
+				store.ensureConnected('WalletConnected', {type: 'wallet', name: 'WalletA'}),
+			).rejects.toThrow('failed to connect to wallet');
+			await vi.advanceTimersByTimeAsync(200);
+			await attempt;
+
+			expect(currentState?.step).not.toBe('MechanismToChoose');
+			// there is another wallet to try: let the user pick one, with the error to explain why
+			expect(currentState?.step).toBe('WalletToChoose');
+			expect(currentState?.error?.message).toBe('failed to connect to wallet');
+
+			// and the user can still get connected from there
+			const connectPromise = store.connect({type: 'wallet', name: 'WalletB'});
 			await vi.advanceTimersByTimeAsync(200);
 			await connectPromise;
-			await secondAttempt;
+			expect(currentState?.step).toBe('WalletConnected');
+		}, 2000);
+
+		// The trap: `ensureConnected` is legitimately called while a picker is on screen and the user is mid-choice.
+		// Initiating there would hijack that choice and connect with the default mechanism behind the user's back.
+		it('should not auto-connect when called while the wallet picker is showing, and resolve once the user picks', async () => {
+			const handleA = createMockWalletHandle('WalletA', ['0xuserA' as `0x${string}`]);
+			const handleB = createMockWalletHandle('WalletB', ['0xuserB' as `0x${string}`]);
+			const walletConnector = createMockWalletConnector([handleA, handleB]);
+
+			const store = createConnection({
+				targetStep: 'WalletConnected',
+				chainInfo: defaultChainInfo,
+				walletConnector,
+				autoConnect: false,
+			});
+
+			// Wait for both wallets to be announced
+			vi.advanceTimersByTime(50);
+
+			let currentState: Connection<MockUnderlyingProvider> | undefined;
+			store.subscribe((state) => {
+				currentState = state;
+			});
+
+			// the app is showing the wallet picker and the user has not chosen yet
+			store.back('WalletToChoose');
+			expect(currentState?.step).toBe('WalletToChoose');
+
+			let caught: any;
+			let result: any;
+			const ensurePromise = store.ensureConnected('WalletConnected', {type: 'wallet'}).then(
+				(connection) => {
+					result = connection;
+				},
+				(err) => {
+					caught = err;
+				},
+			);
+			await vi.advanceTimersByTimeAsync(200);
+
+			// no wallet was connected behind the user's back, and nothing was rejected either
+			expect(currentState?.step).toBe('WalletToChoose');
+			expect(handleA.walletProvider.requestAccounts).not.toHaveBeenCalled();
+			expect(handleB.walletProvider.requestAccounts).not.toHaveBeenCalled();
+			expect(caught).toBeUndefined();
+			expect(result).toBeUndefined();
+
+			// the user picks a wallet
+			const connectPromise = store.connect({type: 'wallet', name: 'WalletB'});
+			await vi.advanceTimersByTimeAsync(200);
+			await connectPromise;
+			await ensurePromise;
 
 			expect(caught).toBeUndefined();
 			expect(result?.step).toBe('WalletConnected');

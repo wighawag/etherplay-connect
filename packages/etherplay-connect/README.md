@@ -89,6 +89,24 @@ const signedInState = await connection.ensureConnected('SignedIn');
 console.log('Session account:', signedInState.account.signer.address);
 ```
 
+`ensureConnected` always ends up doing one of three things: initiate a connection attempt, resolve at the target step, or reject with a `ConnectionFailure`. It never sits doing nothing.
+
+- It initiates from `Idle`, and from a picker step (`MechanismToChoose`, `WalletToChoose`) that still carries the `error` of a previous failed attempt, so retrying after a rejected wallet prompt prompts again.
+- It does not initiate from a picker step without an `error`: that means the user is making a choice right now and connecting would hijack it. It waits for the user to pick (or cancel) and settles then. Pass `{forceConnect: true}` to connect anyway.
+- It rejects with a `ConnectionFailure` when the attempt fails. `cause` and the convenience `code` carry the underlying wallet error, so a user rejection is `code === 4001`.
+
+```typescript
+import {ConnectionFailure} from '@etherplay/connect';
+
+try {
+	const state = await connection.ensureConnected('WalletConnected');
+} catch (err) {
+	if (err instanceof ConnectionFailure && err.code === 4001) {
+		// the user rejected the wallet prompt, they can just try again
+	}
+}
+```
+
 ## Configuration
 
 ### createConnection Options
@@ -122,6 +140,20 @@ The connection follows a state machine with these primary steps:
 | `WaitingForSignature`        | Waiting for user to sign message                     |
 | `PopupLaunched`              | Popup opened for social login                        |
 | `SignedIn`                   | Fully authenticated with session account             |
+
+### Where a failed attempt comes to rest
+
+`Idle`, `MechanismToChoose` and `WalletToChoose` are the resting steps: the flow is attempting nothing and waits for a user decision. When an attempt fails, the flow rests on the step that offers the user a real next decision, and never on a step your app has no reason to render:
+
+| Mode                                  | Resting step after a failure                             |
+| ------------------------------------- | -------------------------------------------------------- |
+| Multi-mechanism                       | `MechanismToChoose`, the user can pick another mechanism |
+| Wallet-only, several wallets detected | `WalletToChoose`, the user can pick another wallet       |
+| Wallet-only, a single (or no) wallet  | `Idle`, there is no choice left to offer                 |
+
+The `error` is kept in every case, so the UI can explain the failure next to the picker (or on the connect button when back at `Idle`). Wallet-only mode never shows a mechanism picker (`connect` defaults the mechanism to `{type: 'wallet'}`), which is why a failure there never rests on `MechanismToChoose`.
+
+Auto-connect failures rest on `Idle`: the user asked for nothing, so there is no decision to offer them.
 
 ### Wallet State Properties
 
