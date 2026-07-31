@@ -1244,7 +1244,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 							// else is a genuine failure.
 							const code = (err as {code?: unknown})?.code;
 							if (code === 4100) {
-								setConnectionFailure({message: 'The wallet is not authorized to provide accounts. It may be read-only, locked, or not yet configured.', cause: err});
+								setConnectionFailure({
+									message:
+										'The wallet is not authorized to provide accounts. It may be read-only, locked, or not yet configured.',
+									cause: err,
+								});
 							} else if (code === 4001) {
 								setConnectionFailure({message: 'Connection request was declined.', cause: err});
 							} else {
