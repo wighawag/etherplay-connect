@@ -1235,6 +1235,17 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								}
 							}
 						} catch (err) {
+							// Clean up the wallet provider that was set mid-connect: if the
+							// attempt fails (4100, 4001, timeout, …) the always-on
+							// provider wrapper would otherwise keep routing ALL requests
+							// (including read-only RPC calls like eth_call) through the
+							// failed wallet, breaking the dapp's data fetches.
+							if (_wallet) {
+								stopWatchingForChainIdChange(_wallet.provider);
+								stopWatchingForAccountChange(_wallet.provider);
+								alwaysOnProviderWrapper.setWalletProvider(undefined);
+								_wallet = undefined;
+							}
 							// Distinguish EIP-1193 error codes so the dapp can surface a
 							// meaningful message instead of a generic "failed to connect".
 							// 4100 (Unauthorized): the wallet cannot authorise accounts —
