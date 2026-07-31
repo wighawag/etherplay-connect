@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.1.2
+
+### Patch Changes
+
+- d1ec11c: Distinguish EIP-1193 error codes (4100/4001) in connect failure and add clearError to store API
+
 ## 0.1.1
 
 ### Patch Changes
