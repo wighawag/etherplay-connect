@@ -310,6 +310,7 @@ export type ConnectionStore<
 	) => Promise<void>;
 	cancel: () => void;
 	back: (step: 'MechanismToChoose' | 'Idle' | 'WalletToChoose') => void;
+	clearError: () => void;
 	requestSignature: () => Promise<void>;
 	connectToAddress: (
 		address: `0x${string}`,
@@ -590,6 +591,15 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			});
 		} else {
 			throw new Error(`no connection`);
+		}
+	}
+
+	function clearError() {
+		if ($connection) {
+			set({
+				...$connection,
+				error: undefined,
+			});
 		}
 	}
 
@@ -1225,7 +1235,21 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								}
 							}
 						} catch (err) {
-							setConnectionFailure({message: `failed to connect to wallet`, cause: err});
+							// Distinguish EIP-1193 error codes so the dapp can surface a
+							// meaningful message instead of a generic "failed to connect".
+							// 4100 (Unauthorized): the wallet cannot authorise accounts —
+							// it may be read-only, locked, or not yet configured (e.g.
+							// werust's keyless provider). 4001 (User Rejected Request):
+							// the user actively declined in the wallet popup. Anything
+							// else is a genuine failure.
+							const code = (err as {code?: unknown})?.code;
+							if (code === 4100) {
+								setConnectionFailure({message: 'The wallet is not authorized to provide accounts. It may be read-only, locked, or not yet configured.', cause: err});
+							} else if (code === 4001) {
+								setConnectionFailure({message: 'Connection request was declined.', cause: err});
+							} else {
+								setConnectionFailure({message: `failed to connect to wallet`, cause: err});
+							}
 						}
 					} else {
 						console.error(`failed to get wallet ${walletName}`, $connection.wallets);
@@ -1841,6 +1865,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		connect,
 		cancel,
 		back,
+		clearError,
 		requestSignature,
 		connectToAddress,
 		disconnect,
