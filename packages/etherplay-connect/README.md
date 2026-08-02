@@ -333,6 +333,50 @@ The connection store is a Svelte store and works seamlessly with Svelte's reacti
 {/if}
 ```
 
+## Server-side rendering (SSR)
+
+`createConnection(...)` is safe to call in any JavaScript environment, including a Node SSR / prerender pass with no DOM. This is a tested property of the package (`test/ssr-inert.test.ts`), not an accident: the regression test runs in vitest's `node` environment with no `window`, `document`, `localStorage` or `sessionStorage`, constructs both supported configurations, and asserts no throw, the exact initial store value, no storage access, and no pending timers/intervals.
+
+### What is guaranteed off-browser
+
+- **Construction never throws and does no I/O.** No `window`, `document`, `localStorage`, `sessionStorage`, `navigator`, `crypto`, timers, intervals, or network requests are touched during `createConnection(...)`. The only thing it builds is in-memory state.
+- **Nothing auto-connects without a `window`.** The entire auto-connect block (which reads saved accounts / last wallet from `localStorage` and polls installed wallets) is behind a `typeof window !== 'undefined'` guard, as is `fetchWallets()` in the Ethereum connector. Off-browser both are no-ops.
+- **The store rests at `{step: 'Idle', loading: true, wallets: []}`.** This is the exact same value a browser renders on its very first paint (before the auto-connect promise has resolved), so a server-rendered app hydrates with no store mismatch.
+
+### Why `loading` stays `true` off-browser
+
+Off-browser the auto-connect block is skipped entirely (no `window`), so the store keeps its initial `loading: true` rather than transitioning to `loading: false`. This is deliberate: it matches the browser's first render exactly. A browser also starts at `loading: true` and only flips to `false` once auto-connect has run its course. Keeping the server value identical means SSR output and the first client render agree, and hydration does not flash or remount.
+
+> **Hydration-visible breaking change:** the value of `loading` (and the shape of the initial store object) at construction is part of the SSR contract. Changing it — for example resting at `loading: false` off-browser, or adding/removing a field — produces a mismatch between server-rendered and client-hydrated markup for any consumer that renders the store during SSR. Treat such a change as a breaking change for consumers and version it accordingly.
+
+With `autoConnect: false` the behaviour differs: the explicit `else` branch sets `loading: false` immediately, since there is nothing to wait for. This is also deterministic and SSR-safe.
+
+### What is only reachable from user-initiated flows
+
+The following DOM/browser access exists in the package but is only ever reached when a user acts (calling `connect()`, `requestSignature()`, `disconnect()`, etc.), never from `createConnection()` itself:
+
+- `localStorage` / `sessionStorage` reads and writes (`getOriginAccount`, `saveOriginAccount`, `deleteOriginAccount`, `getLastWallet`, `saveLastWallet`, `deleteLastWallet`). These helpers reference the storage globals directly; they are only invoked from the window-guarded auto-connect path or from explicit connect/disconnect actions.
+- `window.crypto?.subtle` (the Same-Origin Callback Bridge key setup in `connect()`), guarded by `typeof window !== 'undefined' && window.crypto?.subtle`.
+- `window.open`, `window.addEventListener('message', ...)`, `BroadcastChannel`, and `window.origin` in the popup launcher (`popup.ts`), used only from `connect()`.
+- `location.href` in `connectViaPopup`, used only from `connect()`.
+- The Web-Crypto helpers in `@etherplay/connect-core` (`generateEcdhKeyPair`, `exportPublicKeyB64`, `importPublicKeyB64`, `deriveAesKey`), which call `window.crypto.subtle`; only invoked from the domain-redirect bridge path inside `connect()`.
+- The Openfort provider (`@etherplay/openfort`) only touches `window` / `location` from its `connect()` / `confirmOAuth()` methods, and `createOpenfortProvider()` is not invoked by `createConnection()` at all.
+
+No DOM shim is required or recommended. The goal is genuine environment independence, not a simulated browser.
+
+### `connection.provider.request(...)` off-browser (intended behaviour — read this)
+
+The `provider` exposed on the store is the **always-on** provider. Its purpose is to serve read-only JSON-RPC (`eth_call`, `eth_blockNumber`, `eth_getBalance`, etc.) against the configured `chainInfo` RPC URL _even before a wallet is connected_ — that is its design. Non-signing methods are routed to the JSON-RPC endpoint via `fetch`.
+
+Off-browser, Node provides a real global `fetch`, so `connection.provider.request(...)` for a non-signing method **performs a real network RPC request from the server**. Signing / wallet-only methods (`personal_sign`, `eth_sendTransaction`, `eth_requestAccounts`, `wallet_switchEthereumChain`, `wallet_addEthereumChain`, …) correctly reject with `wallet provider is not connected` when no wallet is set, so those are safe off-browser.
+
+**This is intended and supported**, and the behaviour is deliberately left as-is:
+
+- The always-on read path is a feature: a server render that needs chain state can read it without a wallet. Making `provider.request` reject off-browser would break legitimate server-side reads for consumers that want them.
+- The package does not, and cannot, know whether a given consumer wants SSR-time reads or a fully IO-free render. It leaves that decision to the consumer.
+
+**Footgun to be aware of:** if your SSR / prerender pass touches `connection.provider` (directly or via code that reads chain state), it will do live RPC IO at build/render time — hitting the configured RPC endpoint, subject to its rate limits, and requiring network at build time. If you want a fully IO-free SSR (as the `jolly-roger` template does — it constructs the runtime but never uses the provider during SSR), simply do not call `provider.request(...)` during the server render, or guard such calls with `typeof window !== 'undefined'` / a `connection.step` check. Constructing the store alone never touches the provider.
+
 ## Utility Exports
 
 ```typescript
