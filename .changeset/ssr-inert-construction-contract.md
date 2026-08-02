@@ -1,5 +1,0 @@
----
-'@etherplay/connect': patch
----
-
-Document and pin down the SSR / construction-inertness contract. `createConnection(...)` is now a tested, guaranteed property: it constructs in any environment (bare Node, no DOM) without throwing, touching `window`/`document`/`localStorage`/`sessionStorage`, scheduling timers, or doing network I/O, and off-browser the store rests at `{step: 'Idle', loading: true, wallets: []}` — identical to the browser's first render so hydration does not mismatch. Added a `node`-environment regression test (`test/ssr-inert.test.ts`) covering both `targetStep: 'WalletConnected'` and `targetStep: 'SignedIn'` configurations, and documented the contract (including that `loading: true` and the initial store shape are a hydration-visible breaking change, and that `provider.request(...)` intentionally performs a real RPC request off-browser) in the README. No runtime behaviour changed.
