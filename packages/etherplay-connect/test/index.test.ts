@@ -1116,10 +1116,11 @@ describe('createConnection', () => {
 			// wallet-only with a single wallet: no choice left to offer, so back to Idle carrying the error
 			expect(steps).toEqual(['Idle', 'WaitingForWalletConnection', 'Idle']);
 			expect(currentState?.step).toBe('Idle');
-			expect(currentState?.error?.message).toBe('failed to connect to wallet');
+			// a rejected prompt (EIP-1193 code 4001) gets its own message, not the generic failure one
+			expect(currentState?.error?.message).toBe('Connection request was declined.');
 
 			expect(caught).toBeInstanceOf(Error);
-			expect(caught.message).toBe('failed to connect to wallet');
+			expect(caught.message).toBe('Connection request was declined.');
 			// the underlying wallet error is propagated so callers can detect EIP-1193 code 4001
 			expect(caught.cause).toBe(userRejection);
 			expect(caught.code).toBe(4001);
@@ -1210,7 +1211,7 @@ describe('createConnection', () => {
 
 			// first attempt: the user rejects the wallet prompt
 			const firstAttempt = expect(store.ensureConnected('WalletConnected', {type: 'wallet'})).rejects.toThrow(
-				'failed to connect to wallet',
+				'Connection request was declined.',
 			);
 			await vi.advanceTimersByTimeAsync(200);
 			await firstAttempt;
@@ -1262,7 +1263,7 @@ describe('createConnection', () => {
 			});
 
 			const attempt = expect(store.ensureConnected('WalletConnected', {type: 'wallet'})).rejects.toThrow(
-				'failed to connect to wallet',
+				'Connection request was declined.',
 			);
 			await vi.advanceTimersByTimeAsync(200);
 			await attempt;
@@ -1270,7 +1271,7 @@ describe('createConnection', () => {
 			expect(currentState?.step).not.toBe('MechanismToChoose');
 			// a single detected wallet means there is no choice to offer: back to Idle, with the error to explain why
 			expect(currentState?.step).toBe('Idle');
-			expect(currentState?.error?.message).toBe('failed to connect to wallet');
+			expect(currentState?.error?.message).toBe('Connection request was declined.');
 		}, 2000);
 
 		it('should rest on WalletToChoose when a wallet-only connection fails and other wallets are available', async () => {
@@ -1298,20 +1299,83 @@ describe('createConnection', () => {
 
 			const attempt = expect(
 				store.ensureConnected('WalletConnected', {type: 'wallet', name: 'WalletA'}),
-			).rejects.toThrow('failed to connect to wallet');
+			).rejects.toThrow('Connection request was declined.');
 			await vi.advanceTimersByTimeAsync(200);
 			await attempt;
 
 			expect(currentState?.step).not.toBe('MechanismToChoose');
 			// there is another wallet to try: let the user pick one, with the error to explain why
 			expect(currentState?.step).toBe('WalletToChoose');
-			expect(currentState?.error?.message).toBe('failed to connect to wallet');
+			expect(currentState?.error?.message).toBe('Connection request was declined.');
 
 			// and the user can still get connected from there
 			const connectPromise = store.connect({type: 'wallet', name: 'WalletB'});
 			await vi.advanceTimersByTimeAsync(200);
 			await connectPromise;
 			expect(currentState?.step).toBe('WalletConnected');
+		}, 2000);
+
+		// The connect-failure path maps EIP-1193 error codes to distinct messages so the app can tell the
+		// user what actually happened. The 4001 mapping is asserted by the rejection tests above; these two
+		// pin the other branches, so the generic message stays reachable and keeps its wording.
+		it('should report a distinct message when the wallet refuses to authorize accounts (4100)', async () => {
+			const mockHandle = createMockWalletHandle('MockWallet', []);
+			const unauthorized = Object.assign(new Error('Unauthorized.'), {code: 4100});
+			(mockHandle.walletProvider.getAccounts as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+			(mockHandle.walletProvider.requestAccounts as ReturnType<typeof vi.fn>).mockRejectedValue(unauthorized);
+
+			const walletConnector = createMockWalletConnector([mockHandle]);
+			const store = createConnection({
+				targetStep: 'WalletConnected',
+				chainInfo: defaultChainInfo,
+				walletConnector,
+				autoConnect: false,
+			});
+
+			vi.advanceTimersByTime(50);
+
+			let currentState: Connection<MockUnderlyingProvider> | undefined;
+			store.subscribe((state) => {
+				currentState = state;
+			});
+
+			const connectPromise = store.connect({type: 'wallet'});
+			await vi.advanceTimersByTimeAsync(200);
+			await connectPromise;
+
+			expect(currentState?.error?.message).toBe(
+				'The wallet is not authorized to provide accounts. It may be read-only, locked, or not yet configured.',
+			);
+			expect(currentState?.error?.cause).toBe(unauthorized);
+		}, 2000);
+
+		it('should fall back to the generic message for a failure with no recognised code', async () => {
+			const mockHandle = createMockWalletHandle('MockWallet', []);
+			const failure = Object.assign(new Error('Internal error.'), {code: -32603});
+			(mockHandle.walletProvider.getAccounts as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+			(mockHandle.walletProvider.requestAccounts as ReturnType<typeof vi.fn>).mockRejectedValue(failure);
+
+			const walletConnector = createMockWalletConnector([mockHandle]);
+			const store = createConnection({
+				targetStep: 'WalletConnected',
+				chainInfo: defaultChainInfo,
+				walletConnector,
+				autoConnect: false,
+			});
+
+			vi.advanceTimersByTime(50);
+
+			let currentState: Connection<MockUnderlyingProvider> | undefined;
+			store.subscribe((state) => {
+				currentState = state;
+			});
+
+			const connectPromise = store.connect({type: 'wallet'});
+			await vi.advanceTimersByTimeAsync(200);
+			await connectPromise;
+
+			expect(currentState?.error?.message).toBe('failed to connect to wallet');
+			expect(currentState?.error?.cause).toBe(failure);
 		}, 2000);
 
 		// The trap: `ensureConnected` is legitimately called while a picker is on screen and the user is mid-choice.
