@@ -178,6 +178,12 @@ With distinct prefixes, two connections never read or write each other's entries
 
 `doNotStoreLocally` suppresses saving the **origin account** only. The last wallet is always remembered, deliberately: it is a useful hint on the next purchase, and namespaced it can no longer collide with the player's. If you do not want a payment wallet remembered at all, call `payment.disconnect()` when you are done, which clears the payment namespace and nothing else.
 
+### Wallet discovery is safe with any number of connections
+
+You do not need to share a `walletConnector` between connections. EIP-6963 discovery is page-wide, so connections created close together see each other's provider requests, but announcements are deduplicated (by `info.uuid`, falling back to `info.rdns`). One installed wallet is listed once per connection, and a single-wallet page still connects directly instead of stopping at a `WalletToChoose` picker.
+
+> Known limitation, unchanged: the Ethereum connector listens for EIP-6963 announcements for 100 ms after construction. A wallet that announces later than that is not listed.
+
 ## Connection States
 
 The connection follows a state machine with these primary steps:

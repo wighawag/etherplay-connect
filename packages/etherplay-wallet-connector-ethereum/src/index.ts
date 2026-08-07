@@ -158,7 +158,26 @@ function createWalletFetcher(): WalletFetcher {
 	// Track the actual window.ethereum provider reference for late EIP-6963 comparison
 	let windowEthereumProviderAdded: EIP1193WindowWalletProvider | undefined;
 
+	// EIP-6963 discovery is page-wide: any code dispatching `eip6963:requestProvider` (a second
+	// fetcher, a second connection, an unrelated library) makes every installed wallet announce
+	// itself again to every listener currently attached. Without this guard the same physical wallet
+	// is recorded, and re-announced to every subscriber, once per request that happened to overlap
+	// with our listening window.
+	//
+	// `uuid` is the EIP-6963 identity of the announcement; `rdns` is the stable identity of the
+	// wallet itself and is checked as a fallback for wallets that regenerate their uuid.
+	function alreadyAnnounced(walletHandle: WalletHandle<CurriedRPC<Methods>>): boolean {
+		return walletHandles.some(
+			(existing) =>
+				(!!existing.info.uuid && existing.info.uuid === walletHandle.info.uuid) ||
+				(!!existing.info.rdns && existing.info.rdns === walletHandle.info.rdns),
+		);
+	}
+
 	function announceWallet(walletHandle: WalletHandle<CurriedRPC<Methods>>) {
+		if (alreadyAnnounced(walletHandle)) {
+			return;
+		}
 		walletHandles.push(walletHandle);
 		for (const walletAnnounced of walletAnnouncementFunctions) {
 			walletAnnounced(walletHandle);
@@ -223,6 +242,14 @@ function createWalletFetcher(): WalletFetcher {
 			// After a short delay, add window.ethereum only if no EIP6963 providers were announced
 			// This handles mobile wallet browsers that don't support EIP6963
 			// we also stop listenning for more
+			//
+			// Known limitation, deliberately left as is: a wallet that announces later than this window
+			// is dropped. Simply keeping the listener attached is now safe from a duplication point of
+			// view (see `alreadyAnnounced`), but it would introduce a different duplicate: once the
+			// window.ethereum fallback has been added below, a late EIP-6963 announcement from that same
+			// wallet under a *different* provider object and a different uuid/rdns (Rabby does this)
+			// would be added as a second entry. Fixing that needs a way to supersede an already-announced
+			// handle, which the announcement API has no notion of. Not changed here.
 			setTimeout(() => {
 				(window as any).removeEventListener('eip6963:announceProvider', onWalletAnnounced);
 				addWindowEthereumIfNeeded();

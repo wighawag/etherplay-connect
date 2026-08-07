@@ -632,14 +632,36 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 	let popup: PopupPromise<OriginAccount> | undefined;
 
+	// Wallet announcements are not guaranteed to be unique.
+	//
+	// EIP-6963 discovery is page-wide: anyone dispatching `eip6963:requestProvider` makes every
+	// installed wallet announce itself again, to every listener currently attached. A second
+	// connection constructed while this one is still listening therefore replays the same wallets
+	// into this connection's list. Appending them blindly showed one installed wallet twice, which
+	// pushed the flow into `WalletToChoose` ("2 wallets available") instead of connecting directly.
+	//
+	// So the list is built as a set, keyed on the announcement identity rather than on who asked for
+	// it. That holds no matter how many connections, connectors or unrelated libraries are
+	// requesting providers in the page, and callers need not think about it.
+	function isSameWallet(a: WalletHandle<WalletProviderType>, b: WalletHandle<WalletProviderType>): boolean {
+		// `uuid` is the EIP-6963 identity of an announcement. `rdns` is the stable identity of the
+		// wallet itself, checked as a fallback for wallets that regenerate their uuid per announcement.
+		if (a.info.uuid && b.info.uuid && a.info.uuid === b.info.uuid) {
+			return true;
+		}
+		return !!a.info.rdns && a.info.rdns === b.info.rdns;
+	}
+
 	function fetchWallets() {
 		walletConnector.fetchWallets((detail) => {
 			const existingWallets = $connection.wallets;
-			existingWallets.push(detail);
+			if (existingWallets.some((existing) => isSameWallet(existing, detail))) {
+				return;
+			}
 
 			set({
 				...$connection,
-				wallets: existingWallets,
+				wallets: [...existingWallets, detail],
 			});
 		});
 	}
