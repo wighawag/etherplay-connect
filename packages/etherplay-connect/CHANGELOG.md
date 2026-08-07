@@ -1,5 +1,51 @@
 # @etherplay/connect
 
+## 0.2.1
+
+### Patch Changes
+
+- 6903404: Type a `targetStep: 'WalletConnected'` connection as `walletOnly: true`, which is what it already is at runtime.
+
+  The runtime computes `walletOnly = settings.walletOnly || targetStep === 'WalletConnected'`, so a `WalletConnected` store always exposes `walletOnly === true`. The two `WalletConnected` overloads disagreed about that: the default-Ethereum-connector one returned `ConnectionStore<..., 'WalletConnected', true>` while the custom-connector one returned `ConnectionStore<..., 'WalletConnected'>`, leaving the parameter at its `false` default. So `store.walletOnly` was typed `false` on a store that reports `true`, and the two overloads contradicted each other for no reason.
+
+  Both now say `true`. Only the `walletOnly` property changes type: every other member of `ConnectionStore` ignores the `WalletOnly` parameter once `Target` is `'WalletConnected'`, so `connect`, `ensureConnected` and `isTargetStepReached` are unaffected. Code that read `store.walletOnly` on such a connection was reading a value the types described wrongly; code that compared it against `false` was already dead at runtime and now fails to compile, which is the point.
+
+  `AnyConnectionStore` deliberately keeps its `ConnectionStore<..., 'WalletConnected', false>` member even though `createConnection` no longer produces one: the type is exported, and narrowing the union would break consumers that spelled that member out explicitly.
+
+- 5f21172: Document and test the backend-free configuration: `targetStep: 'SignedIn'` with `walletOnly: true` and no `walletHost`.
+
+  This capability already worked, but only the type surface implied it, so downstream apps had no way to tell an intended guarantee from an accident of how the overloads happen to be written. Nothing is added and no behaviour changes: the configuration is now a supported, tested, documented shape.
+
+  It means: sign the user in and derive the local session signer, but offer only built-in (injected / EIP-6963) wallets as the owner, with no hosted email/social mechanisms and no backend of any kind. The wallet signs `originKeyMessage(origin)`, the signature is hashed into an entropy key, and the mnemonic derived from it produces the session account. No request leaves the page, and the derivation is reproducible, so a returning user recovers the same signer with no server to ask.
+
+  The `walletHost?: string` on the `walletOnly: true` SignedIn overloads is a promise, not an accident. It is declared optional there while staying `walletHost: string` on the `walletOnly?: false` SignedIn overloads: a host is required exactly when a popup can be reached, and under `walletOnly` none can, since `connect()` defaults the mechanism to `{type: 'wallet'}` and the mechanism picker is never shown.
+
+  - `test/wallet-only-no-host.test.ts` pins the runtime behaviour end-to-end against the real Ethereum connector and a real EIP-6963 announcement: construction with no host, reaching `WalletConnected` without ever entering `MechanismToChoose` or `PopupLaunched`, reaching `SignedIn` with a session signer whose address really is its private key's address, signing over the page's own origin, reproducible derivation, working auto-connect, and `window.open` never being called.
+  - `test/types/wallet-only-no-host.types.ts` pins the type surface, including the negative case: making `walletHost` optional everywhere fails the check. It is compile-time only and runs via the new `pnpm test:types`, which `pnpm test` now also runs.
+  - The README gains a "Supported connection shapes" section covering hosted sign-in, wallet-only sign-in with no backend, and plain `WalletConnected` side by side.
+
+  It also documents a mistake this configuration makes easy to re-make: deciding whether an app can have a local signer by testing whether a `PUBLIC_WALLET_HOST`-style variable is set. That is wrong, because both wallet-only sign-in and `targetStep: 'WalletConnected'` run with no host and only the first has a signer. The correct test is `targetStep === 'SignedIn'`.
+
+  `getSignatureForPublicKeyPublication()` was checked as the one method that sounded host-adjacent. It is not: on a wallet mechanism it asks the connected wallet to sign the publication message locally, so it is fully available in this configuration. Its real constraint, now documented, is the mechanism rather than the host: on popup mechanisms it can only return a signature the hosted sign-in already saved.
+
+- 779ed5a: Stop `withTimeout` emitting an unhandled rejection (and leaking a timer) when the call it wraps fails.
+
+  `withTimeout` attaches a side-effect handler to the promise it races, purely to cancel the pending timer once that promise settles. It passed only an `onFulfilled` callback:
+
+  ```js
+  promise.then((result) => {
+  	/* clear the timer */
+  });
+  ```
+
+  A `.then()` with no rejection handler creates a SECOND derived promise, and that one rejects with nobody listening. The caller's own error handling is irrelevant: it is attached to the promise returned by `Promise.race`, not to this derived branch. So every failing call routed through `withTimeout` emitted an unhandled rejection even when fully handled.
+
+  `connect()` wraps `getChainId()` and `getAccounts()` in `withTimeout`, so this fired on completely ordinary outcomes: a locked wallet, a wallet that refuses to authorize accounts (EIP-1193 `4100`), a user declining a prompt (`4001`). The visible effects were console noise blaming the app for an error it had handled, a spurious failure in test runs that treat unhandled rejections as errors, and a hard crash under `--unhandled-rejections=strict`.
+
+  The same missing handler leaked the timer on the rejection path: after a call failed, its timer stayed pending for the rest of the timeout (5s by default) instead of being cancelled.
+
+  Both are fixed by handling both settle paths, since the branch only ever existed for its side effect. The value and the error are still propagated by the `Promise.race`, so timeout semantics are unchanged. `test/utils.test.ts` now pins the rejection is propagated unchanged, that no unhandled rejection is emitted (whether the caller awaits or catches, and also when the wrapped promise fails only after the timeout has already won), and that the timer is cleared on both paths.
+
 ## 0.2.0
 
 ### Minor Changes
