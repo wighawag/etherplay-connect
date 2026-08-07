@@ -18,6 +18,7 @@ yarn add @etherplay/connect
 - **Social Login**: Authenticate via email OTP, Google, Facebook, or Auth0 through a popup flow
 - **Mnemonic Login**: Direct authentication using BIP-39 mnemonic phrases
 - **Session Accounts**: Generate origin-specific session accounts for enhanced security
+- **Backend-Free Mode**: Sign in and derive a session signer with an injected wallet alone, no host and no server (see [Supported connection shapes](#supported-connection-shapes))
 - **Auto-Connect**: Automatically reconnect returning users
 - **Chain Management**: Built-in chain switching and validation
 - **Svelte Integration**: Reactive state management via Svelte stores
@@ -107,24 +108,103 @@ try {
 }
 ```
 
+## Supported connection shapes
+
+There are three supported shapes. Pick one deliberately: they differ in what the user ends up with, and in what infrastructure you have to run.
+
+| Shape                                                                     | `targetStep`        | `walletOnly`  | `walletHost` | Owner can be         | Session signer |
+| ------------------------------------------------------------------------- | ------------------- | ------------- | ------------ | -------------------- | -------------- |
+| [Hosted sign-in](#1-hosted-sign-in)                                       | `'SignedIn'`        | `false`       | **required** | wallet, email, OAuth | yes            |
+| [Wallet-only sign-in, no backend](#2-wallet-only-sign-in-with-no-backend) | `'SignedIn'`        | `true`        | not used     | built-in wallet only | yes            |
+| [Wallet connection only](#3-wallet-connection-only)                       | `'WalletConnected'` | always `true` | not used     | built-in wallet only | **no**         |
+
+### 1. Hosted sign-in
+
+The user may own their account through a built-in wallet **or** through a hosted email / OAuth / mnemonic mechanism, and a session signer is derived either way. The hosted mechanisms run in a popup served by `walletHost`, so this shape requires that host to be deployed and reachable.
+
+```typescript
+const connection = createConnection({
+	targetStep: 'SignedIn',
+	walletHost: 'https://wallet.etherplay.io', // required: popups are reachable
+	chainInfo,
+});
+```
+
+### 2. Wallet-only sign-in with no backend
+
+Sign the user in and derive the session signer, but offer **only** built-in (injected / EIP-6963) wallets as the owner. No hosted mechanisms, no popup, and **no backend of any kind**.
+
+```typescript
+const connection = createConnection({
+	targetStep: 'SignedIn',
+	walletOnly: true,
+	chainInfo,
+	// note: no walletHost
+});
+
+const state = await connection.ensureConnected();
+state.account.address; // the wallet account that owns the identity
+state.account.signer.address; // the derived session account
+state.account.signer.privateKey; // usable locally, right now
+```
+
+`walletHost` is **optional** here, and that is a deliberate part of the API rather than a side effect of how the overloads are written: on the `walletOnly: true` SignedIn overloads it is declared `walletHost?: string`, while on the `walletOnly?: false` SignedIn overloads it stays `walletHost: string`. A host is required exactly when a popup can be reached, and under `walletOnly` none can: `connect()` defaults the mechanism to `{type: 'wallet'}`, so the mechanism picker is never shown and the popup path is never entered. Passing a `walletHost` anyway is allowed and simply unused by this connection.
+
+Everything about the session account is computed in the page:
+
+1. The wallet signs `originKeyMessage(origin)`.
+2. That signature is hashed into an entropy key (`fromSignatureToKey`).
+3. The entropy key becomes a BIP-39 mnemonic, and the mnemonic derives the session account.
+
+No request leaves the page, and the identity is reproducible: the same wallet signing the same origin always regenerates the same session account, which is what lets a returning user recover their signer with no server to ask. The origin signed over is `signingOrigin || origin`, so with no `signingOrigin` set it is the page's own origin.
+
+This shape is covered end-to-end by `test/wallet-only-no-host.test.ts`, and the type surface described above is pinned by `test/types/wallet-only-no-host.types.ts`.
+
+### 3. Wallet connection only
+
+Connect a built-in wallet and stop there. No signature is requested and **no session signer exists**.
+
+```typescript
+const connection = createConnection({
+	targetStep: 'WalletConnected',
+	chainInfo,
+});
+```
+
+This shape is wallet-only by definition, so `connection.walletOnly` is `true` whether or not you passed `walletOnly`, and the returned store is typed to say so.
+
+### Do not use `walletHost` to detect whether the app has a session signer
+
+A common downstream mistake is deciding "can this app have a local signer?" by testing whether a `PUBLIC_WALLET_HOST`-style environment variable is set. **That test is wrong**, because shapes 2 and 3 both run with no host and only one of them has a signer.
+
+```typescript
+// WRONG: reports no signer for a perfectly valid wallet-only SignedIn app
+const hasSigner = !!PUBLIC_WALLET_HOST;
+
+// RIGHT: the target step is what decides
+const hasSigner = connection.targetStep === 'SignedIn';
+```
+
+`walletHost` answers a different question: "are hosted email/OAuth mechanisms available?" `targetStep` answers "does a signed-in state carry `account.signer`?" Use `connection.targetStep === 'SignedIn'`, or narrow the state with `connection.isTargetStepReached(state)`, which is typed to give you `account.signer` only when a signer really exists.
+
 ## Configuration
 
 ### createConnection Options
 
-| Option                                    | Type                              | Required    | Description                                                 |
-| ----------------------------------------- | --------------------------------- | ----------- | ----------------------------------------------------------- |
-| `chainInfo`                               | `ChainInfo`                       | Yes         | Chain configuration including id, name, rpcUrls             |
-| `targetStep`                              | `'WalletConnected' \| 'SignedIn'` | No          | Target connection step (default: `'SignedIn'`)              |
-| `walletOnly`                              | `boolean`                         | No          | Restrict to wallet-only authentication                      |
-| `walletHost`                              | `string`                          | Conditional | URL for popup-based auth (required for social login)        |
-| `signingOrigin`                           | `string`                          | No          | Origin used for signing (defaults to current origin)        |
-| `autoConnect`                             | `boolean`                         | No          | Auto-reconnect returning users (default: `true`)            |
-| `walletConnector`                         | `WalletConnector`                 | No          | Custom wallet connector (defaults to Ethereum)              |
-| `requestSignatureAutomaticallyIfPossible` | `boolean`                         | No          | Auto-request signature after wallet connection              |
-| `useCurrentAccount`                       | `'always' \| 'whenSingle'`        | No          | Always use current wallet account                           |
-| `prioritizeWalletProvider`                | `boolean`                         | No          | Prioritize wallet for RPC calls                             |
-| `requestsPerSecond`                       | `number`                          | No          | Rate limit for RPC requests                                 |
-| `storagePrefix`                           | `string`                          | No          | Namespace this connection's persisted state (default: `''`) |
+| Option                                    | Type                              | Required    | Description                                                                                                                                                                                                   |
+| ----------------------------------------- | --------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chainInfo`                               | `ChainInfo`                       | Yes         | Chain configuration including id, name, rpcUrls                                                                                                                                                               |
+| `targetStep`                              | `'WalletConnected' \| 'SignedIn'` | No          | Target connection step (default: `'SignedIn'`)                                                                                                                                                                |
+| `walletOnly`                              | `boolean`                         | No          | Offer only built-in (EIP-6963) wallets, no hosted mechanisms                                                                                                                                                  |
+| `walletHost`                              | `string`                          | Conditional | URL for popup-based auth. Required for `targetStep: 'SignedIn'` **unless** `walletOnly: true`; never used by `targetStep: 'WalletConnected'`. See [Supported connection shapes](#supported-connection-shapes) |
+| `signingOrigin`                           | `string`                          | No          | Origin used for signing (defaults to current origin)                                                                                                                                                          |
+| `autoConnect`                             | `boolean`                         | No          | Auto-reconnect returning users (default: `true`)                                                                                                                                                              |
+| `walletConnector`                         | `WalletConnector`                 | No          | Custom wallet connector (defaults to Ethereum)                                                                                                                                                                |
+| `requestSignatureAutomaticallyIfPossible` | `boolean`                         | No          | Auto-request signature after wallet connection                                                                                                                                                                |
+| `useCurrentAccount`                       | `'always' \| 'whenSingle'`        | No          | Always use current wallet account                                                                                                                                                                             |
+| `prioritizeWalletProvider`                | `boolean`                         | No          | Prioritize wallet for RPC calls                                                                                                                                                                               |
+| `requestsPerSecond`                       | `number`                          | No          | Rate limit for RPC requests                                                                                                                                                                                   |
+| `storagePrefix`                           | `string`                          | No          | Namespace this connection's persisted state (default: `''`)                                                                                                                                                   |
 
 ## Running more than one connection in a page
 
@@ -232,6 +312,8 @@ interface WalletState {
 
 ## Authentication Mechanisms
 
+Wallet authentication needs no `walletHost`. The three popup mechanisms below do, and under `walletOnly: true` they are unavailable: the types do not offer them, and forcing one through anyway throws `walletHost is required for popup-based authentication (email, oauth, mnemonic)` rather than attempting a popup.
+
 ### Wallet Authentication
 
 ```typescript
@@ -312,6 +394,17 @@ await connection.connect({
 | `ensureConnected(step?, mechanism?, options?)` | Promise-based connection              |
 | `isTargetStepReached(connection)`              | Check if target step is reached       |
 | `getSignatureForPublicKeyPublication()`        | Get signature for public key          |
+
+### `getSignatureForPublicKeyPublication()`
+
+Despite the name, this needs **no `walletHost` and no backend**. It does not publish anything: it returns a signature that authorizes your session public key to represent your account, which your own application then publishes wherever it wants.
+
+Availability depends on the mechanism the user signed in with, not on whether a host is configured:
+
+- **Wallet mechanism** (always the case under `walletOnly: true`): the connected wallet signs `originPublicKeyPublicationMessage(origin, publicKey)` locally. Fully available in the backend-free shape.
+- **Popup mechanisms** (email / OAuth / mnemonic): returns `account.savedPublicKeyPublicationSignature` if the hosted sign-in produced one, and otherwise throws `no saved public key publication signature for <address>`. There is currently no way to sign it after the fact for these mechanisms.
+
+It throws `Not signed in` unless `step === 'SignedIn'`, so it is unavailable in the `targetStep: 'WalletConnected'` shape, which has no session public key to authorize.
 
 ### Connect Options
 

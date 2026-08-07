@@ -67,7 +67,8 @@
 		"format:check": "prettier --check .",
 		"format": "prettier --write .",
 		"test:watch": "vitest",
-		"test": "vitest run",
+		"test": "vitest run && pnpm test:types",
+		"test:types": "tsc -p tsconfig.types.json",
 		"test:coverage": "vitest run --coverage"
 	}
 }

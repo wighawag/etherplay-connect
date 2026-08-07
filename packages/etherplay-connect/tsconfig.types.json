@@ -1,0 +1,16 @@
+{
+	// Type-surface tests. These are compile-time-only assertions (`test/types/*.types.ts`): they
+	// have no runtime, so vitest does not run them; `tsc` IS the test, and a compile error is a
+	// failing test. Run via `pnpm test:types`, which `pnpm test` also runs.
+	//
+	// This is a separate config from `tsconfig.json` (which builds `src` only, with `rootDir: src`)
+	// and it deliberately does NOT include `test/**/*.test.ts`: the runtime test files are not
+	// currently type-clean, and dragging them in would mean this check could never be kept green.
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"rootDir": ".",
+		"noUnusedLocals": false
+	},
+	"include": ["src/**/*.ts", "test/types/**/*.ts"]
+}

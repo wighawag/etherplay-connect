@@ -399,6 +399,14 @@ export type AnyConnectionStore<WalletProviderType> =
 
 // Function overloads for proper typing
 //
+// `walletHost` is optional exactly when no popup can be reached: on both `WalletConnected`
+// overloads (which never sign in) and on the `walletOnly: true` `SignedIn` overloads (where
+// `connect` always defaults the mechanism to `{type: 'wallet'}`, so the mechanism picker is never
+// shown). It stays REQUIRED on the `walletOnly?: false` `SignedIn` overloads, which can reach the
+// hosted email/oauth/mnemonic popups. That split is the promise; see the README section
+// "Wallet-only sign-in with no backend", and `test/types/wallet-only-no-host.types.ts` which fails
+// to compile if it is flattened.
+//
 // Both `WalletConnected` overloads report `WalletOnly = true`, because that is what the runtime
 // computes: `walletOnly = settings.walletOnly || targetStep === 'WalletConnected'`, so a
 // `WalletConnected` store always exposes `walletOnly === true`.
