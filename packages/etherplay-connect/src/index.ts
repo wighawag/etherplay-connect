@@ -385,6 +385,12 @@ export type ConnectionStore<
 	onRequest: (handler: RequestEventHandler) => () => void;
 };
 
+// Every store shape a caller might hold. `createConnection` no longer returns the last member:
+// a `WalletConnected` connection is always wallet-only at runtime, so its overloads report
+// `WalletOnly = true`. It is kept in the union deliberately, because the type is exported and
+// narrowing it would break any consumer that spelled it out explicitly. For `WalletConnected` the
+// two members differ only in the `walletOnly` literal anyway: every other member of
+// `ConnectionStore` ignores `WalletOnly` once `Target` is `'WalletConnected'`.
 export type AnyConnectionStore<WalletProviderType> =
 	| ConnectionStore<WalletProviderType, 'SignedIn', true>
 	| ConnectionStore<WalletProviderType, 'WalletConnected', true>
@@ -392,6 +398,10 @@ export type AnyConnectionStore<WalletProviderType> =
 	| ConnectionStore<WalletProviderType, 'WalletConnected', false>;
 
 // Function overloads for proper typing
+//
+// Both `WalletConnected` overloads report `WalletOnly = true`, because that is what the runtime
+// computes: `walletOnly = settings.walletOnly || targetStep === 'WalletConnected'`, so a
+// `WalletConnected` store always exposes `walletOnly === true`.
 
 // WalletConnected target with custom wallet connector - walletHost optional
 export function createConnection<WalletProviderType>(settings: {
@@ -405,7 +415,7 @@ export function createConnection<WalletProviderType>(settings: {
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 	storagePrefix?: string;
-}): ConnectionStore<WalletProviderType, 'WalletConnected'>;
+}): ConnectionStore<WalletProviderType, 'WalletConnected', true>;
 
 // WalletConnected target with default Ethereum connector - walletHost optional
 export function createConnection(settings: {

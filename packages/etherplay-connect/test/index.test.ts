@@ -524,6 +524,29 @@ describe('createConnection', () => {
 
 			expect(store.walletOnly).toBe(true);
 		});
+
+		// `walletOnly = settings.walletOnly || targetStep === 'WalletConnected'`, so a WalletConnected
+		// connection is wallet-only whether or not the caller said so. The overloads report
+		// `WalletOnly = true` to match; this pins the runtime side of that agreement.
+		it('should report walletOnly: true for a WalletConnected connection that did not ask for it', () => {
+			const store = createConnection({
+				targetStep: 'WalletConnected',
+				chainInfo: defaultChainInfo,
+				walletConnector: createMockWalletConnector(),
+			});
+
+			expect(store.walletOnly).toBe(true);
+		});
+
+		it('should default walletOnly to false for a hosted SignedIn connection', () => {
+			const store = createConnection({
+				walletHost: 'https://wallet.example.com',
+				chainInfo: defaultChainInfo,
+				walletConnector: createMockWalletConnector(),
+			});
+
+			expect(store.walletOnly).toBe(false);
+		});
 	});
 
 	describe('connect with wallet mechanism', () => {
