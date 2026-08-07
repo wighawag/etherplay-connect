@@ -1,5 +1,30 @@
 # @etherplay/connect
 
+## 0.2.0
+
+### Minor Changes
+
+- 7d71662: Add `storagePrefix` so several connections in one page keep separate persisted state.
+
+  A page can legitimately run more than one connection: a player connection (hosted sign-in, `targetStep: 'SignedIn'`) plus a separate payment connection (`targetStep: 'WalletConnected'`, `autoConnect: false`) so whoever pays need not be the account the player signed in as. Until now both wrote the same two module-level keys, `__origin_account` and `__last_wallet`, in both `localStorage` and `sessionStorage`, so they silently overwrote and deleted each other's state: connecting the payment wallet made the player connection auto-reconnect as the payer on the next page load, `disconnect()` on either connection wiped the other's stored identity, and `cancel()` wiped the other's last-wallet hint.
+
+  `storagePrefix` is available on every `createConnection` overload and namespaces both keys in both storages, so the effective keys are `${storagePrefix}__origin_account` and `${storagePrefix}__last_wallet`. It defaults to `''`, which keeps the keys byte-identical for existing single-connection apps: no migration, no lost sessions. `disconnect()` and `cancel()` now only clear their own connection's namespace, which falls out of the prefixing.
+
+  What `doNotStoreLocally` covers is unchanged: it still gates saving the origin account and nothing else. `saveLastWallet` stays unconditional on purpose, since remembering the last wallet is wanted for every connection, including the payment one, and namespaced it no longer collides.
+
+### Patch Changes
+
+- e75e69a: Deduplicate EIP-6963 wallet announcements so several connections in one page are safe.
+
+  EIP-6963 discovery is page-wide. Unless a `walletConnector` is passed in, each `createConnection` builds its own connector, which attaches an `eip6963:announceProvider` listener and dispatches `eip6963:requestProvider`. Two connections constructed close together overlap in that window: the second one's request makes every installed wallet announce itself again while the first is still listening, and the first appended the repeat. With exactly one wallet installed, `connection.wallets` ended up with two entries for the same `info.uuid`, which took the `wallets.length > 1` branch and stopped the flow at a `WalletToChoose` picker listing that wallet twice, with the entry button degraded from "Connect \<WalletName\>" to "Connect a Wallet".
+
+  Announcements are now deduplicated on `info.uuid`, falling back to `info.rdns` for wallets that regenerate their uuid. This is done where the list is built in `@etherplay/connect`, so it holds for any connector, and also inside `createWalletFetcher` in `@etherplay/wallet-connector-ethereum`, so the connector never records the same wallet twice either. Creating any number of connections is safe by default, with no need to share an `EthereumWalletConnector` between them.
+
+  Unchanged, and still a known limitation: the Ethereum connector stops listening for announcements 100 ms after construction, so a wallet that announces later is not listed.
+
+- Updated dependencies [e75e69a]
+  - @etherplay/wallet-connector-ethereum@0.0.12
+
 ## 0.1.4
 
 ### Patch Changes
