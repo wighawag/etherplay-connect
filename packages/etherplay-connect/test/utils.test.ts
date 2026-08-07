@@ -2,6 +2,35 @@ import {describe, it, expect, vi} from 'vitest';
 import {writable} from 'svelte/store';
 import {createStorePromise, withTimeout} from '../src/utils.js';
 
+/**
+ * Run `fn` and report the rejections Node considered UNHANDLED while it ran.
+ *
+ * Node decides that at the end of a macrotask, once the microtask queue has drained, hence the two
+ * real-timer ticks. The runner's own `unhandledRejection` listeners are detached for the duration
+ * and restored afterwards: leaving them attached would make an expected-and-captured rejection also
+ * fail the surrounding test run.
+ */
+async function unhandledRejectionsDuring(fn: () => Promise<void>): Promise<unknown[]> {
+	const captured: unknown[] = [];
+	const runnerListeners = process.listeners('unhandledRejection');
+	for (const listener of runnerListeners) {
+		process.off('unhandledRejection', listener);
+	}
+	const capture = (reason: unknown) => captured.push(reason);
+	process.on('unhandledRejection', capture);
+	try {
+		await fn();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	} finally {
+		process.off('unhandledRejection', capture);
+		for (const listener of runnerListeners) {
+			process.on('unhandledRejection', listener as never);
+		}
+	}
+	return captured;
+}
+
 describe('withTimeout', () => {
 	it('should resolve when promise resolves before timeout', async () => {
 		const promise = Promise.resolve('success');
@@ -41,6 +70,78 @@ describe('withTimeout', () => {
 
 		const result = await withTimeout(promise, 1000);
 		expect(result).toEqual(complexValue);
+	});
+
+	it('should propagate the original rejection', async () => {
+		const failure = Object.assign(new Error('User rejected the request.'), {code: 4001});
+
+		await expect(withTimeout(Promise.reject(failure), 1000)).rejects.toBe(failure);
+	});
+
+	// Regression: the internal `promise.then(...)` used to pass no rejection handler, so the derived
+	// promise rejected with nobody listening. Every rejecting call wrapped in `withTimeout` (a locked
+	// wallet, a declined prompt) emitted an unhandled rejection even though the caller handled it.
+	it('should not emit an unhandled rejection when the wrapped promise rejects', async () => {
+		const captured = await unhandledRejectionsDuring(async () => {
+			await expect(withTimeout(Promise.reject(new Error('wallet is locked')), 1000)).rejects.toThrow(
+				'wallet is locked',
+			);
+		});
+
+		expect(captured).toEqual([]);
+	});
+
+	it('should not emit an unhandled rejection when the caller catches instead of awaiting', async () => {
+		// The same guarantee for the other common calling style, where nothing ever `await`s the
+		// returned promise directly.
+		const captured = await unhandledRejectionsDuring(async () => {
+			let caught: unknown;
+			await withTimeout(Promise.reject(new Error('boom')), 1000).catch((err) => {
+				caught = err;
+			});
+			expect((caught as Error).message).toBe('boom');
+		});
+
+		expect(captured).toEqual([]);
+	});
+
+	// Regression: the timer was only cleared on the fulfilled path, so a rejection left it pending
+	// for the full timeout. That keeps the event loop (and fake-timer assertions) dirty long after
+	// the call has already failed.
+	it('should clear the pending timer when the wrapped promise rejects', async () => {
+		vi.useFakeTimers();
+		try {
+			await expect(withTimeout(Promise.reject(new Error('boom')), 5000)).rejects.toThrow('boom');
+
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('should clear the pending timer when the wrapped promise resolves', async () => {
+		vi.useFakeTimers();
+		try {
+			await expect(withTimeout(Promise.resolve('ok'), 5000)).resolves.toBe('ok');
+
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('should still time out, and stay quiet, when the wrapped promise rejects only afterwards', async () => {
+		// The awkward ordering: the timeout wins the race, and the slow call fails later with nobody
+		// left interested in it. `Promise.race` has already attached a rejection handler to it, so the
+		// late failure must not resurface as an unhandled rejection either.
+		const captured = await unhandledRejectionsDuring(async () => {
+			const slowFailure = new Promise((_, reject) => setTimeout(() => reject(new Error('too late')), 60));
+
+			await expect(withTimeout(slowFailure, 10)).rejects.toThrow('Promise timed out after 10ms');
+			await new Promise((resolve) => setTimeout(resolve, 80));
+		});
+
+		expect(captured).toEqual([]);
 	});
 });
 
