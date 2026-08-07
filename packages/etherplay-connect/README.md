@@ -111,19 +111,72 @@ try {
 
 ### createConnection Options
 
-| Option                                    | Type                              | Required    | Description                                          |
-| ----------------------------------------- | --------------------------------- | ----------- | ---------------------------------------------------- |
-| `chainInfo`                               | `ChainInfo`                       | Yes         | Chain configuration including id, name, rpcUrls      |
-| `targetStep`                              | `'WalletConnected' \| 'SignedIn'` | No          | Target connection step (default: `'SignedIn'`)       |
-| `walletOnly`                              | `boolean`                         | No          | Restrict to wallet-only authentication               |
-| `walletHost`                              | `string`                          | Conditional | URL for popup-based auth (required for social login) |
-| `signingOrigin`                           | `string`                          | No          | Origin used for signing (defaults to current origin) |
-| `autoConnect`                             | `boolean`                         | No          | Auto-reconnect returning users (default: `true`)     |
-| `walletConnector`                         | `WalletConnector`                 | No          | Custom wallet connector (defaults to Ethereum)       |
-| `requestSignatureAutomaticallyIfPossible` | `boolean`                         | No          | Auto-request signature after wallet connection       |
-| `useCurrentAccount`                       | `'always' \| 'whenSingle'`        | No          | Always use current wallet account                    |
-| `prioritizeWalletProvider`                | `boolean`                         | No          | Prioritize wallet for RPC calls                      |
-| `requestsPerSecond`                       | `number`                          | No          | Rate limit for RPC requests                          |
+| Option                                    | Type                              | Required    | Description                                                 |
+| ----------------------------------------- | --------------------------------- | ----------- | ----------------------------------------------------------- |
+| `chainInfo`                               | `ChainInfo`                       | Yes         | Chain configuration including id, name, rpcUrls             |
+| `targetStep`                              | `'WalletConnected' \| 'SignedIn'` | No          | Target connection step (default: `'SignedIn'`)              |
+| `walletOnly`                              | `boolean`                         | No          | Restrict to wallet-only authentication                      |
+| `walletHost`                              | `string`                          | Conditional | URL for popup-based auth (required for social login)        |
+| `signingOrigin`                           | `string`                          | No          | Origin used for signing (defaults to current origin)        |
+| `autoConnect`                             | `boolean`                         | No          | Auto-reconnect returning users (default: `true`)            |
+| `walletConnector`                         | `WalletConnector`                 | No          | Custom wallet connector (defaults to Ethereum)              |
+| `requestSignatureAutomaticallyIfPossible` | `boolean`                         | No          | Auto-request signature after wallet connection              |
+| `useCurrentAccount`                       | `'always' \| 'whenSingle'`        | No          | Always use current wallet account                           |
+| `prioritizeWalletProvider`                | `boolean`                         | No          | Prioritize wallet for RPC calls                             |
+| `requestsPerSecond`                       | `number`                          | No          | Rate limit for RPC requests                                 |
+| `storagePrefix`                           | `string`                          | No          | Namespace this connection's persisted state (default: `''`) |
+
+## Running more than one connection in a page
+
+A page may run several connections at once, and that is a supported configuration. The common case is a **player** connection (hosted sign-in, `targetStep: 'SignedIn'`) plus a separate **payment** connection (`targetStep: 'WalletConnected'`, `autoConnect: false`), so whoever pays need not be the account the player signed in as.
+
+The one thing you must do is give each connection its own `storagePrefix`.
+
+```typescript
+import {createConnection} from '@etherplay/connect';
+
+const chainInfo = {
+	id: 1,
+	name: 'Ethereum',
+	rpcUrls: {default: {http: ['https://eth.llamarpc.com']}},
+	nativeCurrency: {name: 'Ether', symbol: 'ETH', decimals: 18},
+};
+
+// Who the player IS. Auto-reconnects on the next page load.
+export const player = createConnection({
+	walletHost: 'https://wallet.etherplay.io',
+	chainInfo,
+	storagePrefix: 'player:',
+});
+
+// Who PAYS. A different account is fine, and expected.
+export const payment = createConnection({
+	targetStep: 'WalletConnected',
+	chainInfo,
+	autoConnect: false,
+	storagePrefix: 'payment:',
+});
+
+// At checkout:
+const payer = await payment.ensureConnected({doNotStoreLocally: true});
+```
+
+### What `storagePrefix` does
+
+Each connection persists two entries, in both `localStorage` and `sessionStorage`:
+
+| Key                                | Written by                           | Read by                     |
+| ---------------------------------- | ------------------------------------ | --------------------------- |
+| `${storagePrefix}__origin_account` | sign-in (unless `doNotStoreLocally`) | auto-connect (`SignedIn`)   |
+| `${storagePrefix}__last_wallet`    | every successful wallet connection   | auto-connect (both targets) |
+
+`storagePrefix` defaults to `''`, so a single-connection app keeps exactly the keys `__origin_account` and `__last_wallet` it has today. Nothing migrates, and adding a prefix to an existing connection starts it from a clean slate.
+
+With distinct prefixes, two connections never read or write each other's entries, for sign-in, for the remembered last wallet, for `disconnect()` and for `cancel()`. Without them they share one identity slot and one last-wallet slot and silently overwrite each other: connecting the payment wallet would make the player connection auto-reconnect as the payer on the next page load, and `payment.disconnect()` would wipe the player's stored identity.
+
+### `doNotStoreLocally` does not cover the last wallet
+
+`doNotStoreLocally` suppresses saving the **origin account** only. The last wallet is always remembered, deliberately: it is a useful hint on the next purchase, and namespaced it can no longer collide with the player's. If you do not want a payment wallet remembered at all, call `payment.disconnect()` when you are done, which clears the payment namespace and nothing else.
 
 ## Connection States
 

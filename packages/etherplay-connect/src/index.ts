@@ -250,8 +250,11 @@ function viemChainInfoToSwitchChainInfo(chainInfo: BasicChainInfo): {
 	};
 }
 
-const storageKeyAccount = '__origin_account';
-const storageKeyLastWallet = '__last_wallet';
+// Base (unprefixed) storage key names. A connection namespaces its own storage by prepending its
+// `storagePrefix` setting to these, so several connections in one page never share a slot.
+// With no prefix the effective keys are byte-identical to what single-connection apps already have.
+const baseStorageKeyAccount = '__origin_account';
+const baseStorageKeyLastWallet = '__last_wallet';
 
 export type ConnectOptions = {
 	requireUserConfirmationBeforeSignatureRequest?: boolean;
@@ -401,6 +404,7 @@ export function createConnection<WalletProviderType>(settings: {
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
+	storagePrefix?: string;
 }): ConnectionStore<WalletProviderType, 'WalletConnected'>;
 
 // WalletConnected target with default Ethereum connector - walletHost optional
@@ -414,6 +418,7 @@ export function createConnection(settings: {
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
+	storagePrefix?: string;
 }): ConnectionStore<UnderlyingEthereumProvider, 'WalletConnected', true>;
 
 // SignedIn target with walletOnly: true (custom wallet connector) - walletHost optional
@@ -431,6 +436,7 @@ export function createConnection<WalletProviderType>(settings: {
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 	domainRedirectBridge?: boolean;
+	storagePrefix?: string;
 }): ConnectionStore<WalletProviderType, 'SignedIn', true>;
 
 // SignedIn target with walletOnly: true (default Ethereum connector) - walletHost optional
@@ -448,6 +454,7 @@ export function createConnection(settings: {
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 	domainRedirectBridge?: boolean;
+	storagePrefix?: string;
 }): ConnectionStore<UnderlyingEthereumProvider, 'SignedIn', true>;
 
 // SignedIn target (explicit) with custom wallet connector - walletHost required
@@ -465,6 +472,7 @@ export function createConnection<WalletProviderType>(settings: {
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 	domainRedirectBridge?: boolean;
+	storagePrefix?: string;
 }): ConnectionStore<WalletProviderType, 'SignedIn', false>;
 
 // SignedIn target (default) with default Ethereum connector - walletHost required
@@ -482,6 +490,7 @@ export function createConnection(settings: {
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 	domainRedirectBridge?: boolean;
+	storagePrefix?: string;
 }): ConnectionStore<UnderlyingEthereumProvider, 'SignedIn', false>;
 
 // Implementation signature
@@ -502,10 +511,26 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// for the oauth-redirection flow. Requires hosting `_etherplay_accounts.html`
 	// on the parent origin.
 	domainRedirectBridge?: boolean;
+	// Namespace this connection's persisted state (both `localStorage` and `sessionStorage`).
+	// A page may run several connections at once. The typical case is a player connection
+	// (`targetStep: 'SignedIn'`) plus a separate payment connection
+	// (`targetStep: 'WalletConnected'`) so the payer need not be the signed-in player.
+	// Without distinct prefixes those connections share one identity slot and one
+	// last-wallet slot, and overwrite/delete each other's state. Give each connection its
+	// own prefix and they become fully independent.
+	// Defaults to '', which keeps the historical keys `__origin_account` and `__last_wallet`
+	// exactly as they are, so existing single-connection apps keep their stored session.
+	storagePrefix?: string;
 }): ConnectionStore<WalletProviderType, TargetStep, boolean> {
 	function originToSignWith() {
 		return settings.signingOrigin || origin;
 	}
+
+	// Per-connection storage namespace. Computed once, up front, because the auto-connect block
+	// below reads storage during construction.
+	const storagePrefix = settings.storagePrefix || '';
+	const storageKeyAccount = `${storagePrefix}${baseStorageKeyAccount}`;
+	const storageKeyLastWallet = `${storagePrefix}${baseStorageKeyLastWallet}`;
 
 	const walletConnector =
 		settings.walletConnector || (new EthereumWalletConnector() as unknown as WalletConnector<WalletProviderType>);

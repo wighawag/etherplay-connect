@@ -210,8 +210,11 @@ The connection store goes through several states during the authentication flow:
   chainInfo: ChainInfo;             // Blockchain configuration
   prioritizeWalletProvider?: boolean;
   requestsPerSecond?: number;       // Rate limiting for provider
+  storagePrefix?: string;           // Namespace this connection's persisted state (default: '')
 }
 ```
+
+A page can run several connections at once (e.g. a player connection plus a separate payment connection). Give each one its own `storagePrefix` so they do not share a stored identity. See [`packages/etherplay-connect/README.md`](./packages/etherplay-connect/README.md#running-more-than-one-connection-in-a-page).
 
 ## Development
 
