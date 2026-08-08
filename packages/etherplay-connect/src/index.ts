@@ -14,13 +14,14 @@ import {
 	type OriginAccount,
 	originPublicKeyPublicationMessage,
 	originKeyMessage,
+	originDelegationMessage,
 	fromSignatureToKey,
 	AuthMechanism,
 	generateEcdhKeyPair,
 	exportPublicKeyB64,
 } from '@etherplay/connect-core';
 
-export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage};
+export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage, originDelegationMessage};
 
 export type {OriginAccount, AuthMechanism};
 
@@ -941,6 +942,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			metadata: {},
 			mechanismUsed: $connection.mechanism,
 			savedPublicKeyPublicationSignature: undefined,
+			// no pre-generated signature on the wallet path: the owner is a live wallet that can be
+			// asked to sign `originDelegationMessage(origin, signer.address)` on demand.
+			savedDelegationSignature: undefined,
 			accountType: walletConnector.accountGenerator.type,
 		};
 		set({

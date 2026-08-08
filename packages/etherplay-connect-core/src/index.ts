@@ -16,6 +16,13 @@ export function localKeyMessage(): string {
 export function originPublicKeyPublicationMessage(orig: string, publicKey: `0x${string}`): string {
 	return `Origin: ${orig}\n\nIMPORTANT: Only sign on trusted websites.\n\nThis authorizes the following Public Key to represent your account:\n\n${publicKey}\n\nOthers can use this key to write encrypted messages to you securely.`;
 }
+// The verifying contract reproduces this wording literally and renders the delegate address in
+// lowercase, so both the text and the casing are consensus, not style: changing either invalidates
+// every signature ever generated. `delegate` is lowercased here rather than at the call site so no
+// caller can hand us an EIP-55 checksummed spelling that then fails to verify onchain.
+export function originDelegationMessage(orig: string, delegate: `0x${string}`): string {
+	return `Origin: ${orig}\n\nIMPORTANT: Only sign on trusted websites.\n\nThis authorizes the following address to act on your behalf onchain:\n\n${delegate.toLowerCase()}\n\nApps at this origin can use it to send transactions in your name.`;
+}
 
 export function fromEntropyKeyToMnemonic(entropyKey: `0x${string}`): string {
 	return entropyToMnemonic(hexToBytes(entropyKey.slice(2)), wordlist);
@@ -70,6 +77,16 @@ export async function deriveOriginAccount(
 		accountObject.privateKey,
 	);
 
+	// Pre-generated because a hosted account holds its key at the wallet host and exposes no live
+	// arbitrary-signing capability: sign-in is the only moment this can be produced. It needs no
+	// nonce/expiry/chainId, since the signer is a pure function of the account key and the origin
+	// (deterministic ECDSA), so it asserts a permanent fact and replaying it changes nothing.
+	// Revocation is onchain, via a withdrawal flag the account sets itself.
+	const savedDelegationSignature = await accountGenerator.signTextMessage(
+		originDelegationMessage(origin, originAccount.address),
+		accountObject.privateKey,
+	);
+
 	return {
 		address: account.localAccount.address,
 		signer: {
@@ -82,6 +99,7 @@ export async function deriveOriginAccount(
 		metadata: {},
 		mechanismUsed: account.signer.mechanismUsed,
 		savedPublicKeyPublicationSignature,
+		savedDelegationSignature,
 		accountType: accountGenerator.type,
 	};
 }

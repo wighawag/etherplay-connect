@@ -32,6 +32,10 @@ export type OriginAccount = {
 	};
 	mechanismUsed: AuthMechanism | {type: string};
 	savedPublicKeyPublicationSignature?: `0x${string}`;
+	// authorizes `signer.address` to act onchain on this account's behalf, over
+	// `originDelegationMessage(signer.origin, signer.address)`. Optional because accounts restored
+	// from storage, or built by paths that never derived one, will not have it.
+	savedDelegationSignature?: `0x${string}`;
 	accountType: string;
 };
 

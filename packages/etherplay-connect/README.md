@@ -406,6 +406,16 @@ Availability depends on the mechanism the user signed in with, not on whether a 
 
 It throws `Not signed in` unless `step === 'SignedIn'`, so it is unavailable in the `targetStep: 'WalletConnected'` shape, which has no session public key to authorize.
 
+### `account.savedDelegationSignature`
+
+A sibling of `savedPublicKeyPublicationSignature`, over `originDelegationMessage(origin, signer.address)`: it authorizes the session signer to **act onchain on the account's behalf**, so a contract can verify "account A delegates to signer S" and attribute S's transactions to A. It is a separate message on purpose, because a user who authorized an encryption key has not thereby authorized a key that spends gas and posts in their name.
+
+It is generated at derivation time on popup mechanisms (email / OAuth / mnemonic), because a hosted account holds its key at the wallet host and exposes no live arbitrary-signing capability: sign-in is the only moment it can be produced. On the wallet mechanism it is `undefined`, since the connected wallet is right there and can sign the same message on demand. The registration transaction is submitted and paid for by somebody else, so the account itself never needs gas or a wallet: it signs, another party submits.
+
+It carries no nonce, index, expiry, chainId or contract address, because it asserts a permanent fact rather than a scoped authorization. The signer is `keccak256(sign(originKeyMessage(origin)))` through a mnemonic and ECDSA signing is deterministic (RFC 6979), so the same account on the same origin always derives the same signer, on every device and after any storage wipe. There is exactly one delegate per account per origin and it can never legitimately change, which makes replay harmless: it re-asserts something already true. The accepted consequence is that one signature is valid on every chain and in every contract implementing the scheme, which is exactly what its text says. Revocation is handled onchain by a withdrawal flag the account sets itself.
+
+**The wording is consensus, not style.** The verifying contract reproduces the message literally and renders the delegate address lowercase, so both the exact bytes and the casing are pinned by `test/origin-delegation.test.ts` in `@etherplay/connect-core`. Changing either invalidates every signature ever generated and has to happen on both sides at once.
+
 ### Connect Options
 
 ```typescript
@@ -443,6 +453,7 @@ interface OriginAccount {
 	};
 	mechanismUsed: Mechanism;
 	savedPublicKeyPublicationSignature?: `0x${string}`;
+	savedDelegationSignature?: `0x${string}`; // authorizes signer.address to act onchain for you
 	accountType: string;
 }
 ```
@@ -533,7 +544,7 @@ Off-browser, Node provides a real global `fetch`, so `connection.provider.reques
 
 ```typescript
 // Re-exported from @etherplay/alchemy
-export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage};
+export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage, originDelegationMessage};
 export type {OriginAccount};
 
 // Re-exported from @etherplay/wallet-connector-ethereum
