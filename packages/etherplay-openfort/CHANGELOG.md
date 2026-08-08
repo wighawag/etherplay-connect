@@ -1,5 +1,12 @@
 # @etherplay/openfort
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [57e3773]
+  - @etherplay/connect-core@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes
