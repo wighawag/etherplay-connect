@@ -39,6 +39,7 @@ etherplay-connect/
 │   ├── @etherplay/wallet-connector/          # Core wallet connector interfaces
 │   ├── @etherplay/wallet-connector-ethereum/  # Ethereum implementation
 │   ├── @etherplay/alchemy/                   # Social login integration
+│   ├── @etherplay/delegation/                # Onchain delegation: Solidity, message builder, ABI
 │   └── @etherplay/connect/                   # Main connection library
 ├── demoes/
 │   └── sveltekit/                            # Demo application

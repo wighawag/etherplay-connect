@@ -1,0 +1,55 @@
+{
+	"$comment": "Consensus test vectors for the delegation message. Three implementations must agree on these bytes: contracts/Delegation.sol, src/message.ts, and any third-party wallet that signs one. Each case gives the terms, the exact message string and its EIP-191 digest. Both languages are tested against this file (test/solidity/Vectors.t.sol and test/js/vectors.test.ts). CHANGING A LINE HERE INVALIDATES EVERY SIGNATURE EVER GENERATED: it is not a test fixture, it is the specification.",
+	"cases": [
+		{
+			"name": "no expiry, mainnet",
+			"why": "The ordinary prompted credential: a deadline of zero renders as the word never, and stays a line.",
+			"delegate": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+			"contract": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+			"chainId": 1,
+			"deadline": 0,
+			"message": "IMPORTANT: Only sign this on a site you trust.\n\nThis authorizes another address to act in your name onchain, at one contract.\nYou can withdraw it at any time by revoking it there.\n\nDelegate: 0xd8da6bf26964af9d7eed9e03e53415d37aa96045\nContract: 0x5fbdb2315678afecb367f032d93f642f64180aa3\nChain ID: 1\nExpires: never",
+			"digest": "0x6c61d40540268a66427acd15b66522b3536a9ccfc42a0b4b4f55ada4003a5aa3"
+		},
+		{
+			"name": "a real deadline, dev chain",
+			"why": "The auto-signed, allowlisted credential: a unix timestamp in decimal, on the chain id a local node uses.",
+			"delegate": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+			"contract": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+			"chainId": 31337,
+			"deadline": 1767225600,
+			"message": "IMPORTANT: Only sign this on a site you trust.\n\nThis authorizes another address to act in your name onchain, at one contract.\nYou can withdraw it at any time by revoking it there.\n\nDelegate: 0x70997970c51812dc3a010c7d01b50e0d17dc79c8\nContract: 0xe7f1725e7734ce288f8367e1bb143e90bb3f0512\nChain ID: 31337\nExpires: 1767225600",
+			"digest": "0x3edf0fd7ae5d80a942a8a0209a2660c225c38a1a1a5c3ac107f418bab0897477"
+		},
+		{
+			"name": "checksummed input, lowercase output",
+			"why": "Same terms as the first case, spelled EIP-55. Both sides must lowercase, so this must produce byte-identical output to it; a checksumming implementation produces a different message and every signature it makes is rejected onchain.",
+			"delegate": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+			"contract": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+			"chainId": 1,
+			"deadline": 0,
+			"message": "IMPORTANT: Only sign this on a site you trust.\n\nThis authorizes another address to act in your name onchain, at one contract.\nYou can withdraw it at any time by revoking it there.\n\nDelegate: 0xd8da6bf26964af9d7eed9e03e53415d37aa96045\nContract: 0x5fbdb2315678afecb367f032d93f642f64180aa3\nChain ID: 1\nExpires: never",
+			"digest": "0x6c61d40540268a66427acd15b66522b3536a9ccfc42a0b4b4f55ada4003a5aa3"
+		},
+		{
+			"name": "the smallest non-zero deadline",
+			"why": "One second past the epoch: long expired, and NOT the same as no expiry. The boundary an implementation crosses if it treats a falsy deadline as absent.",
+			"delegate": "0x0000000000000000000000000000000000000001",
+			"contract": "0xffffffffffffffffffffffffffffffffffffffff",
+			"chainId": 1,
+			"deadline": 1,
+			"message": "IMPORTANT: Only sign this on a site you trust.\n\nThis authorizes another address to act in your name onchain, at one contract.\nYou can withdraw it at any time by revoking it there.\n\nDelegate: 0x0000000000000000000000000000000000000001\nContract: 0xffffffffffffffffffffffffffffffffffffffff\nChain ID: 1\nExpires: 1",
+			"digest": "0xe570707d7c125d5132977c7e01b3cd86652467e99408667e63caeb70dd22832b"
+		},
+		{
+			"name": "a far deadline, dev chain",
+			"why": "A ten-digit timestamp against a five-digit chain id, so a decimal renderer that pads, truncates or thousands-separates either one is caught.",
+			"delegate": "0xffffffffffffffffffffffffffffffffffffffff",
+			"contract": "0x000000000000000000000000000000000000dead",
+			"chainId": 31337,
+			"deadline": 4102444800,
+			"message": "IMPORTANT: Only sign this on a site you trust.\n\nThis authorizes another address to act in your name onchain, at one contract.\nYou can withdraw it at any time by revoking it there.\n\nDelegate: 0xffffffffffffffffffffffffffffffffffffffff\nContract: 0x000000000000000000000000000000000000dead\nChain ID: 31337\nExpires: 4102444800",
+			"digest": "0x988c49a719033f8a79ea4724cac29d557a6f84b02b2a8e77a5ac7ac5b246b3d2"
+		}
+	]
+}

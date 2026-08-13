@@ -1,0 +1,70 @@
+{
+	"name": "@etherplay/delegation",
+	"version": "0.0.1",
+	"description": "Onchain delegation for Etherplay Accounts - Solidity library, the TypeScript builder for the message it verifies, and the ABI, kept in agreement by a shared vectors file",
+	"keywords": [
+		"ethereum",
+		"solidity",
+		"delegation",
+		"session-key",
+		"erc-7201",
+		"eip-191",
+		"signature",
+		"web3",
+		"typescript"
+	],
+	"homepage": "https://github.com/wighawag/etherplay-connect#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wighawag/etherplay-connect.git",
+		"directory": "packages/etherplay-delegation"
+	},
+	"bugs": {
+		"url": "https://github.com/wighawag/etherplay-connect/issues"
+	},
+	"author": "Ronan Sandford",
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./contracts/*": "./contracts/*",
+		"./vectors.json": "./vectors.json",
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"contracts",
+		"dist",
+		"src",
+		"vectors.json"
+	],
+	"dependencies": {
+		"@noble/hashes": "^1.7.1"
+	},
+	"devDependencies": {
+		"@nomicfoundation/hardhat-node-test-runner": "^3.1.0",
+		"@nomicfoundation/hardhat-viem": "^3.0.6",
+		"@types/node": "^24.0.0",
+		"as-soon": "^0.0.11",
+		"earl": "^2.0.0",
+		"forge-std": "github:foundry-rs/forge-std#v1.9.4",
+		"hardhat": "^3.12.0",
+		"prettier": "^3.5.3",
+		"prettier-plugin-solidity": "^2.4.0",
+		"typescript": "^5.8.3",
+		"viem": "^2.55.11"
+	},
+	"scripts": {
+		"build": "tsc --project tsconfig.json",
+		"dev": "as-soon -w src pnpm build",
+		"compile": "hardhat compile",
+		"format:check": "prettier --check .",
+		"format": "prettier --write .",
+		"test": "hardhat test"
+	}
+}

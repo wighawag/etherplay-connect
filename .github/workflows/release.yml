@@ -16,9 +16,10 @@ name: release
 # Two setup gotchas, both one-time and per package:
 #   - OIDC cannot publish the FIRST version of a package (npm/cli#8544): the
 #     trusted publisher can only be registered on a package that already exists.
-#     `@etherplay/openfort` is not on npm yet, so it needs one manual
-#     `pnpm publish` before this workflow can take it over.
-#   - Every published package (@etherplay/connect, connect-core,
+#     `@etherplay/delegation` is not on npm yet, so it needs one manual
+#     `pnpm publish` before this workflow can take it over. (`@etherplay/openfort`
+#     was in this position and is now published, so it no longer is.)
+#   - Every published package (@etherplay/connect, connect-core, delegation,
 #     wallet-connector, wallet-connector-ethereum, openfort) needs its own
 #     trusted publisher entry on npmjs.com pointing at this repo and this
 #     workflow filename.
@@ -62,6 +63,14 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      # Publishing is gated on the tests, not only on `release:ci`'s format
+      # check and build. @etherplay/delegation exists because agreement between
+      # a Solidity implementation and a TypeScript one fails SILENTLY, and a
+      # publish that skipped the test pinning them would ship exactly the
+      # failure the package was created to catch. Same command as test.yml.
+      - name: Test
+        run: pnpm --filter './packages/*' run test
 
       - name: Create Release PR or Publish
         uses: changesets/action@v1

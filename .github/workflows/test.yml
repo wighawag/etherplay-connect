@@ -1,0 +1,48 @@
+name: test
+
+# The suite that has to be green before anything is published. It runs on every
+# push and every pull request, because the thing it protects is not a
+# regression in a feature, it is agreement between implementations that fails
+# silently when it breaks (see @etherplay/delegation and its `vectors.json`).
+#
+# `--filter './packages/*'` rather than `-r`, deliberately: the demo's `test`
+# script is `vitest` in WATCH mode, which never exits, and a recursive run would
+# hang here rather than fail.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # This also builds every package, via the root `prepare` script.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Format
+        run: pnpm format:check
+
+      # @etherplay/delegation's `test` compiles the Solidity and runs BOTH
+      # suites: the forge-std tests inside the EVM and the node ones across the
+      # ABI boundary. Solidity tests that only ever run on a laptop are the
+      # reason the pinning test was worth moving into this repo at all.
+      - name: Test
+        run: pnpm --filter './packages/*' run test

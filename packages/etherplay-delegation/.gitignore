@@ -1,0 +1,9 @@
+dist/
+node_modules/
+.vscode/*
+!*.default
+
+# hardhat build output: recompiled from `contracts` on every run
+artifacts/
+cache/
+generated/
