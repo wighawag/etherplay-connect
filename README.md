@@ -212,10 +212,60 @@ The connection store goes through several states during the authentication flow:
   prioritizeWalletProvider?: boolean;
   requestsPerSecond?: number;       // Rate limiting for provider
   storagePrefix?: string;           // Namespace this connection's persisted state (default: '')
+  permissions?: PermissionDeclaration[]; // Onchain authority to ask for at connect time
 }
 ```
 
 A page can run several connections at once (e.g. a player connection plus a separate payment connection). Give each one its own `storagePrefix` so they do not share a stored identity. See [`packages/etherplay-connect/README.md`](./packages/etherplay-connect/README.md#running-more-than-one-connection-in-a-page).
+
+## Acting onchain for the user
+
+A session account signs from a key of its own, so by default the address that sends a transaction is not the account the action belongs to. Delegation fixes that: the user authorizes the session signer to act in their name **at one contract on one chain**, and that contract attributes the signer's transactions to the account.
+
+Ask for it at connect time:
+
+```typescript
+const connection = createConnection({
+	walletHost: PUBLIC_WALLET_HOST,
+	chainInfo: {id: 31337, /* ... */},
+	permissions: [
+		{
+			type: 'delegation',
+			chainId: 31337,
+			contract: '0xe7f1725e7734ce288f8367e1bb143e90bb3f0512',
+			required: false, // denying it lets sign-in proceed without the credential
+		},
+	],
+});
+```
+
+What comes back on the account:
+
+```typescript
+account.savedDelegations; // one credential per granted (chainId, contract)
+account.permissions;      // an answer for EVERY entry, granted or not
+```
+
+`permissions` is the part worth reading. An absent credential does not say whether the user declined, whether the wallet was too old to understand the request, or whether the app never asked, and those call for different remedies. Each entry is `{granted: true, deadline}` or `{granted: false, reason: 'denied' | 'unsupported'}`.
+
+Use the credential with `findSavedDelegation` and the exported ABI:
+
+```typescript
+import {findSavedDelegation, DELEGATION_ABI} from '@etherplay/connect';
+
+const credential = findSavedDelegation(account.savedDelegations, {chainId, contract});
+// anyone can submit it, and pays for it: the account itself never needs gas
+await client.writeContract({
+	address: contract,
+	abi: DELEGATION_ABI,
+	functionName: 'registerDelegateViaSignature',
+	args: [account.address, credential.delegate, BigInt(credential.deadline), credential.signature],
+});
+```
+
+The contract side is [`@etherplay/delegation`](./packages/etherplay-delegation/README.md), which ships the Solidity to compile into your own contract. There is deliberately no shared registry: the contract's own address is inside the signed message, which is what stops a credential granted for one game being usable at another.
+
+A credential is a **cache of what is inside the signed bytes**. If a stored copy disagrees with the signed one there is no way to notice locally, the signature simply fails to recover, so treat a signature failure as "discard this record and sign in again" rather than as a contract error.
 
 ## Development
 

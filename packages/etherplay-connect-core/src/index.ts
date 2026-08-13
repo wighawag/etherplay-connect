@@ -4,8 +4,9 @@ import {wordlist} from '@scure/bip39/wordlists/english';
 import {HDKey} from '@scure/bip32';
 import {keccak_256} from '@noble/hashes/sha3';
 import {secp256k1} from '@noble/curves/secp256k1';
+import {delegationMessage} from '@etherplay/delegation';
 import type {AccountGenerator} from '@etherplay/wallet-connector';
-import type {AuthMechanism, EtherplayAccount, OriginAccount} from './types.js';
+import type {AuthMechanism, EtherplayAccount, OriginAccount, PermissionOutcome, SavedDelegation} from './types.js';
 
 export function originKeyMessage(orig: string): string {
 	return `Origin: ${orig}\n\nIMPORTANT: Only sign on trusted websites.\n\nThis grants access to your private session account.\n\nVerify before proceeding.`;
@@ -16,13 +17,12 @@ export function localKeyMessage(): string {
 export function originPublicKeyPublicationMessage(orig: string, publicKey: `0x${string}`): string {
 	return `Origin: ${orig}\n\nIMPORTANT: Only sign on trusted websites.\n\nThis authorizes the following Public Key to represent your account:\n\n${publicKey}\n\nOthers can use this key to write encrypted messages to you securely.`;
 }
-// The verifying contract reproduces this wording literally and renders the delegate address in
-// lowercase, so both the text and the casing are consensus, not style: changing either invalidates
-// every signature ever generated. `delegate` is lowercased here rather than at the call site so no
-// caller can hand us an EIP-55 checksummed spelling that then fails to verify onchain.
-export function originDelegationMessage(orig: string, delegate: `0x${string}`): string {
-	return `Origin: ${orig}\n\nIMPORTANT: Only sign on trusted websites.\n\nThis authorizes the following address to act on your behalf onchain:\n\n${delegate.toLowerCase()}\n\nApps at this origin can use it to send transactions in your name.`;
-}
+// The delegation message is NOT defined here any more. It is consensus between three
+// implementations - the verifying contract, this one, and any third-party wallet - so it lives in
+// @etherplay/delegation next to the Solidity that verifies it and the vectors that pin the two
+// together, where a change to either side fails a test instead of silently invalidating every
+// signature ever generated. Re-exported so callers have one import for the whole feature.
+export {delegationMessage, delegationDigest, DELEGATION_ABI, type DelegationTerms} from '@etherplay/delegation';
 
 export function fromEntropyKeyToMnemonic(entropyKey: `0x${string}`): string {
 	return entropyToMnemonic(hexToBytes(entropyKey.slice(2)), wordlist);
@@ -58,10 +58,21 @@ export function deriveEtherplayAccount(
 	};
 }
 
+/**
+ * Derive the origin account, and mint the credentials that were granted along with it.
+ *
+ * `delegations` is what to sign, one per (chainId, contract) the host resolved as granted. Nothing
+ * is signed for anything absent from it: a credential nobody approved must not exist, and this is
+ * the only place that decides what does.
+ */
 export async function deriveOriginAccount(
 	origin: string,
 	account: EtherplayAccount,
 	accountGenerator: AccountGenerator,
+	granted?: {
+		delegations?: {chainId: number; contract: `0x${string}`; deadline: number}[];
+		permissions?: PermissionOutcome[];
+	},
 ): Promise<OriginAccount> {
 	const accountMnemonic = fromEntropyKeyToMnemonic(account.localAccount.key);
 	const accountObject = accountGenerator.fromMnemonicToAccount(accountMnemonic, account.localAccount.index);
@@ -78,14 +89,31 @@ export async function deriveOriginAccount(
 	);
 
 	// Pre-generated because a hosted account holds its key at the wallet host and exposes no live
-	// arbitrary-signing capability: sign-in is the only moment this can be produced. It needs no
-	// nonce/expiry/chainId, since the signer is a pure function of the account key and the origin
-	// (deterministic ECDSA), so it asserts a permanent fact and replaying it changes nothing.
-	// Revocation is onchain, via a withdrawal flag the account sets itself.
-	const savedDelegationSignature = await accountGenerator.signTextMessage(
-		originDelegationMessage(origin, originAccount.address),
-		accountObject.privateKey,
-	);
+	// arbitrary-signing capability: sign-in is the only moment these can be produced. One per
+	// (chainId, contract), because that pair is the whole extent of what each one authorizes, and
+	// each carries the deadline it was signed with rather than being open-ended.
+	//
+	// Signed by the ACCOUNT key, delegating to the origin signer: exactly the claim the contract
+	// verifies, which is "account A allows signer S to act for it, here".
+	const savedDelegations: SavedDelegation[] = [];
+	for (const delegation of granted?.delegations || []) {
+		const signature = await accountGenerator.signTextMessage(
+			delegationMessage({
+				delegate: originAccount.address,
+				contract: delegation.contract,
+				chainId: delegation.chainId,
+				deadline: delegation.deadline,
+			}),
+			accountObject.privateKey,
+		);
+		savedDelegations.push({
+			chainId: delegation.chainId,
+			contract: delegation.contract,
+			delegate: originAccount.address,
+			deadline: delegation.deadline,
+			signature,
+		});
+	}
 
 	return {
 		address: account.localAccount.address,
@@ -99,7 +127,8 @@ export async function deriveOriginAccount(
 		metadata: {},
 		mechanismUsed: account.signer.mechanismUsed,
 		savedPublicKeyPublicationSignature,
-		savedDelegationSignature,
+		savedDelegations,
+		permissions: granted?.permissions,
 		accountType: accountGenerator.type,
 	};
 }
@@ -159,3 +188,4 @@ export function fromPrivateKey(key: string | Uint8Array): string {
 
 export type * from './types.js';
 export * from './crypto.js';
+export * from './permissions.js';

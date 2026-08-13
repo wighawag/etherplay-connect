@@ -1,13 +1,31 @@
 <script lang="ts">
-	import type {AuthProvider} from '@etherplay/connect-core';
+	import type {
+		AuthProvider,
+		OriginApprovalRequest,
+		PermissionOutcome,
+		PermissionRequest,
+	} from '@etherplay/connect-core';
+	import Permissions from '../Permissions.svelte';
 
 	let {
 		authProvider,
+		approval,
 		continueAfterLogin,
 		goingToRedirect,
 		cancel,
 	}: {
 		authProvider: AuthProvider;
+		approval: {
+			request: false | OriginApprovalRequest;
+			accessGranted: boolean;
+			pending: PermissionRequest[];
+			outcomes: PermissionOutcome[];
+			blocking: PermissionOutcome[];
+			complete: boolean;
+			grantAccess: () => void;
+			grant: (request: PermissionRequest) => void;
+			deny: (request: PermissionRequest) => void;
+		};
 		continueAfterLogin?: () => void;
 		goingToRedirect?: boolean;
 		cancel: (error?: {message: string; cause?: any}) => void;
@@ -52,31 +70,14 @@
 			<p>Please wait...</p>
 			<hr />
 		{:else if $authProvider.step === 'SignedIn'}
-			{#if $authProvider.requireOriginApproval}
-				{#if $authProvider.requireOriginApproval.requestingAccess}
-					<p>
-						{$authProvider.requireOriginApproval.windowOrigin} is requesting access to account from {$authProvider
-							.requireOriginApproval.signingOrigin}
-					</p>
-					<!-- TODO -->
-					<!-- <button
-						onclick={() => {
-							authProvider.confirmOriginAccess();
-							if (continueAfterLogin) {
-								continueAfterLogin();
-							}
-						}}
-						id="origin-accept"
-						type="submit">Accept</button
-					> -->
-					<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
-				{:else if goingToRedirect}
-					<!-- TODO timeout-->
-					<p>Please wait...</p>
-				{:else}
-					<p>Could not log you in, due to redirection failure</p>
-					<button onclick={() => cancel()}>Return</button>
-				{/if}
+			<!--
+				Approval is enforced by WITHHOLDING THE RESULT: while anything is unsettled the
+				opener receives nothing, so this branch is not a courtesy screen, it is the gate.
+				One shared component, so the three mechanisms cannot describe the same decision
+				differently.
+			-->
+			{#if !approval.complete}
+				<Permissions {approval} {cancel} />
 			{:else if continueAfterLogin}
 				<p>You are logged in!</p>
 				<button onclick={continueAfterLogin} id="continue-submit" type="submit">continue</button>
@@ -147,11 +148,6 @@
 		margin-bottom: 1rem;
 	}
 
-	.deny {
-		border: 0.0625rem solid #c74a24;
-		background-color: #c74a24;
-		color: #fff;
-	}
 
 	p {
 		color: #222222;

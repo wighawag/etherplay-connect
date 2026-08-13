@@ -406,15 +406,29 @@ Availability depends on the mechanism the user signed in with, not on whether a 
 
 It throws `Not signed in` unless `step === 'SignedIn'`, so it is unavailable in the `targetStep: 'WalletConnected'` shape, which has no session public key to authorize.
 
-### `account.savedDelegationSignature`
+### `account.savedDelegations`
 
-A sibling of `savedPublicKeyPublicationSignature`, over `originDelegationMessage(origin, signer.address)`: it authorizes the session signer to **act onchain on the account's behalf**, so a contract can verify "account A delegates to signer S" and attribute S's transactions to A. It is a separate message on purpose, because a user who authorized an encryption key has not thereby authorized a key that spends gas and posts in their name.
+Credentials authorizing the session signer to **act onchain for the account**, so a contract can verify "account A allows signer S to act for it" and attribute S's transactions to A. A separate authorization from the public-key one on purpose: a user who authorized an encryption key has not thereby authorized a key that spends gas and posts in their name.
 
-It is generated at derivation time on popup mechanisms (email / OAuth / mnemonic), because a hosted account holds its key at the wallet host and exposes no live arbitrary-signing capability: sign-in is the only moment it can be produced. On the wallet mechanism it is `undefined`, since the connected wallet is right there and can sign the same message on demand. The registration transaction is submitted and paid for by somebody else, so the account itself never needs gas or a wallet: it signs, another party submits.
+**A list, not a field, because authority is per contract.** Each credential names one `(chainId, contract)` pair and is worth nothing anywhere else: the contract's own address is inside the bytes the owner signed, and the verifying contract reads it from `address(this)` rather than from the caller. There is deliberately no shared registry to point at, since that would make every credential valid at every contract on it.
 
-It carries no nonce, index, expiry, chainId or contract address, because it asserts a permanent fact rather than a scoped authorization. The signer is `keccak256(sign(originKeyMessage(origin)))` through a mnemonic and ECDSA signing is deterministic (RFC 6979), so the same account on the same origin always derives the same signer, on every device and after any storage wipe. There is exactly one delegate per account per origin and it can never legitimately change, which makes replay harmless: it re-asserts something already true. The accepted consequence is that one signature is valid on every chain and in every contract implementing the scheme, which is exactly what its text says. Revocation is handled onchain by a withdrawal flag the account sets itself.
+```typescript
+type SavedDelegation = {
+	chainId: number;
+	contract: `0x${string}`;
+	delegate: `0x${string}`; // always signer.address today; makes the record self-describing
+	deadline: number; // unix seconds after which it can no longer be registered; 0 = no expiry
+	signature: `0x${string}`;
+};
+```
 
-**The wording is consensus, not style.** The verifying contract reproduces the message literally and renders the delegate address lowercase, so both the exact bytes and the casing are pinned by `test/origin-delegation.test.ts` in `@etherplay/connect-core`. Changing either invalidates every signature ever generated and has to happen on both sides at once.
+Ask for them at connect time with `permissions` (see the root README, "Acting onchain for the user"), and read `account.permissions` for the answer to **every** entry, granted or not: an absent credential does not say whether the user declined, whether this wallet was too old to understand the request, or whether the app never asked, and those call for different remedies.
+
+Credentials are minted at sign-in on popup mechanisms (email / OAuth / mnemonic), because a hosted account holds its key at the wallet host and exposes no live arbitrary-signing capability: sign-in is the only moment they can be produced. On the wallet mechanism the list is empty, since the connected wallet is right there and can sign for whatever contract is needed at the moment it is needed. The registration transaction is submitted and paid for by somebody else, so the account itself never needs gas: it signs, another party submits.
+
+**Every field is a cache of what is inside the signature**, not metadata beside it. A stored copy that disagrees with the signed copy cannot be detected locally, the signature simply fails to recover, so treat a failure on the signature path as "discard this record and sign in again" rather than as a contract error. That makes any disagreement self-healing.
+
+**The wording is consensus, not style.** The message lives in [`@etherplay/delegation`](../etherplay-delegation/README.md) next to the Solidity that verifies it, and both are pinned against a shared `vectors.json` from both languages. Changing either side without the other and the vectors, in the same commit, silently invalidates every signature ever generated.
 
 ### Connect Options
 
@@ -453,7 +467,8 @@ interface OriginAccount {
 	};
 	mechanismUsed: Mechanism;
 	savedPublicKeyPublicationSignature?: `0x${string}`;
-	savedDelegationSignature?: `0x${string}`; // authorizes signer.address to act onchain for you
+	savedDelegations: SavedDelegation[]; // one per granted (chainId, contract)
+	permissions?: PermissionOutcome[]; // an answer for every permission the app requested
 	accountType: string;
 }
 ```
@@ -544,7 +559,15 @@ Off-browser, Node provides a real global `fetch`, so `connection.provider.reques
 
 ```typescript
 // Re-exported from @etherplay/alchemy
-export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage, originDelegationMessage};
+export {
+	fromEntropyKeyToMnemonic,
+	originPublicKeyPublicationMessage,
+	originKeyMessage,
+	delegationMessage,
+	delegationDigest,
+	DELEGATION_ABI,
+	findSavedDelegation,
+};
 export type {OriginAccount};
 
 // Re-exported from @etherplay/wallet-connector-ethereum

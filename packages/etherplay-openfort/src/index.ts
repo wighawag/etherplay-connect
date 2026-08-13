@@ -14,6 +14,8 @@ import {
 	OriginAccount,
 	originKeyMessage,
 	originPublicKeyPublicationMessage,
+	OriginApprovalRequest,
+	PermissionRequest,
 	Redirection,
 } from '@etherplay/connect-core';
 import {mnemonicToEntropy} from '@scure/bip39';
@@ -39,12 +41,40 @@ type OpenfortSettings = {
 	signingOrigin: string;
 	windowOrigin: string;
 	encryptionSessionEndpoint: string;
+	// What the app declared at connect time, already parsed into a closed set by the host. This
+	// provider does not decide any of it; it only carries it into `AuthState` so the UI can ask.
+	permissions?: PermissionRequest[];
 };
 
 export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider {
 	let openfortInstance: Openfort | null = null;
 
 	const store = writable<AuthState>({step: 'Idle'});
+
+	/**
+	 * What has to be settled before the result may be handed to the opener.
+	 *
+	 * Built in ONE place and used by every path that reaches `SignedIn`, because the three paths
+	 * previously disagreed: the mnemonic one raised the access gate and the email and oauth ones
+	 * passed `false`, so signing in by email skipped an approval that signing in by mnemonic
+	 * required. A gate that only some doors have is not a gate.
+	 *
+	 * `false` only when there is nothing at all to settle. Anything else and the UI must ask, and
+	 * {Login.svelte} must withhold the result until it has.
+	 */
+	function approvalRequired(): false | OriginApprovalRequest {
+		const requestingAccess = settings.windowOrigin !== settings.signingOrigin;
+		const permissions = settings.permissions || [];
+		if (!requestingAccess && permissions.length === 0) {
+			return false;
+		}
+		return {
+			windowOrigin: settings.windowOrigin,
+			signingOrigin: settings.signingOrigin,
+			requestingAccess,
+			permissions,
+		};
+	}
 
 	async function tryGetCurrentUser() {
 		if (!openfortInstance) return null;
@@ -72,7 +102,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			mechanism: {...mechanism, email} as EmailMechanism<string>,
 		});
 
-		store.set({step: 'SignedIn', mechanism, account, requireOriginApproval: false});
+		store.set({step: 'SignedIn', mechanism, account, requireOriginApproval: approvalRequired()});
 	}
 
 	async function init(providerSettings?: AuthProviderSettings): Promise<void> {
@@ -276,10 +306,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				step: 'SignedIn',
 				mechanism,
 				account,
-				requireOriginApproval:
-					settings.windowOrigin != settings.signingOrigin
-						? {windowOrigin: settings.windowOrigin, signingOrigin: settings.signingOrigin, requestingAccess: true}
-						: false,
+				requireOriginApproval: approvalRequired(),
 			});
 		}
 	}
@@ -346,8 +373,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			const key = await generateKey(localKeyMessage());
 			const account = await generateAccount({key, mechanism});
 
-			// TODO requireOriginApproval
-			store.set({step: 'SignedIn', mechanism, account, requireOriginApproval: false});
+			store.set({step: 'SignedIn', mechanism, account, requireOriginApproval: approvalRequired()});
 		} catch (err) {
 			store.update((currentState) => ({
 				...currentState,

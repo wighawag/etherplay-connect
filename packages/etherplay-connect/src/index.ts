@@ -14,16 +14,33 @@ import {
 	type OriginAccount,
 	originPublicKeyPublicationMessage,
 	originKeyMessage,
-	originDelegationMessage,
+	delegationMessage,
+	delegationDigest,
+	DELEGATION_ABI,
+	findSavedDelegation,
+	type PermissionRequest,
+	type PermissionOutcome,
+	type SavedDelegation,
 	fromSignatureToKey,
 	AuthMechanism,
 	generateEcdhKeyPair,
 	exportPublicKeyB64,
 } from '@etherplay/connect-core';
 
-export {fromEntropyKeyToMnemonic, originPublicKeyPublicationMessage, originKeyMessage, originDelegationMessage};
+export {
+	fromEntropyKeyToMnemonic,
+	originPublicKeyPublicationMessage,
+	originKeyMessage,
+	// The delegation feature, re-exported so an app has one import: the message an owner signs, its
+	// digest, the ABI of the contract that verifies it, and the lookup that picks the credential for
+	// a (chainId, contract) pair out of `savedDelegations`.
+	delegationMessage,
+	delegationDigest,
+	DELEGATION_ABI,
+	findSavedDelegation,
+};
 
-export type {OriginAccount, AuthMechanism};
+export type {OriginAccount, AuthMechanism, PermissionRequest, PermissionOutcome, SavedDelegation};
 
 export type {UnderlyingEthereumProvider};
 
@@ -63,6 +80,48 @@ type ChainInfoWithProvider<WalletProviderType> = BasicChainInfo & {
 };
 
 export type ChainInfo<WalletProviderType> = ChainInfoWithRPCUrl | ChainInfoWithProvider<WalletProviderType>;
+
+/**
+ * Authority to act for the account onchain at ONE contract on ONE chain.
+ *
+ * The pair is the whole extent of it: the contract's address is inside the bytes the owner signs,
+ * so the credential you get back is worth nothing at any other contract. Ask for the pair your app
+ * actually writes to, which is the one place it already names.
+ */
+export type DelegationPermissionDeclaration = {
+	type: 'delegation';
+	/**
+	 * Denying a required permission FAILS sign-in; denying an optional one lets the user in without
+	 * that credential. Optional is usually right: it keeps the app browsable read-only and turns a
+	 * refusal into a remedy the app can offer later, rather than a wall at the door for something
+	 * the user cannot evaluate yet. Defaults to optional.
+	 */
+	required?: boolean;
+	chainId: number;
+	contract: `0x${string}`;
+};
+
+/**
+ * An escape hatch for a permission type this version of the SDK does not know about.
+ *
+ * A host too old to understand it will DENY it and say so, rather than dropping it, so an app can
+ * ask for something new and find out it did not get it.
+ */
+export type OtherPermissionDeclaration = {
+	type: string;
+	required?: boolean;
+	[key: string]: unknown;
+};
+
+/**
+ * What the app declares it wants at connect time.
+ *
+ * Consent at connect time is the weakest moment there is, and it is accepted here for one reason:
+ * a clicked-through consent to a BOUNDED grant is a large improvement over no consent at all to an
+ * unbounded one. The bound does the work, and it lands in the contract, where it cannot be clicked
+ * through.
+ */
+export type PermissionDeclaration = DelegationPermissionDeclaration | OtherPermissionDeclaration;
 
 export type PopupSettings = {
 	walletHost: string;
@@ -449,6 +508,8 @@ export function createConnection<WalletProviderType>(settings: {
 	chainInfo: ChainInfo<WalletProviderType>;
 	walletConnector: WalletConnector<WalletProviderType>;
 	signingOrigin?: string;
+	// Permissions to ask for at connect time. See `PermissionDeclaration`.
+	permissions?: PermissionDeclaration[];
 	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
@@ -467,6 +528,8 @@ export function createConnection(settings: {
 	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
 	walletConnector?: undefined;
 	signingOrigin?: string;
+	// Permissions to ask for at connect time. See `PermissionDeclaration`.
+	permissions?: PermissionDeclaration[];
 	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
@@ -485,6 +548,8 @@ export function createConnection<WalletProviderType>(settings: {
 	chainInfo: ChainInfo<WalletProviderType>;
 	walletConnector: WalletConnector<WalletProviderType>;
 	signingOrigin?: string;
+	// Permissions to ask for at connect time. See `PermissionDeclaration`.
+	permissions?: PermissionDeclaration[];
 	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
@@ -503,6 +568,8 @@ export function createConnection(settings: {
 	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
 	walletConnector?: undefined;
 	signingOrigin?: string;
+	// Permissions to ask for at connect time. See `PermissionDeclaration`.
+	permissions?: PermissionDeclaration[];
 	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
@@ -517,6 +584,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	targetStep?: TargetStep;
 	walletOnly?: boolean;
 	signingOrigin?: string;
+	// Permissions to ask for at connect time. See `PermissionDeclaration`.
+	permissions?: PermissionDeclaration[];
 	walletHost?: string;
 	autoConnect?: boolean;
 	walletConnector?: WalletConnector<WalletProviderType>;
@@ -942,9 +1011,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			metadata: {},
 			mechanismUsed: $connection.mechanism,
 			savedPublicKeyPublicationSignature: undefined,
-			// no pre-generated signature on the wallet path: the owner is a live wallet that can be
-			// asked to sign `originDelegationMessage(origin, signer.address)` on demand.
-			savedDelegationSignature: undefined,
+			// Nothing pre-generated on the wallet path, and nothing missing either: the owner is a
+			// live wallet that can be asked to sign `delegationMessage({delegate, contract, chainId,
+			// deadline})` at the moment it is needed, which is strictly better than minting a
+			// credential in advance for a contract it may never touch. Pre-generation exists for the
+			// hosted mechanisms, which cannot sign live.
+			savedDelegations: [],
 			accountType: walletConnector.accountGenerator.type,
 		};
 		set({
@@ -1714,6 +1786,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 		if (settings.signingOrigin) {
 			entriesToAdd.push(['signingOrigin', settings.signingOrigin]);
+		}
+
+		// What the app is asking for, carried to the host as JSON. It is a REQUEST and nothing more:
+		// the host decides each entry, and enforces its decision by withholding what it did not grant,
+		// so nothing here is trusted beyond "these are the things to ask about".
+		if (settings.permissions && settings.permissions.length > 0) {
+			entriesToAdd.push(['permissions', JSON.stringify(settings.permissions)]);
 		}
 
 		for (const entryToAdd of entriesToAdd) {

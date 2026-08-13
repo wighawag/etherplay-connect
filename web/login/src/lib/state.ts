@@ -1,4 +1,5 @@
-import type {AuthMechanism, AuthProvider, OauthMechanism} from '@etherplay/connect-core';
+import type {AuthMechanism, AuthProvider, OauthMechanism, PermissionRequest} from '@etherplay/connect-core';
+import {parsePermissionRequests} from '@etherplay/connect-core';
 import {createAuthProvider} from './handler';
 import {EthereumAccountGenerator} from '@etherplay/wallet-connector-ethereum';
 
@@ -53,6 +54,26 @@ export const oauthRedirection = searchParams.get('oauth-redirection') === 'true'
 export const isCallback = searchParams.get('oauth-callback') === 'true';
 // this allow for encryption to allow the game domain to be intermediary in the popup flow so it can talk to the game
 const domainRedirectPublicKey = searchParams.get('domain-redirect-public-key') || undefined;
+
+// What the app is asking for, beyond access to the account itself. A REQUEST, not a grant: the host
+// decides each entry and enforces its decision by withholding what it did not grant.
+//
+// Parsed once, here, into a closed set. An entry this host does not understand survives parsing as
+// `unrecognized` rather than being dropped, because a silent drop is how an old host and a new app
+// end up disagreeing about what was granted. Malformed JSON is no request at all rather than a
+// crash: an app that garbles this should fail to get a credential, not fail to sign in.
+export const permissions: PermissionRequest[] = (() => {
+	const raw = searchParams.get('permissions');
+	if (!raw) {
+		return [];
+	}
+	try {
+		return parsePermissionRequests(JSON.parse(raw));
+	} catch (err) {
+		console.error(`could not parse the requested permissions`, err);
+		return [];
+	}
+})();
 
 // account type, for now ethereum is the only one well supported
 const accountType = searchParams.get('account-type') || 'ethereum';
@@ -123,6 +144,7 @@ let fromProps:
 	  }
 	| undefined;
 
+
 if (!authProviderType) {
 	errors.push({message: `no auth provider configured`, canClose: true});
 }
@@ -154,7 +176,13 @@ if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType 
 
 	const signingOriginToUse = signingOrigin || windowOrigin;
 
-	const authProviderToUse = createAuthProvider(authProviderType, accountGenerator, windowOrigin, signingOriginToUse);
+	const authProviderToUse = createAuthProvider(
+		authProviderType,
+		accountGenerator,
+		windowOrigin,
+		signingOriginToUse,
+		permissions,
+	);
 
 	const initialisingAuthProvider = authProviderToUse.init();
 

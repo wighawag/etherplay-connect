@@ -1,5 +1,5 @@
 import type {AccountGenerator} from '@etherplay/wallet-connector';
-import type {AuthProvider} from '@etherplay/connect-core';
+import type {AuthProvider, PermissionRequest} from '@etherplay/connect-core';
 import {createOpenfortProvider} from '@etherplay/openfort';
 
 export function createAuthProvider(
@@ -7,6 +7,7 @@ export function createAuthProvider(
 	accountGenerator: AccountGenerator,
 	windowOrigin: string,
 	signingOrigin: string,
+	permissions: PermissionRequest[],
 ): AuthProvider {
 	if (authProviderType === 'openfort') {
 		return createOpenfortProvider({
@@ -16,6 +17,7 @@ export function createAuthProvider(
 			accountGenerator,
 			signingOrigin,
 			windowOrigin,
+			permissions,
 			encryptionSessionEndpoint: import.meta.env.VITE_OPENFORT_ENCRYPTION_SESSION_ENDPOINT,
 		});
 	}
