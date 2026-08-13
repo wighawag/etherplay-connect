@@ -1,6 +1,6 @@
 {
 	"name": "@etherplay/delegation",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Onchain delegation for Etherplay Accounts - Solidity library, the TypeScript builder for the message it verifies, and the ABI, kept in agreement by a shared vectors file",
 	"keywords": [
 		"ethereum",
