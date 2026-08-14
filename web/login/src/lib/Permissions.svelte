@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type {OriginApprovalRequest, PermissionOutcome, PermissionRequest} from '@etherplay/connect-core';
+	import type {ApprovalUI} from './approval';
 
 	/**
 	 * What the site asked for, and what has been answered so far.
@@ -12,17 +12,7 @@
 		approval,
 		cancel,
 	}: {
-		approval: {
-			request: false | OriginApprovalRequest;
-			accessGranted: boolean;
-			pending: PermissionRequest[];
-			outcomes: PermissionOutcome[];
-			blocking: PermissionOutcome[];
-			complete: boolean;
-			grantAccess: () => void;
-			grant: (request: PermissionRequest) => void;
-			deny: (request: PermissionRequest) => void;
-		};
+		approval: ApprovalUI;
 		cancel: (error?: any) => void;
 	} = $props();
 
@@ -68,12 +58,66 @@
 			{/each}
 		</ul>
 		<button onclick={() => cancel()} id="permissions-return" type="submit">Return</button>
-	{:else if approval.request.requestingAccess && !approval.accessGranted}
-		<p>
-			{approval.request.windowOrigin} is requesting access to account from {approval.request.signingOrigin}
+	{:else if approval.access?.kind === 'blocked'}
+		<!--
+			NOT A PROMPT. This site asked for an account belonging to another one, and that origin has
+			not said it accepts such requests, so there is nothing here for a user to weigh: a screen
+			asking them to compare two domain names is not a decision they can make well, and it is
+			the one this host can make for them. The app was already told, in a form it can act on.
+		-->
+		<p>{approval.request.windowOrigin} cannot use your {approval.request.signingOrigin} account.</p>
+		<p class="detail">
+			Only {approval.request.signingOrigin} can sign you in to that account. A site may act for you elsewhere only
+			by registering its own delegate, which you approve at the contract and can withdraw at any time.
 		</p>
-		<button onclick={approval.grantAccess} id="origin-accept" type="submit">Accept</button>
-		<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
+		<button onclick={() => cancel()} id="origin-blocked-return" type="submit">Return</button>
+	{:else if approval.access?.kind === 'ask' && !approval.accessGranted}
+		{@const secondStep = approval.confirmationsGiven > 0}
+		{#if !secondStep}
+			<p>
+				{approval.request.windowOrigin} is requesting access to account from {approval.request.signingOrigin}
+			</p>
+			{#if approval.access.basis === 'named'}
+				<p class="detail small">
+					{approval.request.signingOrigin} lists this site as one it accepts requests from.
+				</p>
+			{/if}
+			<button onclick={approval.grantAccess} id="origin-accept" type="submit">Accept</button>
+			<button class="deny" onclick={() => cancel()} id="origin-deny" type="submit">Deny</button>
+		{:else}
+			<!--
+				THE SECOND STEP, asked only where nobody vouched for this site. It says what the first
+				screen cannot: that the reason this is allowed to be asked at all is a blanket setting,
+				not a relationship, so whether THIS site should have the account is a question only the
+				person reading it can answer.
+			-->
+			<p>Are you sure?</p>
+			{#if approval.access.basis === 'wildcard'}
+				<p class="detail">
+					{approval.request.signingOrigin} accepts requests from ANY site, so nobody has vouched for {approval
+						.request.windowOrigin} in particular.
+				</p>
+			{:else}
+				<p class="detail">
+					{approval.request.windowOrigin} is a page running on your own machine, admitted by a development
+					setting of this wallet rather than by {approval.request.signingOrigin}.
+				</p>
+			{/if}
+			<p class="detail small">
+				It will be able to act as you at {approval.request.signingOrigin}. Continue only if you know what this
+				site is.
+			</p>
+			<!--
+				CANCEL FIRST, and that is the point of the second screen rather than a detail of it. The
+				Accept of the previous screen sits at the top, so a confirm in the same place is one
+				double-click away from being no confirmation at all: what stops that must be the layout,
+				not the user's reflexes. The proceed control also stops being the primary one here.
+			-->
+			<button onclick={() => cancel()} id="origin-deny-confirm" type="submit">Cancel</button>
+			<button class="deny" onclick={approval.grantAccess} id="origin-accept-confirm" type="submit">
+				Give it my {approval.request.signingOrigin} account
+			</button>
+		{/if}
 	{:else if approval.pending.length > 0}
 		{@const request = approval.pending[0]}
 		<!--

@@ -1,10 +1,6 @@
 <script lang="ts">
-	import type {
-		AuthProvider,
-		OriginApprovalRequest,
-		PermissionOutcome,
-		PermissionRequest,
-	} from '@etherplay/connect-core';
+	import type {AuthProvider} from '@etherplay/connect-core';
+	import type {ApprovalUI} from '../approval';
 	import Permissions from '../Permissions.svelte';
 
 	let {
@@ -15,17 +11,7 @@
 		cancel,
 	}: {
 		authProvider: AuthProvider;
-		approval: {
-			request: false | OriginApprovalRequest;
-			accessGranted: boolean;
-			pending: PermissionRequest[];
-			outcomes: PermissionOutcome[];
-			blocking: PermissionOutcome[];
-			complete: boolean;
-			grantAccess: () => void;
-			grant: (request: PermissionRequest) => void;
-			deny: (request: PermissionRequest) => void;
-		};
+		approval: ApprovalUI;
 		continueAfterLogin?: () => void;
 		goingToRedirect?: boolean;
 		cancel: (error?: {message: string; cause?: any}) => void;

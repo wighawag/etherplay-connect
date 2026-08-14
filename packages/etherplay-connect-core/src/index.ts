@@ -189,3 +189,4 @@ export function fromPrivateKey(key: string | Uint8Array): string {
 export type * from './types.js';
 export * from './crypto.js';
 export * from './permissions.js';
+export * from './access.js';

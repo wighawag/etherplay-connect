@@ -64,7 +64,6 @@ pnpm add @etherplay/connect
 import {createConnection} from '@etherplay/connect';
 
 const connection = createConnection({
-	signingOrigin: 'https://testing.io',
 	walletHost: PUBLIC_WALLET_HOST,
 	chainInfo: {
 		id: 1,
@@ -101,7 +100,6 @@ await connection.connect({type: 'wallet', name: 'MetaMask'});
   import { createConnection } from '@etherplay/connect';
 
   const connection = createConnection({
-    signingOrigin: 'https://testing.io',
     walletHost: PUBLIC_WALLET_HOST,
     chainInfo: {
       id: 1,
@@ -201,7 +199,7 @@ The connection store goes through several states during the authentication flow:
 
 ```typescript
 {
-  signingOrigin?: string;           // Origin for signature messages
+  signingOrigin?: string;           // Sign for ANOTHER origin's account. Blocked unless that origin consents; see below
   walletHost: string;               // Host URL for login popup
   autoConnect?: boolean;            // Auto-connect on load (default: true)
   autoConnectWallet?: boolean;      // Auto-connect to wallet (default: true)
@@ -217,6 +215,14 @@ The connection store goes through several states during the authentication flow:
 ```
 
 A page can run several connections at once (e.g. a player connection plus a separate payment connection). Give each one its own `storagePrefix` so they do not share a stored identity. See [`packages/etherplay-connect/README.md`](./packages/etherplay-connect/README.md#running-more-than-one-connection-in-a-page).
+
+## Signing for another origin
+
+`signingOrigin` asks the wallet host for the account of a **different** origin, and **that is refused by default**: the host honours it only where the signing origin recorded that it accepts requests from the asking one, and a human is still asked. Leave `signingOrigin` unset and the page signs for itself, which is what almost every app wants.
+
+To act for another app's user, bring your own delegate: sign in normally and have the user register your own origin signer onchain at the contract, which costs a transaction and gives you authority that is yours, bounded and separately revocable.
+
+Full rules, the `cross-origin-blocked` error and its remedy: [Signing for another origin](./packages/etherplay-connect/README.md#signing-for-another-origin).
 
 ## Acting onchain for the user
 

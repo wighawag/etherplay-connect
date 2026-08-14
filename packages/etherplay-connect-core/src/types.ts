@@ -60,11 +60,14 @@ export type PermissionRequest = DelegationPermissionRequest | UnrecognizedPermis
 export type OriginApprovalRequest = {
 	windowOrigin: string;
 	signingOrigin: string;
-	/** the account-access gate: this window is not the origin being signed for */
-	requestingAccess: boolean;
 	/** what the app declared at connect time; empty when it asked for nothing */
 	permissions: PermissionRequest[];
 };
+
+// There is deliberately NO `requestingAccess` flag here. Whether this window may be signed for is
+// answered by `resolveAccess` (see access.ts), which compares the two origins by one rule and
+// returns one of three answers. A boolean beside them would be the same predicate computed twice,
+// by two comparisons that are free to drift, for a question only one of them is allowed to answer.
 
 /**
  * The answer to one request, and it is an ANSWER rather than an absence.

@@ -10,6 +10,7 @@ import {
 	fromEntropyKeyToMnemonic,
 	fromSignatureToKey,
 	localKeyMessage,
+	normalizeOrigin,
 	OauthMechanism,
 	OriginAccount,
 	originKeyMessage,
@@ -63,15 +64,18 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 	 * {Login.svelte} must withhold the result until it has.
 	 */
 	function approvalRequired(): false | OriginApprovalRequest {
-		const requestingAccess = settings.windowOrigin !== settings.signingOrigin;
 		const permissions = settings.permissions || [];
-		if (!requestingAccess && permissions.length === 0) {
+		// The SAME comparison the access decision uses, imported rather than written again as `!==`.
+		// This provider does not decide access; all it does here is notice there is nothing at all to
+		// settle, and it must not reach that conclusion by a rule stricter or looser than the one that
+		// would have decided the request.
+		const sameOrigin = normalizeOrigin(settings.windowOrigin) === normalizeOrigin(settings.signingOrigin);
+		if (sameOrigin && permissions.length === 0) {
 			return false;
 		}
 		return {
 			windowOrigin: settings.windowOrigin,
 			signingOrigin: settings.signingOrigin,
-			requestingAccess,
 			permissions,
 		};
 	}

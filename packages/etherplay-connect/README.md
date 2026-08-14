@@ -197,7 +197,7 @@ const hasSigner = connection.targetStep === 'SignedIn';
 | `targetStep`                              | `'WalletConnected' \| 'SignedIn'` | No          | Target connection step (default: `'SignedIn'`)                                                                                                                                                                |
 | `walletOnly`                              | `boolean`                         | No          | Offer only built-in (EIP-6963) wallets, no hosted mechanisms                                                                                                                                                  |
 | `walletHost`                              | `string`                          | Conditional | URL for popup-based auth. Required for `targetStep: 'SignedIn'` **unless** `walletOnly: true`; never used by `targetStep: 'WalletConnected'`. See [Supported connection shapes](#supported-connection-shapes) |
-| `signingOrigin`                           | `string`                          | No          | Origin used for signing (defaults to current origin)                                                                                                                                                          |
+| `signingOrigin`                           | `string`                          | No          | Sign for ANOTHER origin's account (defaults to the current origin). Refused unless that origin consents; see [Signing for another origin](#signing-for-another-origin)                                        |
 | `autoConnect`                             | `boolean`                         | No          | Auto-reconnect returning users (default: `true`)                                                                                                                                                              |
 | `walletConnector`                         | `WalletConnector`                 | No          | Custom wallet connector (defaults to Ethereum)                                                                                                                                                                |
 | `requestSignatureAutomaticallyIfPossible` | `boolean`                         | No          | Auto-request signature after wallet connection                                                                                                                                                                |
@@ -205,6 +205,31 @@ const hasSigner = connection.targetStep === 'SignedIn';
 | `prioritizeWalletProvider`                | `boolean`                         | No          | Prioritize wallet for RPC calls                                                                                                                                                                               |
 | `requestsPerSecond`                       | `number`                          | No          | Rate limit for RPC requests                                                                                                                                                                                   |
 | `storagePrefix`                           | `string`                          | No          | Namespace this connection's persisted state (default: `''`)                                                                                                                                                   |
+
+## Signing for another origin
+
+`signingOrigin` asks for the account of an origin that is not this page: a page at `https://tournament.example` passing `signingOrigin: 'https://game.example'` is asking for the signer `game.example` derives, which is the whole of that account's authority there.
+
+**Cross-origin requests are blocked by default.** The wallet host honours one only when the signing origin has recorded that it accepts requests from that origin, and even then the user is still asked (twice, where the consent was a blanket one rather than a naming of this specific site). With no consent recorded there is no prompt, because a screen asking someone to compare two domain names is not a decision they can make well.
+
+A blocked request comes back as an error rather than as a cancellation, so an app can tell it from the user closing the popup:
+
+```typescript
+try {
+	await connection.ensureConnected();
+} catch (err) {
+	// err is a ConnectionFailure; the wallet host's reason is on `cause`
+	if ((err as ConnectionFailure).cause?.type === 'cross-origin-blocked') {
+		// {type, message, windowOrigin, signingOrigin}
+	}
+}
+```
+
+Almost every occurrence of this error is a `signingOrigin` that should not have been set. Unset, the page signs for itself.
+
+**The supported way to act for another app's user is your own delegate.** Sign in normally, so you hold your own origin signer, and have the user register that signer at the contract with `registerDelegate`. It costs a transaction, and in exchange the authority is yours: bounded to that contract, revocable on its own, and independent of anything the other app holds. Delegation contracts authorize many delegates, so nothing has to be displaced to make room for you.
+
+One limit worth stating plainly. This is a rule about what **the wallet host** hands over, and it covers hosted (email, OAuth) accounts. In the wallet-only shape the page asks the user's own wallet to sign `originKeyMessage(signingOrigin)` with no host in the loop, and nothing here is consulted: the message text in the wallet's own dialog is the only gate there.
 
 ## Running more than one connection in a page
 

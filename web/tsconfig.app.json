@@ -16,5 +16,8 @@
 		"isolatedModules": true,
 		"moduleDetection": "force"
 	},
-	"include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte"]
+	// The sources live in `login/`, which is where the popup that makes the security decisions is.
+	// Pointing this at a `src/` that does not exist made `pnpm check` fail with "No inputs were found"
+	// instead of checking anything, which is a check that cannot fail on the code either.
+	"include": ["login/src/**/*.ts", "login/src/**/*.js", "login/src/**/*.svelte"]
 }

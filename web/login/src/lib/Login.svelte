@@ -16,11 +16,29 @@
 		resolvePermissions,
 		deniedRequiredPermissions,
 		delegationsToSign,
+		resolveAccess,
+		autoSignLookup,
+		confirmAccess,
+		confirmationsRequired as confirmationsRequiredFor,
+		crossOriginBlockedError,
 	} from '@etherplay/connect-core';
-	import type {OriginApprovalRequest, PermissionOutcome, PermissionRequest} from '@etherplay/connect-core';
+	import type {
+		AccessDecision,
+		CrossOriginBlocked,
+		OriginApprovalRequest,
+		PermissionOutcome,
+		PermissionRequest,
+	} from '@etherplay/connect-core';
 	import type {AccountGenerator} from '@etherplay/wallet-connector';
 	import Permissions from './Permissions.svelte';
-	import {isAllowlisted, autoSignedDeadline, PROMPTED_DEADLINE} from './allowlist';
+	import type {ApprovalUI} from './approval';
+	import {
+		allowlistFor,
+		autoSignedDeadline,
+		PROMPTED_DEADLINE,
+		crossOriginConsentFor,
+		ALLOW_LOOPBACK_REQUESTERS,
+	} from './allowlist';
 
 	let {
 		authProvider,
@@ -58,27 +76,77 @@
 	let approvalInitialised = $state(false);
 	// Starts denied. The gate is only lowered by an explicit grant or by there being no gate.
 	let accessGranted = $state(false);
+	let access = $state<AccessDecision | undefined>(undefined);
+	let confirmationsRequired = $state(1);
+	let confirmationsGiven = $state(0);
+	// A refusal this host has already settled on, kept so that whatever this window ends up telling
+	// the opener, it tells it THIS. Closing a window that was refused is not a change of mind, and
+	// reporting it as a cancellation is what makes an app retry the thing that was refused.
+	let refusal = $state<CrossOriginBlocked | undefined>(undefined);
 	let outcomes = $state<PermissionOutcome[]>([]);
 	let pending = $state<PermissionRequest[]>([]);
 
-	function initialiseApproval(approval: false | OriginApprovalRequest) {
+	async function initialiseApproval(approval: false | OriginApprovalRequest) {
 		if (approvalInitialised) {
 			return;
 		}
 		approvalInitialised = true;
 
 		if (!approval) {
+			access = {kind: 'same-origin'};
 			accessGranted = true;
 			return;
 		}
 
-		accessGranted = !approval.requestingAccess;
+		// WHETHER THIS WINDOW MAY BE SIGNED FOR AT ALL, answered first and by the host rather than by
+		// the person reading the screen. A cross-origin request with nobody's consent behind it is
+		// refused here, not prompted: a third party that wants to act for this user has its own origin
+		// signer and an onchain registration to reach for, which is bounded and separately revocable.
+		const decision = await resolveAccess(
+			{windowOrigin: approval.windowOrigin, signingOrigin: approval.signingOrigin},
+			{consentFor: crossOriginConsentFor, allowLoopbackRequesters: ALLOW_LOOPBACK_REQUESTERS},
+		);
+		access = decision;
+
+		if (decision.kind === 'blocked') {
+			// Told to the app IMMEDIATELY, and as its own kind of refusal. "Blocked" and "the user closed
+			// the popup" call for opposite remedies: one is retried, the other is a misconfigured
+			// `signingOrigin` or a prompt to register a delegate onchain. `accessGranted` stays false, so
+			// nothing is derived, nothing is signed and nothing is delivered.
+			//
+			// Recorded as well as reported, so that whenever this window ends up telling the opener
+			// anything, it tells it THIS. Without that, an opener reference that only arrives later
+			// would receive "canceled" when the user closes the window, which is the one message that
+			// makes the app retry the thing that was refused.
+			refusal = crossOriginBlockedError({
+				windowOrigin: approval.windowOrigin,
+				signingOrigin: approval.signingOrigin,
+			});
+			// Guarded on `from.source` because `_cancel` closes the window when there is nobody to tell,
+			// and here that would take the explanation off the screen of the one person still present.
+			if (from.source) {
+				_cancel(refusal);
+			}
+			return;
+		}
+
+		accessGranted = decision.kind === 'same-origin';
+		confirmationsRequired = confirmationsRequiredFor(decision);
 
 		// Split into what this host decides itself and what the human must be asked. Allowlisted
 		// pairs are granted here with a real deadline, because they are the ones minted with nobody
 		// in the loop; prompted ones get their deadline at the moment of granting.
+		//
+		// The lookup depends on HOW access was decided: same-origin uses that origin's own table, a
+		// named cross-origin request needs the pair listed by both origins, and anything reached
+		// without somebody vouching for the requester auto-signs nothing at all.
 		const {settled, pending: toAsk} = resolvePermissions(approval.permissions, {
-			isAllowlisted: (request) => isAllowlisted(approval.windowOrigin, request),
+			isAllowlisted: autoSignLookup({
+				windowOrigin: approval.windowOrigin,
+				signingOrigin: approval.signingOrigin,
+				access: decision,
+				allowlistFor,
+			}),
 			deadline: autoSignedDeadline(),
 		});
 		outcomes = settled;
@@ -109,6 +177,17 @@
 	}
 
 	function grantAccess() {
+		if (!access) {
+			return;
+		}
+		// The gate itself lives in @etherplay/connect-core, under test. What is left here is storing
+		// its answer: whether a blocked decision can be confirmed, and how many confirmations a
+		// wildcard needs, are not properties of this component.
+		const next = confirmAccess(access, confirmationsGiven);
+		confirmationsGiven = next.confirmationsGiven;
+		if (!next.accessGranted) {
+			return;
+		}
 		accessGranted = true;
 		deliverIfApproved();
 	}
@@ -118,9 +197,12 @@
 	const blocking = $derived(deniedRequiredPermissions(outcomes));
 	const approvalComplete = $derived(accessGranted && pending.length === 0 && blocking.length === 0);
 
-	const approvalUI = $derived({
+	const approvalUI: ApprovalUI = $derived({
 		request: $authProvider.step === 'SignedIn' ? $authProvider.requireOriginApproval : false,
+		access,
 		accessGranted,
+		confirmationsRequired,
+		confirmationsGiven,
 		pending,
 		outcomes,
 		blocking,
@@ -264,7 +346,10 @@
 			if (v?.step == 'WaitingForOAuthResponse') {
 				disableCancelOnClose();
 			} else if (v?.step === 'SignedIn') {
-				initialiseApproval(v.requireOriginApproval);
+				// Awaited, not fired off: the access decision is asynchronous, and delivering before it
+				// has landed would hand over the result while `accessGranted` still holds its initial
+				// value, which is the one case this gate exists to prevent.
+				await initialiseApproval(v.requireOriginApproval);
 				await deliverIfApproved();
 			}
 		});
@@ -367,27 +452,11 @@
 			return;
 		}
 		outcomeDelivered = true;
-		if (error) {
-			if (debug) {
-				console.log('postMessage', {error, id: from.requestID}, from.windowOrigin);
-			}
-			from.source.postMessage({error, id: from.requestID}, {targetOrigin: from.windowOrigin});
-		} else {
-			if (debug) {
-				console.log(
-					'postMessage',
-					{
-						error: {message: 'canceled', type: 'cancelation'},
-						id: from.requestID,
-					},
-					from.windowOrigin,
-				);
-			}
-			from.source.postMessage(
-				{error: {message: 'canceled', type: 'cancelation'}, id: from.requestID},
-				{targetOrigin: from.windowOrigin},
-			);
+		const toReport = error || refusal || {message: 'canceled', type: 'cancelation'};
+		if (debug) {
+			console.log('postMessage', {error: toReport, id: from.requestID}, from.windowOrigin);
 		}
+		from.source.postMessage({error: toReport, id: from.requestID}, {targetOrigin: from.windowOrigin});
 	}
 	async function cancel(error: any) {
 		_cancel(error);

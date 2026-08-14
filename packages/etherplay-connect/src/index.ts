@@ -1492,7 +1492,27 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					}
 				} catch (err) {
 					console.error({error: err});
-					set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
+					// A REFUSAL IS NOT A CANCELLATION, and the app has to be able to tell them apart. Closing
+					// the popup is a user action with nothing to report, so it goes back to Idle silently, as
+					// it always has. Anything else is the wallet host refusing and saying why (a denied
+					// required permission, a cross-origin request the signing origin never consented to), and
+					// dropping that reason leaves the app unable to offer the remedy: `cross-origin-blocked`
+					// means bring your own delegate and register it onchain, not retry the same popup.
+					//
+					// Resting on `Idle` rather than going through `setConnectionFailure`, which would land a
+					// non-wallet-only connection on the mechanism picker. Where the popup comes to rest is
+					// deliberately UNCHANGED by this: a picker is for a failure another choice could fix, and
+					// picking a different sign-in method does not make a refused origin acceptable. Only the
+					// reason is added, which is what `ensureConnected` reports instead of "Connection cancelled".
+					const refusal = err as {type?: string; message?: string} | undefined;
+					const canceled = !refusal || refusal.type === 'cancelation';
+					set({
+						step: 'Idle',
+						loading: false,
+						wallet: undefined,
+						wallets: $connection.wallets,
+						error: canceled ? undefined : {message: refusal.message || 'sign in failed', cause: refusal},
+					});
 				} finally {
 					unsubscribe();
 				}
