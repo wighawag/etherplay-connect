@@ -239,6 +239,17 @@ const connection = createConnection({
 });
 ```
 
+`permissions` is for **hosted** accounts, and the types enforce it: a hosted account holds its key at the wallet host, so sign-in is the only moment a credential can be minted for it, and declaring it up front is the only way. It is refused on `walletOnly: true` and on `targetStep: 'WalletConnected'`, where nothing could honour it.
+
+An injected wallet is the other shape: the owner is right there, so ask it when the credential is wanted, which is the better moment anyway. Consent at the point of use beats consent at the door, and nothing is minted for a contract the app never touches.
+
+```typescript
+// works for both: a stored credential for a hosted account, a live signature for a wallet
+const credential = await connection.getDelegation({chainId, contract});
+```
+
+If a wallet-owned connection was given a declaration anyway (possible when the app can reach a host but the user picks a wallet), every entry comes back as `{granted: false, reason: 'sign-on-demand'}` rather than silently absent, so the app knows to call `getDelegation` rather than to offer a pointless re-prompt.
+
 What comes back on the account:
 
 ```typescript

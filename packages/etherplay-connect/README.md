@@ -394,6 +394,7 @@ await connection.connect({
 | `ensureConnected(step?, mechanism?, options?)` | Promise-based connection              |
 | `isTargetStepReached(connection)`              | Check if target step is reached       |
 | `getSignatureForPublicKeyPublication()`        | Get signature for public key          |
+| `getDelegation(target)`                        | Get a delegation credential           |
 
 ### `getSignatureForPublicKeyPublication()`
 
@@ -423,6 +424,17 @@ type SavedDelegation = {
 ```
 
 Ask for them at connect time with `permissions` (see the root README, "Acting onchain for the user"), and read `account.permissions` for the answer to **every** entry, granted or not: an absent credential does not say whether the user declined, whether this wallet was too old to understand the request, or whether the app never asked, and those call for different remedies.
+
+### `getDelegation({chainId, contract, deadline?})`
+
+The credential authorizing this session's signer to act for the account at one contract, from whichever source that mechanism has.
+
+- **Hosted account** (email / OAuth / mnemonic): returns the record minted at sign-in, if the app declared that pair in `permissions`. It cannot sign after the fact, so a missing one throws and the remedy is to sign in again; read `account.permissions` to say why it is missing.
+- **Wallet mechanism**: asks the connected wallet to sign now. Nothing needs declaring at connect time, and nothing is minted for a contract the app never touches.
+
+It returns the whole `SavedDelegation` record rather than the signature alone, deliberately: a signature is unusable without the exact `delegate` and `deadline` it was made over, since both are inside the signed bytes. That also makes it interchangeable with `findSavedDelegation`.
+
+`deadline` defaults to 0, meaning no expiry. On a hosted account a stored credential only answers a request naming the same deadline it was signed with, since a different one would be different bytes.
 
 Credentials are minted at sign-in on popup mechanisms (email / OAuth / mnemonic), because a hosted account holds its key at the wallet host and exposes no live arbitrary-signing capability: sign-in is the only moment they can be produced. On the wallet mechanism the list is empty, since the connected wallet is right there and can sign for whatever contract is needed at the moment it is needed. The registration transaction is submitted and paid for by somebody else, so the account itself never needs gas: it signs, another party submits.
 

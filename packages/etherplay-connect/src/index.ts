@@ -18,6 +18,7 @@ import {
 	delegationDigest,
 	DELEGATION_ABI,
 	findSavedDelegation,
+	parsePermissionRequests,
 	type PermissionRequest,
 	type PermissionOutcome,
 	type SavedDelegation,
@@ -381,6 +382,7 @@ export type ConnectionStore<
 	) => void;
 	disconnect: () => void;
 	getSignatureForPublicKeyPublication: () => Promise<`0x${string}`>;
+	getDelegation: (target: {chainId: number; contract: `0x${string}`; deadline?: number}) => Promise<SavedDelegation>;
 	switchWalletChain: (chainInfo?: BasicChainInfo) => Promise<void>;
 	unlock: () => Promise<void>;
 
@@ -508,8 +510,6 @@ export function createConnection<WalletProviderType>(settings: {
 	chainInfo: ChainInfo<WalletProviderType>;
 	walletConnector: WalletConnector<WalletProviderType>;
 	signingOrigin?: string;
-	// Permissions to ask for at connect time. See `PermissionDeclaration`.
-	permissions?: PermissionDeclaration[];
 	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
@@ -528,8 +528,6 @@ export function createConnection(settings: {
 	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
 	walletConnector?: undefined;
 	signingOrigin?: string;
-	// Permissions to ask for at connect time. See `PermissionDeclaration`.
-	permissions?: PermissionDeclaration[];
 	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
@@ -1012,11 +1010,16 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			mechanismUsed: $connection.mechanism,
 			savedPublicKeyPublicationSignature: undefined,
 			// Nothing pre-generated on the wallet path, and nothing missing either: the owner is a
-			// live wallet that can be asked to sign `delegationMessage({delegate, contract, chainId,
-			// deadline})` at the moment it is needed, which is strictly better than minting a
-			// credential in advance for a contract it may never touch. Pre-generation exists for the
-			// hosted mechanisms, which cannot sign live.
+			// live wallet that can be asked to sign at the moment a credential is needed, which is
+			// strictly better than minting one in advance for a contract it may never touch. Use
+			// `getDelegation`. Pre-generation exists for the hosted mechanisms, which cannot sign
+			// live because sign-in is the only moment their key is reachable.
 			savedDelegations: [],
+			// ...but if the app ASKED, it gets an answer. Silence here would be indistinguishable
+			// from "nobody asked", which is the one thing a permission result exists to prevent: the
+			// app would offer a re-prompt for something that was never refused and needs no prompt
+			// at all. `sign-on-demand` says the credential is available whenever it is wanted.
+			permissions: declaredPermissionsUnavailable(),
 			accountType: walletConnector.accountGenerator.type,
 		};
 		set({
@@ -1810,6 +1813,79 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		set({step: 'Idle', wallet: undefined, loading: false, wallets: $connection.wallets});
 	}
 
+	// The answer a live-signing owner gives to a connect-time declaration.
+	//
+	// Parsed through the same function the host uses, so an unknown permission type normalises
+	// identically on both paths rather than arriving at the app in two different shapes.
+	function declaredPermissionsUnavailable(): PermissionOutcome[] | undefined {
+		if (!settings.permissions || settings.permissions.length === 0) {
+			return undefined;
+		}
+		return parsePermissionRequests(settings.permissions).map((request) => ({
+			request,
+			granted: false as const,
+			reason: 'sign-on-demand' as const,
+		}));
+	}
+
+	/**
+	 * The credential authorizing this session's signer to act for the account at one contract.
+	 *
+	 * TWO SOURCES, ONE SHAPE. A hosted account minted its credentials at sign-in, because that is
+	 * the only moment its key is reachable, so this returns the stored record. A wallet owner is
+	 * right here, so this asks it to sign now, which is the better moment: consent at the point of
+	 * use beats consent at the door, and nothing is minted for a contract the app never touches.
+	 *
+	 * Returns the whole record rather than the signature alone, deliberately. A signature is not
+	 * usable without the exact `delegate` and `deadline` it was made over, since those are inside
+	 * the bytes; handing back all three keeps the caller from having to remember what it asked for,
+	 * and makes this interchangeable with `findSavedDelegation`.
+	 *
+	 * @param target the contract and chain to authorize at, and how long the signature may be
+	 *        presented for (unix seconds; 0, the default, means no expiry)
+	 */
+	async function getDelegation(target: {
+		chainId: number;
+		contract: `0x${string}`;
+		deadline?: number;
+	}): Promise<SavedDelegation> {
+		if ($connection.step !== 'SignedIn') {
+			throw new Error('Not signed in');
+		}
+		const account = $connection.account;
+		const deadline = target.deadline ?? 0;
+		const contract = target.contract.toLowerCase() as `0x${string}`;
+
+		if ($connection.mechanism.type === 'wallet') {
+			if (!_wallet) {
+				throw new Error(`no provider`);
+			}
+			const message = delegationMessage({
+				delegate: account.signer.address,
+				contract,
+				chainId: target.chainId,
+				deadline,
+			});
+			const signature = await _wallet.provider.signMessage(message, account.address);
+			return {chainId: target.chainId, contract, delegate: account.signer.address, deadline, signature};
+		}
+
+		const saved = findSavedDelegation(account.savedDelegations, {chainId: target.chainId, contract});
+		// The deadline is INSIDE the signature, so a stored credential only answers a request that
+		// names the same one. Returning it for a different deadline would hand back bytes that
+		// cannot verify, which fails onchain instead of here.
+		if (saved && (target.deadline === undefined || saved.deadline === deadline)) {
+			return saved;
+		}
+
+		// A hosted account cannot sign after sign-in, so the remedy is to sign in again rather than
+		// anything the app can do from here. See the permission outcomes on the account for whether
+		// this was declined, not understood, or never asked for.
+		throw new Error(
+			`no delegation credential for contract ${contract} on chain ${target.chainId}; sign in again to request one`,
+		);
+	}
+
 	function getSignatureForPublicKeyPublication(): Promise<`0x${string}`> {
 		if ($connection.step !== 'SignedIn') {
 			throw new Error('Not signed in');
@@ -2033,6 +2109,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		connectToAddress,
 		disconnect,
 		getSignatureForPublicKeyPublication,
+		getDelegation,
 		switchWalletChain,
 		unlock,
 		ensureConnected: ensureConnected as any, // Cast to bypass complex conditional typing

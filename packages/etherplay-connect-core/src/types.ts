@@ -86,8 +86,11 @@ export type PermissionOutcome =
 			/**
 			 * `denied`: a human said no.
 			 * `unsupported`: this wallet does not understand the request, so nobody was asked.
+			 * `sign-on-demand`: nothing was pre-generated because this owner is a LIVE signer that
+			 *   can be asked at the moment of use, which is worth more than consent at the door.
+			 *   Not a refusal: call `getDelegation` when the credential is actually needed.
 			 */
-			reason: 'denied' | 'unsupported';
+			reason: 'denied' | 'unsupported' | 'sign-on-demand';
 	  };
 
 /**
