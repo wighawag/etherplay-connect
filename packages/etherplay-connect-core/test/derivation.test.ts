@@ -184,6 +184,32 @@ describe('deriveOriginAccount', () => {
 		expect(originAccount.savedDelegations).toEqual([]);
 	});
 
+	it('returns no entropy key on the signer, only the derived key', async () => {
+		// The signer used to carry `mnemonicKey`, which was `originKey`: the ENTROPY this whole origin
+		// account derives from, not one derived key. `@etherplay/connect` persists what this function
+		// returns to both `localStorage` and `sessionStorage`, so anything on it is at rest in the
+		// app's storage, and the entropy reconstructs every key this origin could ever derive rather
+		// than the single key the session signs with.
+		//
+		// Asserted here, at the derivation, because this is where it would be reintroduced: it is one
+		// line next to fields that DO belong, and it is the hosted path, so it reaches every app
+		// signing in through the wallet host. The type alone does not stop an excess property arriving
+		// at runtime through a build that skips type-checking.
+		const originAccount = await deriveOriginAccount(ORIGIN, anAccount(), accountGenerator);
+
+		expect(originAccount.signer).not.toHaveProperty('mnemonicKey');
+		expect(originAccount.signer.privateKey).toMatch(/^0x[0-9a-f]{64}$/);
+		// ...and the derived key is genuinely not the entropy it came from.
+		const accountObject = accountGenerator.fromMnemonicToAccount(
+			fromEntropyKeyToMnemonic(anAccount().localAccount.key),
+			anAccount().localAccount.index,
+		);
+		const originKey = fromSignatureToKey(
+			await accountGenerator.signTextMessage(originKeyMessage(ORIGIN), accountObject.privateKey),
+		);
+		expect(originAccount.signer.privateKey).not.toBe(originKey);
+	});
+
 	it('does not feed the credentials back into the signer derivation', async () => {
 		const account = anAccount();
 		const originAccount = await deriveOriginAccount(ORIGIN, account, accountGenerator, {

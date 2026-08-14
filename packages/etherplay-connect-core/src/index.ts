@@ -122,7 +122,6 @@ export async function deriveOriginAccount(
 			publicKey: originAccount.publicKey,
 			address: originAccount.address,
 			privateKey: originAccount.privateKey,
-			mnemonicKey: originKey,
 		},
 		metadata: {},
 		mechanismUsed: account.signer.mechanismUsed,

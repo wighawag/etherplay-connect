@@ -311,7 +311,12 @@ describe('signing reaches SignedIn with a usable local signer', () => {
 		expect(signer.address).toMatch(/^0x[0-9a-f]{40}$/);
 		expect(signer.privateKey).toMatch(/^0x[0-9a-f]{64}$/);
 		expect(signer.publicKey).toMatch(/^0x[0-9a-f]+$/);
-		expect(signer.mnemonicKey).toMatch(/^0x[0-9a-f]{64}$/);
+
+		// And NOT the entropy it was all derived from. This assertion is the guard that keeps the
+		// field from coming back: `mnemonicKey` used to be the origin entropy key, persisted to both
+		// storages, from which every key this origin can derive is reconstructible. The session needs
+		// the derived private key above and nothing more.
+		expect(signer).not.toHaveProperty('mnemonicKey');
 
 		// The signer is not a placeholder: the address really is this private key's address,
 		// so the app can sign with it.

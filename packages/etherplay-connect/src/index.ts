@@ -317,6 +317,33 @@ function viemChainInfoToSwitchChainInfo(chainInfo: BasicChainInfo): {
 const baseStorageKeyAccount = '__origin_account';
 const baseStorageKeyLastWallet = '__last_wallet';
 
+// `signer.mnemonicKey` used to hold `originKey`, which is not one derived key but the ENTROPY the
+// whole origin account derives from: the session signer is index 0 of the mnemonic built from it,
+// and every other key that origin could ever derive is index 1, 2, 3 onward. It is no longer
+// produced here, but it can still ARRIVE from two directions: storage written by an older version,
+// and the wallet host popup, which is deployed independently of the version an app ships and can
+// therefore be running an older `deriveOriginAccount`. So the account is stripped on every path it
+// can take into this library, and the persisting side treats it as an invariant rather than
+// trusting its callers.
+type OriginAccountWithLegacyEntropyKey = OriginAccount & {signer: {mnemonicKey?: `0x${string}`}};
+
+function carriesEntropyKey(account: OriginAccount | undefined): boolean {
+	return !!account?.signer && 'mnemonicKey' in account.signer;
+}
+
+/**
+ * The same account without the legacy entropy key. Returns a COPY rather than mutating: the object
+ * may be one an app already holds a reference to, and silently emptying a field under it is worse
+ * than handing back a clean one. Returns the input untouched when there is nothing to strip.
+ */
+function withoutEntropyKey(account: OriginAccount): OriginAccount {
+	if (!carriesEntropyKey(account)) {
+		return account;
+	}
+	const {mnemonicKey, ...signer} = account.signer as OriginAccountWithLegacyEntropyKey['signer'];
+	return {...account, signer};
+}
+
 export type ConnectOptions = {
 	requireUserConfirmationBeforeSignatureRequest?: boolean;
 	doNotStoreLocally?: boolean;
@@ -769,6 +796,27 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		});
 	}
 
+	// One-shot cleanup of accounts persisted by older versions, which carried `signer.mnemonicKey`:
+	// the entropy the whole origin account derives from, sitting at rest in this origin's storage.
+	// Not writing it any more does nothing for anyone who already has one on disk.
+	//
+	// At construction, for EVERY connection, rather than inside `getOriginAccount`: an app with
+	// `autoConnect: false` never reads its stored account at all, so nothing would ever come across
+	// the legacy blob and the seed would sit there untouched for as long as the app is installed.
+	// Both storages, each in place, because they can hold different things.
+	//
+	// Behind the same `typeof window` guard as everything else here, so SSR and prerender
+	// construction stays storage-inert (see `test/ssr-inert.test.ts`).
+	if (typeof window !== 'undefined') {
+		try {
+			stripStoredEntropyKey(localStorage);
+			stripStoredEntropyKey(sessionStorage);
+		} catch {
+			// Storage access throws outright in some configurations (disabled cookies, Safari private
+			// browsing). Failing to clean up must never stop a connection from being constructed.
+		}
+	}
+
 	// Auto-connect logic based on targetStep
 	// When targetStep: 'WalletConnected' - only check lastWallet
 	// When targetStep: 'SignedIn' - check originAccount first, then fallback to lastWallet
@@ -884,14 +932,47 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	}
 	fetchWallets();
 
+	/**
+	 * Remove the legacy entropy key from ONE storage, in place.
+	 *
+	 * Per storage, rather than reading one and re-saving through `saveOriginAccount`: that writes
+	 * BOTH slots, so cleaning up would resurrect an account into a storage it had already left. The
+	 * two do not expire together (Safari's ITP evicts `localStorage` after seven days of no
+	 * interaction while an open tab keeps its `sessionStorage`), and a cleanup that restores a
+	 * deleted session is a different bug. Each slot is fixed where it lies or left alone.
+	 */
+	function stripStoredEntropyKey(storage: Storage) {
+		const raw = storage.getItem(storageKeyAccount);
+		if (!raw) {
+			return;
+		}
+		let account: OriginAccount;
+		try {
+			account = JSON.parse(raw) as OriginAccount;
+		} catch {
+			// Not parseable, so not an account this library wrote, and not ours to rewrite.
+			return;
+		}
+		if (carriesEntropyKey(account)) {
+			storage.setItem(storageKeyAccount, JSON.stringify(withoutEntropyKey(account)));
+		}
+	}
+
 	function getOriginAccount(): OriginAccount | undefined {
 		const fromStorage = localStorage.getItem(storageKeyAccount);
 		if (fromStorage) {
-			return JSON.parse(fromStorage) as OriginAccount;
+			// Stripped again on the way out. The construction-time cleanup above has already fixed the
+			// stored copy; this is what guarantees the RESTORED SESSION object carries no seed even if a
+			// legacy blob appeared after construction, e.g. written by an older build of the app running
+			// in another tab on this same origin.
+			return withoutEntropyKey(JSON.parse(fromStorage) as OriginAccount);
 		}
 	}
 	function saveOriginAccount(account: OriginAccount) {
-		const accountSTR = JSON.stringify(account);
+		// The invariant lives on the WRITE side: nothing carrying the entropy key is ever persisted,
+		// whatever produced the account. Stripping only at the sites that currently build one would be
+		// a statement about today's callers; this is a statement about the storage.
+		const accountSTR = JSON.stringify(withoutEntropyKey(account));
 		sessionStorage.setItem(storageKeyAccount, accountSTR);
 		localStorage.setItem(storageKeyAccount, accountSTR);
 	}
@@ -1003,8 +1084,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				origin: originToSignWith(),
 				address: originAccount.address,
 				publicKey: originAccount.publicKey,
+				// `originKey` stays local to this function: it is the entropy the whole origin account is
+				// derived from, and this object gets persisted. See `OriginAccount['signer']`.
 				privateKey: originAccount.privateKey,
-				mnemonicKey: originKey,
 			},
 			metadata: {},
 			mechanismUsed: $connection.mechanism,
@@ -1478,7 +1560,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					}
 				});
 				try {
-					const result = await popup;
+					// Stripped HERE rather than only in `saveOriginAccount`, so that the account handed to the
+					// app carries no seed either, whatever `remember` says. This is the one path where an
+					// account arrives from code this package does not version: the wallet host is deployed
+					// separately, so an app on a current build can be talking to an older popup.
+					const result = withoutEntropyKey(await popup);
 					// console.log({result});
 					set({
 						step: 'SignedIn',

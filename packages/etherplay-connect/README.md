@@ -497,7 +497,6 @@ interface OriginAccount {
 		address: `0x${string}`; // Derived session address
 		publicKey: `0x${string}`; // Session public key
 		privateKey: `0x${string}`; // Session private key
-		mnemonicKey: `0x${string}`; // Entropy key
 	};
 	metadata: {
 		email?: string;

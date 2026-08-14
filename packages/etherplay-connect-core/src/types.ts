@@ -123,8 +123,11 @@ export type OriginAccount = {
 		origin: string;
 		address: `0x${string}`;
 		publicKey: `0x${string}`;
+		// No entropy/mnemonic key here on purpose: the origin signer's own private key is the least
+		// that has to be held to sign for this origin, whereas the entropy it was derived from would
+		// reconstruct every key this origin could ever derive. Since this object is persisted, keeping
+		// it would put that seed at rest in the app's storage for nothing: nothing reads it.
 		privateKey: `0x${string}`;
-		mnemonicKey: `0x${string}`;
 	};
 	metadata: {
 		email?: string;
