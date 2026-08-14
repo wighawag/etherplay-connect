@@ -4,6 +4,7 @@ import {
 	AuthProvider,
 	AuthProviderSettings,
 	AuthState,
+	buildOAuthCallbackUrl,
 	deriveEtherplayAccount,
 	EmailMechanism,
 	EtherplayAccount,
@@ -199,44 +200,22 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 
 				const currentURL = new URL(location.href);
 
-				let accountTypeStr = '';
-				if (currentURL.searchParams.has('account-type')) {
-					const value = currentURL.searchParams.get('account-type');
-					accountTypeStr = value ? `&account-type=${value}` : '&account-type';
-				}
+				// The URL the provider sends the user back to, built in @etherplay/connect-core.
+				//
+				// Not here, because what it encodes is the popup URL CONTRACT rather than anything about
+				// Openfort: this round trip is a full page load, so every parameter the app set and this
+				// URL omits is silently gone, and only on the OAuth path. `permissions` was omitted for as
+				// long as the feature existed. In core it is one list with a test on it.
+				const redirectUrl = buildOAuthCallbackUrl({
+					baseUrl,
+					redirection,
+					provider: authProviderId,
+					connection: auth0Connection,
+					current: currentURL.searchParams,
+				});
 
-				let erudaStr = '';
-				if (currentURL.searchParams.has('eruda')) {
-					const value = currentURL.searchParams.get('eruda');
-					erudaStr = value ? `&eruda=${value}` : '&eruda';
-				}
-
-				let debugStr = '';
-				if (currentURL.searchParams.has('debug')) {
-					const value = currentURL.searchParams.get('debug');
-					debugStr = value ? `&debug=${value}` : '&debug';
-				}
-
-				let logStr = '';
-				if (currentURL.searchParams.has('log')) {
-					const value = currentURL.searchParams.get('log');
-					logStr = value ? `&log=${value}` : '&log';
-				}
-
-				// Same-Origin Callback Bridge: carry the parent's public key through the
-				// full-page Google -> Openfort -> popup round-trip so it survives the
-				// in-memory state reset on the callback load.
-				const domainRedirectPublicKey = currentURL.searchParams.get('domain-redirect-public-key');
-				const drpkStr = domainRedirectPublicKey
-					? `&domain-redirect-public-key=${encodeURIComponent(domainRedirectPublicKey)}`
-					: '';
-
-				// Testing aid: forces the BroadcastChannel delivery path on the bridge page.
-				const forceBroadcastChannel = currentURL.searchParams.get('forceBroadcastChannel');
-				const fbcStr =
-					forceBroadcastChannel !== null ? `&forceBroadcastChannel=${encodeURIComponent(forceBroadcastChannel)}` : '';
-
-				const redirectUrl = `${baseUrl}/login/?oauth-callback=true&oauth-redirection=true&type=oauth&origin=${redirection.windowOrigin}&signingOrigin=${redirection.signingOrigin}&id=${redirection.id}&oauth-provider=${authProviderId}${auth0Connection ? `&oauth-connection=${auth0Connection}` : ''}${accountTypeStr}${erudaStr}${debugStr}${logStr}${drpkStr}${fbcStr}`;
+				// Presence, not value: `?debug` and `?debug=1` both mean debug, as they always did here.
+				const pauseBeforeRedirect = currentURL.searchParams.has('debug');
 
 				try {
 					const oauthUrl = await openfortInstance.auth.initOAuth({
@@ -247,7 +226,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 					console.log({oauthUrl});
 
 					if (typeof window !== 'undefined') {
-						if (debugStr) {
+						if (pauseBeforeRedirect) {
 							// Debug mode: do not auto-redirect. Expose a console function so the
 							// developer can inspect the page first, then proceed manually.
 							(window as any).proceedOAuth = () => {

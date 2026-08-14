@@ -190,3 +190,4 @@ export type * from './types.js';
 export * from './crypto.js';
 export * from './permissions.js';
 export * from './access.js';
+export * from './oauth-callback.js';
