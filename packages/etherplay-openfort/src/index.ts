@@ -7,22 +7,13 @@ import {
 	buildOAuthCallbackUrl,
 	deriveEtherplayAccount,
 	EmailMechanism,
-	EtherplayAccount,
-	fromEntropyKeyToMnemonic,
 	fromSignatureToKey,
 	localKeyMessage,
-	normalizeOrigin,
 	OauthMechanism,
-	OriginAccount,
-	originKeyMessage,
-	originPublicKeyPublicationMessage,
-	OriginApprovalRequest,
-	PermissionRequest,
+	originApprovalRequired,
+	type OriginContext,
 	Redirection,
 } from '@etherplay/connect-core';
-import {mnemonicToEntropy} from '@scure/bip39';
-import {bytesToHex} from '@noble/hashes/utils';
-import {wordlist} from '@scure/bip39/wordlists/english';
 import {writable, get} from 'sveltore';
 import {
 	AccountTypeEnum,
@@ -35,51 +26,42 @@ import {
 	OPENFORT_AUTH_ERROR_CODES,
 } from '@openfort/openfort-js';
 
-type OpenfortSettings = {
+// The two origins and the declared permissions arrive as ONE value (`OriginContext`), so the two
+// same-typed origin strings cannot be swapped on the way in. This provider decides none of it; it
+// carries the permissions into `AuthState` so the UI can ask, and the origins into the approval
+// gate.
+type OpenfortSettings = OriginContext & {
 	publishableKey: string;
 	shieldPublishableKey?: string;
 	walletHost: string;
 	accountGenerator: AccountGenerator;
-	signingOrigin: string;
-	windowOrigin: string;
 	encryptionSessionEndpoint: string;
-	// What the app declared at connect time, already parsed into a closed set by the host. This
-	// provider does not decide any of it; it only carries it into `AuthState` so the UI can ask.
-	permissions?: PermissionRequest[];
 };
+
+/**
+ * Said the same way wherever the mnemonic mechanism reaches this provider, so nobody has to guess
+ * why a provider that used to answer it no longer does.
+ *
+ * A host that reaches this has routed by a deployment-wide setting instead of by mechanism.
+ */
+function mnemonicIsLocal(): Error {
+	return new Error(
+		'the mnemonic mechanism is not hosted authentication and is no longer implemented here: it derives the account ' +
+			'in the browser and touches no Openfort account, key or endpoint. Use `createLocalProvider` from ' +
+			'@etherplay/connect-core, which the host selects by MECHANISM rather than by the "provider" query parameter.',
+	);
+}
 
 export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider {
 	let openfortInstance: Openfort | null = null;
 
 	const store = writable<AuthState>({step: 'Idle'});
 
-	/**
-	 * What has to be settled before the result may be handed to the opener.
-	 *
-	 * Built in ONE place and used by every path that reaches `SignedIn`, because the three paths
-	 * previously disagreed: the mnemonic one raised the access gate and the email and oauth ones
-	 * passed `false`, so signing in by email skipped an approval that signing in by mnemonic
-	 * required. A gate that only some doors have is not a gate.
-	 *
-	 * `false` only when there is nothing at all to settle. Anything else and the UI must ask, and
-	 * {Login.svelte} must withhold the result until it has.
-	 */
-	function approvalRequired(): false | OriginApprovalRequest {
-		const permissions = settings.permissions || [];
-		// The SAME comparison the access decision uses, imported rather than written again as `!==`.
-		// This provider does not decide access; all it does here is notice there is nothing at all to
-		// settle, and it must not reach that conclusion by a rule stricter or looser than the one that
-		// would have decided the request.
-		const sameOrigin = normalizeOrigin(settings.windowOrigin) === normalizeOrigin(settings.signingOrigin);
-		if (sameOrigin && permissions.length === 0) {
-			return false;
-		}
-		return {
-			windowOrigin: settings.windowOrigin,
-			signingOrigin: settings.signingOrigin,
-			permissions,
-		};
-	}
+	// WHAT HAS TO BE SETTLED BEFORE THE RESULT MAY BE HANDED OVER is `originApprovalRequired`, from
+	// @etherplay/connect-core, called directly at every path below that reaches `SignedIn`. Not
+	// wrapped in a local name: it is not a property of this vendor, and a wrapper here is one more
+	// place a provider could quietly answer the question differently. A gate that only some doors
+	// have is not a gate.
 
 	async function tryGetCurrentUser() {
 		if (!openfortInstance) return null;
@@ -107,7 +89,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			mechanism: {...mechanism, email} as EmailMechanism<string>,
 		});
 
-		store.set({step: 'SignedIn', mechanism, account, requireOriginApproval: approvalRequired()});
+		store.set({step: 'SignedIn', mechanism, account, requireOriginApproval: originApprovalRequired(settings)});
 	}
 
 	async function init(providerSettings?: AuthProviderSettings): Promise<void> {
@@ -249,48 +231,11 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 				}
 			}
 		} else if (mechanism.type === 'mnemonic') {
-			if (mechanism.index === undefined) {
-				store.set({
-					step: 'MnemonicIndexToProvide',
-					mechanism: {type: 'mnemonic', mnemonic: mechanism.mnemonic, index: undefined},
-				});
-				return;
-			}
-
-			store.set({step: 'GeneratingAccount', mechanism});
-
-			const mnemonicMech = mechanism;
-			const mnemonic = mnemonicMech.mnemonic;
-			const index = mnemonicMech.index ?? 0;
-
-			const viemAccount = settings.accountGenerator.fromMnemonicToAccount(mnemonic, index);
-			const keyUint8Array = mnemonicToEntropy(mnemonic, wordlist);
-			const key = `0x${bytesToHex(keyUint8Array)}` as `0x${string}`;
-			const address = viemAccount.address.toLowerCase() as `0x${string}`;
-			const account: EtherplayAccount = {
-				localAccount: {
-					address,
-					index,
-					key,
-				},
-				signer: {
-					mechanismUsed: mechanism,
-					user: {
-						address,
-						orgId: 'mnemonic',
-						userId: `${index}@mnemonic.id`,
-						email: `${index}@mnemonic.id`,
-					},
-				},
-				accountType: settings.accountGenerator.type,
-			};
-
-			store.set({
-				step: 'SignedIn',
-				mechanism,
-				account,
-				requireOriginApproval: approvalRequired(),
-			});
+			// MOVED OUT, not delegated to. A mnemonic account is derived in the browser from a phrase
+			// and touches no Openfort account, no publishable key and no network, so it is not hosted
+			// authentication and it is not this vendor's to answer for. It lives in
+			// `createLocalProvider` (@etherplay/connect-core), and the HOST routes to it by mechanism.
+			throw mnemonicIsLocal();
 		}
 	}
 
@@ -356,7 +301,7 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 			const key = await generateKey(localKeyMessage());
 			const account = await generateAccount({key, mechanism});
 
-			store.set({step: 'SignedIn', mechanism, account, requireOriginApproval: approvalRequired()});
+			store.set({step: 'SignedIn', mechanism, account, requireOriginApproval: originApprovalRequired(settings)});
 		} catch (err) {
 			store.update((currentState) => ({
 				...currentState,
@@ -434,12 +379,8 @@ export function createOpenfortProvider(settings: OpenfortSettings): AuthProvider
 	async function provideEmail(email: string) {
 		await connect({type: 'email', email, mode: 'otp'});
 	}
-	async function provideMnemonicIndex(index: number) {
-		const currentState = get(store);
-		if (currentState.step !== 'MnemonicIndexToProvide') {
-			throw new Error('no mnemonic index to provide');
-		}
-		await connect({type: 'mnemonic', mnemonic: currentState.mechanism.mnemonic, index});
+	async function provideMnemonicIndex(_index: number) {
+		throw mnemonicIsLocal();
 	}
 
 	return {

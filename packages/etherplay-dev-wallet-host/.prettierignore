@@ -1,0 +1,9 @@
+# GENERATED, and reformatting it is not cosmetic: `site/` is a built bundle whose index.html
+# carries subresource integrity hashes over these exact bytes, so a reformat silently produces a
+# host the browser refuses to run.
+site/
+
+# copied from web/ at build time
+config.example.json
+
+node_modules/

@@ -40,11 +40,12 @@ etherplay-connect/
 │   ├── @etherplay/wallet-connector-ethereum/  # Ethereum implementation
 │   ├── @etherplay/alchemy/                   # Social login integration
 │   ├── @etherplay/delegation/                # Onchain delegation: Solidity, message builder, ABI
+│   ├── @etherplay/dev-wallet-host/           # The sign-in host, prebuilt, for local dev and e2e
 │   └── @etherplay/connect/                   # Main connection library
 ├── demoes/
 │   └── sveltekit/                            # Demo application
 ├── web/
-│   └── login/                                # Login component
+│   └── login/                                # The sign-in host itself (two builds, see web/README.md)
 └── package.json
 ```
 
@@ -159,6 +160,19 @@ await connection.connect({
 	index: 0,
 });
 ```
+
+The host derives this one itself, in the popup: no account at any service, no key and no network.
+
+## Running the sign-in host locally
+
+The hosted mechanisms happen in a popup served by `walletHost`, so working on anything downstream of sign-in used to need a deployed host. It does not any more:
+
+```bash
+pnpm add -D @etherplay/dev-wallet-host
+npx dev-wallet-host --port 50000     # then walletHost: 'http://localhost:50000'
+```
+
+Run it next to your app the way you already run a faucet, and start the same thing in your e2e. It is a **development** build: it takes its configuration from a runtime document and is unfit for real accounts by construction. See [`packages/etherplay-dev-wallet-host/README.md`](./packages/etherplay-dev-wallet-host/README.md).
 
 ### Web3 Wallet Login
 

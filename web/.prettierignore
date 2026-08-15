@@ -1,0 +1,21 @@
+# GENERATED. Reformatting a built bundle is not cosmetic: its index.html carries subresource
+# integrity hashes over those exact bytes, so a reformat produces a site the browser refuses to run.
+dist/
+dist-dev/
+
+# A local runtime configuration document, which is the developer's file and not ours to reformat.
+public/config.json
+
+# NOT formatted here, and not an oversight: prettier cannot parse `.svelte` without
+# prettier-plugin-svelte, and adding it would reformat every component in this directory in a change
+# that is about something else. Worth doing on its own.
+*.svelte
+
+# PREDATE THIS CHECK, and reformatting them here would be churn in a change about something else.
+# `package.json` is excluded for the same reason the root ignore file excludes it: prettier would
+# fight the 2-space style npm and pnpm write.
+*.html
+package.json
+tsconfig*.json
+login/tsconfig*.json
+svelte.config.js

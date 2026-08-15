@@ -3,15 +3,18 @@ import {
 	autoSignLookup,
 	confirmAccess,
 	crossOriginBlockedError,
+	describeOriginMismatch,
 	isLoopbackOrigin,
 	lookupByOrigin,
 	normalizeOrigin,
+	originApprovalRequired,
 	requiresSecondConfirmation,
 	resolveAccess,
 	type AccessDecision,
 	type CrossOriginConsent,
 } from '../src/access.js';
 import type {DelegationTarget} from '../src/permissions.js';
+import type {PermissionRequest} from '../src/types.js';
 
 const GAME = 'https://game.example';
 const THIRD_PARTY = 'https://tournament.example';
@@ -303,5 +306,100 @@ describe('autoSignLookup', () => {
 		] as AccessDecision[]) {
 			expect(autoSignLookup({windowOrigin: THIRD_PARTY, signingOrigin: GAME, access, allowlistFor})(pair)).toBe(false);
 		}
+	});
+});
+
+describe('originApprovalRequired', () => {
+	// THE GATE EVERY PROVIDER MUST ASK THE SAME WAY. It lived in one provider once, and the three
+	// sign-in paths disagreed about it: mnemonic raised it, email and oauth passed `false`. Here,
+	// under test, so a new provider inherits the answer instead of writing its own.
+	const permission: PermissionRequest = {type: 'delegation', required: true, chainId: 1, contract: CONTRACT};
+
+	it('is false only when a window is signing for itself and asked for nothing', () => {
+		expect(originApprovalRequired({windowOrigin: GAME, signingOrigin: GAME})).toBe(false);
+		expect(originApprovalRequired({windowOrigin: GAME, signingOrigin: GAME, permissions: []})).toBe(false);
+	});
+
+	it('is required whenever the origins differ', () => {
+		expect(originApprovalRequired({windowOrigin: THIRD_PARTY, signingOrigin: GAME})).toEqual({
+			windowOrigin: THIRD_PARTY,
+			signingOrigin: GAME,
+			permissions: [],
+		});
+	});
+
+	it('is required whenever anything at all was asked for, same origin or not', () => {
+		expect(originApprovalRequired({windowOrigin: GAME, signingOrigin: GAME, permissions: [permission]})).toEqual({
+			windowOrigin: GAME,
+			signingOrigin: GAME,
+			permissions: [permission],
+		});
+	});
+
+	it('compares the two origins by the SAME rule the access decision uses', async () => {
+		// Spelling only: a trailing slash or different case is the same origin here, exactly as it is
+		// in `resolveAccess`. A stricter rule here would ask for approval that access would then
+		// call same-origin; a looser one would skip an approval access would have demanded.
+		expect(originApprovalRequired({windowOrigin: 'https://Game.example/', signingOrigin: GAME})).toBe(false);
+		expect(
+			await resolveAccess({windowOrigin: 'https://Game.example/', signingOrigin: GAME}, {consentFor: noConsent}),
+		).toEqual({kind: 'same-origin'});
+	});
+
+	it('passes the origins through UNNORMALISED, because delivery uses them verbatim', () => {
+		// The result is posted with `targetOrigin: windowOrigin`, so what the UI is shown and what the
+		// browser is told must be the string the opener actually gave.
+		const request = originApprovalRequired({windowOrigin: 'https://Game.example/', signingOrigin: THIRD_PARTY});
+		expect(request).toEqual({
+			windowOrigin: 'https://Game.example/',
+			signingOrigin: THIRD_PARTY,
+			permissions: [],
+		});
+	});
+});
+
+describe('describeOriginMismatch', () => {
+	// The one failure in this system with no error anywhere: the sign-in completes in the popup and
+	// the browser drops the result, because `targetOrigin` is not where the opener is.
+	it('says nothing when the claim is where the opener actually is', () => {
+		expect(describeOriginMismatch(GAME, GAME)).toBeUndefined();
+		// Spelling only, the same rule the rest of this file uses.
+		expect(describeOriginMismatch('https://Game.example/', GAME)).toBeUndefined();
+	});
+
+	it('says nothing when there is nothing to compare against', () => {
+		// A stripped referrer means CANNOT TELL. Reporting a mismatch here would teach people to
+		// ignore the message that matters.
+		expect(describeOriginMismatch(GAME, undefined)).toBeUndefined();
+		expect(describeOriginMismatch(GAME, null)).toBeUndefined();
+		expect(describeOriginMismatch(GAME, '')).toBeUndefined();
+		expect(describeOriginMismatch(null, GAME)).toBeUndefined();
+		expect(describeOriginMismatch('not a url', GAME)).toBeUndefined();
+		expect(describeOriginMismatch(GAME, 'not a url')).toBeUndefined();
+	});
+
+	it('names both origins, and what will happen, when they differ', () => {
+		const found = describeOriginMismatch(GAME, THIRD_PARTY);
+		expect(found?.message).toContain(GAME);
+		expect(found?.message).toContain(THIRD_PARTY);
+		expect(found?.message).toContain('ORIGIN MISMATCH');
+		expect(found?.brief).toContain(GAME);
+		expect(found?.brief).toContain(THIRD_PARTY);
+	});
+
+	it('names the loopback trap specifically, because that is the one that wastes an afternoon', () => {
+		const found = describeOriginMismatch('http://127.0.0.1:5173', 'http://localhost:5173');
+		expect(found?.message).toContain('same machine and different origins');
+		expect(found?.message).toContain('127.0.0.1');
+		expect(found?.message).toContain('localhost');
+	});
+
+	it('catches a scheme or port difference too, and does not call those the loopback trap', () => {
+		expect(describeOriginMismatch('https://localhost:5173', 'http://localhost:5173')?.message).toContain(
+			'exactly the origin it is served from',
+		);
+		expect(describeOriginMismatch('http://localhost:5174', 'http://localhost:5173')?.message).toContain(
+			'exactly the origin it is served from',
+		);
 	});
 });

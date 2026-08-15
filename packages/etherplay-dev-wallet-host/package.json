@@ -1,0 +1,58 @@
+{
+	"name": "@etherplay/dev-wallet-host",
+	"version": "0.0.0",
+	"description": "The Etherplay sign-in host, prebuilt, for DEVELOPMENT and e2e only - run it next to your app the way you run a faucet. Unfit for real accounts by construction.",
+	"keywords": [
+		"etherplay",
+		"development",
+		"dev-server",
+		"e2e",
+		"testing",
+		"wallet",
+		"sign-in",
+		"mnemonic"
+	],
+	"homepage": "https://github.com/wighawag/etherplay-connect#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wighawag/etherplay-connect.git",
+		"directory": "packages/etherplay-dev-wallet-host"
+	},
+	"bugs": {
+		"url": "https://github.com/wighawag/etherplay-connect/issues"
+	},
+	"author": "Ronan Sandford",
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"type": "module",
+	"bin": {
+		"dev-wallet-host": "./bin/dev-wallet-host.js"
+	},
+	"exports": {
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"bin",
+		"lib",
+		"site",
+		"config.example.json"
+	],
+	"engines": {
+		"node": ">=18"
+	},
+	"devDependencies": {
+		"prettier": "^3.5.3"
+	},
+	"scripts": {
+		"build": "node ./scripts/build.mjs",
+		"build:fresh": "node ./scripts/build.mjs --fresh",
+		"serve": "node ./bin/dev-wallet-host.js",
+		"prepack": "node ./scripts/build.mjs --fresh",
+		"test": "node --test test/*.test.mjs",
+		"verify:adopter": "node ./scripts/verify-adopter-install.mjs",
+		"format:check": "prettier --check .",
+		"format": "prettier --write ."
+	}
+}

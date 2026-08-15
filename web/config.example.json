@@ -1,0 +1,30 @@
+{
+	"_readme": [
+		"The runtime configuration document for the DEVELOPMENT build of the login host.",
+		"Copy it to the root of the directory you serve, next to index.html, as `config.json`.",
+		"Everything here is optional: with no document at all the host runs on the defaults below,",
+		"and a mnemonic sign-in needs no key, no account and no network.",
+		"A production build IGNORES this file and says so in the console when it finds one.",
+		"See web/login/src/lib/config.ts."
+	],
+
+	"hostedAuthProvider": "openfort",
+
+	"devMnemonic": "test test test test test test test test test test test junk",
+
+	"openfort": {
+		"publishableKey": "",
+		"shieldPublishableKey": "",
+		"encryptionSessionEndpoint": ""
+	},
+
+	"allowLoopbackRequesters": true,
+
+	"originAllowlist": {},
+
+	"crossOriginAllowlist": {},
+
+	"autoSignedLifetimeSeconds": 7776000,
+
+	"promptedLifetimeSeconds": 0
+}

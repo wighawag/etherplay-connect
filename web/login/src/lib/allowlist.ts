@@ -6,10 +6,19 @@
  * STAKE: which origins accept being requested by somebody else at all, without which such a request
  * is refused rather than prompted.
  *
- * BOTH ARE HARDCODED AT BUILD TIME, and that is the safer end of the design rather than a shortcut: there is
- * no runtime fetch to poison, no config endpoint to compromise, and changing the list requires
- * shipping the host. If it ever becomes dynamic, its integrity has to come from something signed,
- * not from a plain HTTP response.
+ * BOTH ARE HARDCODED AT BUILD TIME IN THE HOST THAT HOLDS REAL ACCOUNTS, and that is the safer end
+ * of the design rather than a shortcut: nothing fetched at runtime can reach these tables, no config
+ * endpoint can compromise them, and changing the list requires shipping the host. If they ever
+ * become dynamic there, their integrity has to come from something signed, not from a plain HTTP
+ * response.
+ *
+ * Said precisely, because a production build does make one runtime request: it looks for a
+ * configuration document SOLELY so that it can shout if it finds one (see config.ts), and discards
+ * what comes back without reading a field of it. What the argument above rests on is not the
+ * absence of a request, it is that no value from one is ever applied.
+ *
+ * The DEVELOPMENT build does apply them (see config.ts), which does not weaken any of this: it is a
+ * different artefact, built with a different flag, holding nothing worth protecting.
  *
  * WHY AUTO-SIGNING IS NOT A HOLE. It does not create authority, it removes a prompt exactly where
  * the prompt was worthless. An origin on this list can already derive this account's signer
@@ -29,6 +38,7 @@
  * below is for, and it is the only lever there is.
  */
 import {deadlineIn, lookupByOrigin, type CrossOriginConsent, type DelegationTarget} from '@etherplay/connect-core';
+import {DEVELOPMENT_BUILD, hostConfig} from './config';
 
 /**
  * The TABLE lives here, in the host, hardcoded. The MATCHING lives in @etherplay/connect-core,
@@ -44,9 +54,12 @@ export type AllowlistEntry = DelegationTarget;
  * no human in the loop, so it is added when a specific origin and contract are known to belong to
  * each other, and not before. A placeholder would be a wrong entry, which is worse than none.
  *
+ * Empty in the PRODUCTION build is the statement that matters; a development build may be handed a
+ * table by its runtime document, which is how a test exercises auto-signing at all.
+ *
  *   'https://game.example': [{chainId: 1, contract: '0xe7f1...0512'}],
  */
-export const ORIGIN_ALLOWLIST: Record<string, AllowlistEntry[]> = {};
+export const ORIGIN_ALLOWLIST: Record<string, AllowlistEntry[]> = hostConfig().originAllowlist;
 
 /**
  * WHICH ORIGINS ACCEPT BEING ASKED FOR BY SOMEBODY ELSE.
@@ -72,7 +85,7 @@ export const ORIGIN_ALLOWLIST: Record<string, AllowlistEntry[]> = {};
  * is async so that a signed or self-served document (an origin publishing its own consent is
  * self-attesting in a way a central list is not) can replace this without touching a call site.
  */
-export const CROSS_ORIGIN_ALLOWLIST: Record<string, CrossOriginConsent> = {};
+export const CROSS_ORIGIN_ALLOWLIST: Record<string, CrossOriginConsent> = hostConfig().crossOriginAllowlist;
 
 /**
  * Whether a page on this machine may ask for somebody else's account.
@@ -83,16 +96,16 @@ export const CROSS_ORIGIN_ALLOWLIST: Record<string, CrossOriginConsent> = {};
  * against real accounts from a dev server is what a dev or staging wallet host is for.
  *
  * `VITE_ALLOW_LOOPBACK_CROSS_ORIGIN` exists so a self-hosted deployment can turn it on knowing what
- * it costs, rather than discovering the flag is welded to a build mode.
+ * it costs, rather than discovering the flag is welded to a build mode. It is read in config.ts,
+ * with the same rule it always had: a development build allows it unless told not to, any other
+ * build refuses it unless told to, and being told to is what this shouts about.
  */
-export const ALLOW_LOOPBACK_REQUESTERS =
-	import.meta.env.VITE_ALLOW_LOOPBACK_CROSS_ORIGIN === 'true' ||
-	(import.meta.env.DEV && import.meta.env.VITE_ALLOW_LOOPBACK_CROSS_ORIGIN !== 'false');
+export const ALLOW_LOOPBACK_REQUESTERS = hostConfig().allowLoopbackRequesters;
 
 // Said out loud, every time, because the only thing standing between this allowance and a host that
 // holds real accounts is how it was built. A production bundle reaches this line only if somebody
 // set the variable to `true` deliberately, and this is what tells them they did.
-if (ALLOW_LOOPBACK_REQUESTERS && !import.meta.env.DEV) {
+if (ALLOW_LOOPBACK_REQUESTERS && !DEVELOPMENT_BUILD) {
 	console.warn(
 		'[etherplay] loopback cross-origin requesters are ALLOWED in this build: a page on the user machine ' +
 			'may ask for another origin account. Unset VITE_ALLOW_LOOPBACK_CROSS_ORIGIN for a host holding real accounts.',
@@ -111,16 +124,18 @@ if (ALLOW_LOOPBACK_REQUESTERS && !import.meta.env.DEV) {
  * It exists at all because these are the credentials minted with NO HUMAN IN THE LOOP, which makes
  * them the ones an allowlist entry keeps producing after that entry turns out to be wrong.
  */
-export const AUTO_SIGNED_LIFETIME_SECONDS = 90 * 24 * 60 * 60; // ~3 months
+export const AUTO_SIGNED_LIFETIME_SECONDS = hostConfig().autoSignedLifetimeSeconds;
 
 /**
- * Prompted credentials get no expiry, for now.
+ * Prompted credentials get no expiry, for now: that is what a lifetime of 0 means, and it is the
+ * default in every build.
  *
  * Refreshing one costs a popup and re-consent in the middle of someone's game, and unlike the
  * auto-signed case there was a human at the moment of granting. Revocation is onchain and is the
- * real remedy here.
+ * real remedy here. It is settable in a development build for the same reason the auto-signed one
+ * is: expiry that cannot be made to happen is expiry nobody has ever seen work.
  */
-export const PROMPTED_DEADLINE = 0;
+export const PROMPTED_LIFETIME_SECONDS = hostConfig().promptedLifetimeSeconds;
 
 // The TABLES are here; the MATCHING is `lookupByOrigin` in @etherplay/connect-core, where a test
 // covers which key answers for which origin. An exact origin match and nothing cleverer: no
@@ -149,4 +164,9 @@ export async function crossOriginConsentFor(signingOrigin: string): Promise<Cros
 /** The deadline to stamp on an auto-signed credential, in unix seconds. */
 export function autoSignedDeadline(now: number = Date.now()): number {
 	return deadlineIn(AUTO_SIGNED_LIFETIME_SECONDS, now);
+}
+
+/** The deadline to stamp on a credential a human granted, in unix seconds. `0` is no expiry. */
+export function promptedDeadline(now: number = Date.now()): number {
+	return PROMPTED_LIFETIME_SECONDS === 0 ? 0 : deadlineIn(PROMPTED_LIFETIME_SECONDS, now);
 }

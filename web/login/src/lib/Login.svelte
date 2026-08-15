@@ -35,10 +35,11 @@
 	import {
 		allowlistFor,
 		autoSignedDeadline,
-		PROMPTED_DEADLINE,
+		promptedDeadline,
 		crossOriginConsentFor,
 		ALLOW_LOOPBACK_REQUESTERS,
 	} from './allowlist';
+	import {originMismatchBrief} from './origin-check';
 
 	let {
 		authProvider,
@@ -167,9 +168,10 @@
 	}
 
 	function grantPermission(request: PermissionRequest) {
-		// No expiry on a prompted credential, for now: refreshing one costs a popup and re-consent
-		// in the middle of someone's game, and unlike the auto-signed case there was a human here.
-		answer(request, {request, granted: true, deadline: PROMPTED_DEADLINE});
+		// No expiry on a prompted credential by default: refreshing one costs a popup and re-consent
+		// in the middle of someone's game, and unlike the auto-signed case there was a human here. A
+		// development build can shorten it, which is the only way to watch one expire.
+		answer(request, {request, granted: true, deadline: promptedDeadline()});
 	}
 
 	function denyPermission(request: PermissionRequest) {
@@ -424,6 +426,14 @@
 			try {
 				if ($authProvider.step === 'SignedIn') {
 					const result = await buildResult($authProvider.account);
+					// One line, at the one place where the cost of a mismatch is actually paid: the
+					// browser drops a `postMessage` whose `targetOrigin` is not the receiving window's
+					// real origin, silently, and this popup would otherwise look like it succeeded. The
+					// full explanation was printed at boot; repeating it here would only teach people
+					// to skim it.
+					if (originMismatchBrief) {
+						console.error(originMismatchBrief);
+					}
 					if (debug) {
 						console.log('postMessage', {result, id: from.requestID}, {targetOrigin: from.windowOrigin});
 					}

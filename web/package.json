@@ -7,6 +7,8 @@
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "@tsconfig/svelte": "^5.0.4",
     "as-soon": "^0.0.11",
+    "happy-dom": "^20.8.3",
+    "prettier": "^3.5.3",
     "sass": "1.86.3",
     "svelte": "^5.25.12",
     "svelte-check": "^4.1.5",
@@ -14,13 +16,20 @@
     "vite": "^6.2.6",
     "vite-plugin-node-polyfills": "^0.23.0",
     "vite-plugin-sri3": "^1.0.6",
+    "vitest": "^4.0.18",
     "zustand": "^5.0.3"
   },
   "scripts": {
     "dev": "vite dev --host --port 50000",
     "build": "vite build",
+    "build:dev-host": "vite build --mode development --outDir dist-dev",
     "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
+    "preview:dev-host": "vite preview --outDir dist-dev --port 50000",
+    "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format:check": "prettier --check .",
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@etherplay/connect-core": "workspace:*",

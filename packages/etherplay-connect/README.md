@@ -401,6 +401,23 @@ await connection.connect({
 });
 ```
 
+The host derives this one itself, in the popup, from the phrase: no account at any service, no key
+and no network. It still needs a `walletHost` because that popup is where the derivation happens,
+but the host does not need to be configured with a provider's credentials to answer it.
+
+### `VITE_AUTH_PROVIDER`, and what it does not decide
+
+This library appends `?provider=` to every popup URL, read from the app's own `VITE_AUTH_PROVIDER`
+(default `openfort`). It means **which hosted provider the host should use for email and OAuth**,
+and nothing else.
+
+It cannot mean anything else: it is chosen once, at the app's build time, and sent for every
+mechanism, so an app that wants both hosted email and a local mnemonic sign-in has one value to say
+two things with. The host therefore routes by MECHANISM, and never consults this value for
+`mnemonic`. Deliberately not made per-mechanism here: which mechanisms a host answers itself is host
+implementation knowledge, and putting it in this library would oblige every third-party client to
+reproduce it and then drift from it.
+
 ## API Reference
 
 ### ConnectionStore Methods

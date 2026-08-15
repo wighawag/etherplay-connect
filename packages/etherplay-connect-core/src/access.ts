@@ -1,4 +1,5 @@
 import {allowlistLookup, type AllowlistLookup, type DelegationTarget} from './permissions.js';
+import type {OriginApprovalRequest, PermissionRequest} from './types.js';
 
 /**
  * WHO MAY ASK FOR AN ACCOUNT THAT IS NOT THEIRS.
@@ -222,6 +223,113 @@ export function confirmAccess(
 /** How many confirmations this decision needs, for a UI that wants to say so. */
 export function confirmationsRequired(decision: AccessDecision): number {
 	return requiresSecondConfirmation(decision) ? 2 : 1;
+}
+
+/**
+ * THE TWO ORIGINS OF ONE SIGN-IN, AND WHAT THE APP ASKED FOR, AS ONE VALUE.
+ *
+ * They travel together everywhere: into a provider, into the approval gate, into the access
+ * decision, and into delivery. Named as one thing because they are two strings of the same type
+ * meaning OPPOSITE sides of the same question - who is asking, and whose account is at stake - and
+ * as positional arguments they are silently swappable. Swapping them does not fail: it produces a
+ * host that decides access for the wrong pair and hands the result to the wrong window.
+ */
+export type OriginContext = {
+	/** the origin that opened the window, as it claimed to be */
+	windowOrigin: string;
+	/** the origin being signed for */
+	signingOrigin: string;
+	/** what the app declared at connect time; empty or absent when it asked for nothing */
+	permissions?: PermissionRequest[];
+};
+
+/**
+ * What has to be settled before a result may be handed to the opener.
+ *
+ * PROVIDER-AGNOSTIC, and here rather than in a provider because every provider needs the SAME
+ * answer. When it lived in one provider the three sign-in paths disagreed: the mnemonic one raised
+ * the access gate and the email and oauth ones passed `false`, so signing in by email skipped an
+ * approval that signing in by mnemonic required. A gate that only some doors have is not a gate.
+ *
+ * `false` only when there is nothing at all to settle. Anything else and the UI must ask, and the
+ * host must withhold the result until it has.
+ */
+export function originApprovalRequired(request: OriginContext): false | OriginApprovalRequest {
+	const permissions = request.permissions || [];
+	// The SAME comparison the access decision uses, rather than a `!==` written again here. This does
+	// not decide access; all it does is notice there is nothing at all to settle, and it must not
+	// reach that conclusion by a rule stricter or looser than the one that would have decided the
+	// request.
+	const sameOrigin = normalizeOrigin(request.windowOrigin) === normalizeOrigin(request.signingOrigin);
+	if (sameOrigin && permissions.length === 0) {
+		return false;
+	}
+	return {
+		windowOrigin: request.windowOrigin,
+		signingOrigin: request.signingOrigin,
+		permissions,
+	};
+}
+
+/** Loopback names that are the same machine and NOT the same origin, which is the whole trap. */
+const LOOPBACK_ALIASES = ['localhost', '127.0.0.1', '[::1]'];
+
+/**
+ * THE MISMATCH THAT COSTS AN AFTERNOON, described so a host can say it out loud.
+ *
+ * The host posts its result with `postMessage(..., {targetOrigin: windowOrigin})`, where
+ * `windowOrigin` is what the opener CLAIMED to be. That origin lock is load-bearing and must not be
+ * relaxed: it is the whole reason a page that lies about its origin gains nothing, because the
+ * browser then delivers the account only to a window actually at the claimed origin.
+ *
+ * The cost of that guarantee is a failure mode with no error anywhere. If the claim is not the
+ * opener's real origin - `http://127.0.0.1:5173` against `http://localhost:5173`, http against
+ * https, or the wrong port - the sign-in completes visibly in the popup and the browser silently
+ * drops the result. The app waits forever and nothing on either side says why.
+ *
+ * Here rather than in the host, and pure, because it is a comparison of two origin strings by the
+ * same spelling rules as everything else in this file, and because a comparison a host writes for
+ * itself is one nobody tests. `undefined` when they agree, or when there is nothing to compare
+ * against: absence of a real origin means CANNOT TELL, never MISMATCH.
+ */
+export function describeOriginMismatch(
+	claimed: string | undefined | null,
+	opener: string | undefined | null,
+): {message: string; brief: string} | undefined {
+	if (!claimed || !opener) {
+		return undefined;
+	}
+	let claimedOrigin: string;
+	let openerOrigin: string;
+	try {
+		claimedOrigin = new URL(normalizeOrigin(claimed)).origin;
+		openerOrigin = new URL(normalizeOrigin(opener)).origin;
+	} catch {
+		return undefined;
+	}
+	if (claimedOrigin === openerOrigin) {
+		return undefined;
+	}
+
+	const claimedHost = new URL(claimedOrigin).hostname;
+	const openerHost = new URL(openerOrigin).hostname;
+	// DIFFERENT loopback spellings. Same spelling on a different scheme or port is a mismatch too,
+	// but saying `"localhost" and "localhost" are not interchangeable` about it would be nonsense,
+	// and a message that is nonsense in one case is a message people stop reading in every case.
+	const bothLoopback =
+		claimedHost !== openerHost && LOOPBACK_ALIASES.includes(claimedHost) && LOOPBACK_ALIASES.includes(openerHost);
+
+	return {
+		brief: `[etherplay] delivering to "${claimedOrigin}", which is not where the opener is ("${openerOrigin}"): the browser will drop this.`,
+		message:
+			`[etherplay] ORIGIN MISMATCH: the page that opened this window declared "${claimedOrigin}" but is actually at ` +
+			`"${openerOrigin}". The result is delivered with that declared origin as postMessage's targetOrigin, so the ` +
+			`browser will drop it and the app will receive NOTHING, with no error of its own.` +
+			(bothLoopback
+				? ` These two are the same machine and different origins: "${claimedHost}" and "${openerHost}" are not ` +
+					`interchangeable here. Open your app on "${openerHost}" or configure it to use the other, but use one.`
+				: ` Whatever the app passes as its origin must be exactly the origin it is served from.`),
+	};
 }
 
 /**

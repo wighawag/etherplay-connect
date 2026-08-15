@@ -11,3 +11,9 @@ node_modules/
 # Ignore npm files
 pnpm-lock.yaml
 package.json
+
+# Built bundles. Reformatting one is not cosmetic: its index.html carries subresource integrity
+# hashes over those exact bytes, so a reformat produces a site the browser refuses to run.
+packages/etherplay-dev-wallet-host/site/
+web/dist/
+web/dist-dev/

@@ -11,7 +11,7 @@
   },
   "scripts": {
     "prepare": "set-defaults .vscode && pnpm build:packages",
-    "prepublishOnly": "pnpm format:check && pnpm build:packages",
+    "prepublishOnly": "pnpm format:check && pnpm build:packages && pnpm build:dev-wallet-host",
     "release": "pnpm prepublishOnly && git push --all && pnpm changeset publish && git push --tags",
     "release:ci": "pnpm prepublishOnly && pnpm changeset publish",
     "changeset:check": "changeset status --since=main",
@@ -22,6 +22,7 @@
     "build:etherplay-connect-core": "pnpm run --filter @etherplay/connect-core build",
     "build:etherplay-connect": "pnpm run --filter @etherplay/connect build",
     "build:etherplay-openfort": "pnpm run --filter @etherplay/openfort build",
+    "build:dev-wallet-host": "pnpm run --filter @etherplay/dev-wallet-host build:fresh",
     "build:etherplay-wallet-connector": "pnpm run --filter @etherplay/wallet-connector build",
     "build:etherplay-wallet-connector-ethereum": "pnpm run --filter @etherplay/wallet-connector-ethereum build",
     "build:etherplay-wallet-connector-fuel": "pnpm run --filter @etherplay/wallet-connector-fuel build",

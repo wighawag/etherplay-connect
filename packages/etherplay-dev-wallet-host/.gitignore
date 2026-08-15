@@ -1,0 +1,3 @@
+# Built by `pnpm build` from web/ (one source, two builds). Never edited here, never committed.
+site/
+config.example.json

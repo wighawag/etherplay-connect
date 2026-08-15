@@ -1,6 +1,10 @@
 node_modules/
 
 dist/
+dist-dev/
+
+# a local runtime configuration document, served at /config.json by `vite dev`
+public/config.json
 
 .vscode/*
 !.vscode/*.default

@@ -1831,8 +1831,18 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			popupURL.searchParams.append('domain-redirect-public-key', popupSettings.domainRedirectPublicKeyB64);
 		}
 
-		const authProvider = (import.meta as any).env?.VITE_AUTH_PROVIDER || 'openfort';
-		popupURL.searchParams.append('provider', authProvider);
+		// WHICH HOSTED PROVIDER THE HOST SHOULD USE FOR EMAIL AND OAUTH.
+		//
+		// That is all this parameter means. It is chosen ONCE, here, at the app's build time, and
+		// appended to every popup URL for every mechanism, so it cannot express a per-mechanism choice
+		// and must not be asked to: the host routes by MECHANISM, and derives a mnemonic sign-in
+		// locally without consulting this at all.
+		//
+		// Deliberately not made per-mechanism here. Which mechanisms a host answers itself is host
+		// implementation knowledge, and putting it in this library would oblige every third-party
+		// client to reproduce it and then drift from it.
+		const hostedAuthProvider = (import.meta as any).env?.VITE_AUTH_PROVIDER || 'openfort';
+		popupURL.searchParams.append('provider', hostedAuthProvider);
 
 		if (popupSettings.mechanism.type === 'mnemonic') {
 			popupURL.searchParams.append('type', 'mnemonic');

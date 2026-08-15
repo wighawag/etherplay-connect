@@ -5,9 +5,15 @@ name: test
 # regression in a feature, it is agreement between implementations that fails
 # silently when it breaks (see @etherplay/delegation and its `vectors.json`).
 #
-# `--filter './packages/*'` rather than `-r`, deliberately: the demo's `test`
-# script is `vitest` in WATCH mode, which never exits, and a recursive run would
-# hang here rather than fail.
+# `--filter './packages/*' --filter ./web` rather than `-r`, deliberately: the
+# demo's `test` script is `vitest` in WATCH mode, which never exits, and a
+# recursive run would hang here rather than fail.
+#
+# `web` is in that list because the sign-in host makes two decisions that fail
+# SILENTLY: whether a runtime configuration document's allowlist is applied (an
+# entry mints credentials with nobody in the loop) and what deadline goes on the
+# result. A host whose tests CI could not reach would be the one part of this
+# system checked only by someone remembering to run it.
 on:
   push:
     branches: [main]
@@ -45,4 +51,4 @@ jobs:
       # ABI boundary. Solidity tests that only ever run on a laptop are the
       # reason the pinning test was worth moving into this repo at all.
       - name: Test
-        run: pnpm --filter './packages/*' run test
+        run: pnpm --filter './packages/*' --filter ./web run test

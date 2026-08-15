@@ -2,6 +2,8 @@ import type {AuthMechanism, AuthProvider, OauthMechanism, PermissionRequest} fro
 import {parsePermissionRequests} from '@etherplay/connect-core';
 import {createAuthProvider} from './handler';
 import {EthereumAccountGenerator} from '@etherplay/wallet-connector-ethereum';
+import {hostConfig} from './config';
+import {originMismatch} from './origin-check';
 
 const errors: {message: string; canClose: boolean}[] = [];
 
@@ -77,8 +79,17 @@ export const permissions: PermissionRequest[] = (() => {
 
 // account type, for now ethereum is the only one well supported
 const accountType = searchParams.get('account-type') || 'ethereum';
-// for now we use openfort
-const authProviderType = searchParams.get('provider') || import.meta.env.VITE_AUTH_PROVIDER || 'openfort';
+
+// WHICH HOSTED PROVIDER ANSWERS EMAIL AND OAUTH, and nothing else.
+//
+// That is the whole of its meaning now. It used to select the one provider this host could build,
+// for every mechanism, which is why it could not express what every app with both email and a local
+// mnemonic sign-in needs: the app chooses this value ONCE, at its own build time, and
+// `@etherplay/connect` appends it to every popup URL for every mechanism.
+//
+// The mechanism is what actually differs, so the mechanism is what routes (see handler.ts). The
+// mnemonic mechanism never consults this value at all.
+const hostedAuthProviderType = searchParams.get('provider') || hostConfig().hostedAuthProvider;
 
 // debug flag that for example stop the popup for auto closing so we can inspect the console logs
 export const debug = searchParams.get('debug');
@@ -125,7 +136,10 @@ if (!type) {
 	} else if (type === 'mnemonic') {
 		mechanism = {
 			type: 'mnemonic',
-			mnemonic: import.meta.env.VITE_DEV_MNEMONIC || 'test test test test test test test test test test test junk',
+			// The standard test mnemonic by default, deliberately and in every build: those accounts are
+			// public knowledge and funded on every local chain, so the mechanism needs no user input
+			// beyond picking an index.
+			mnemonic: hostConfig().devMnemonic,
 			index: undefined,
 		};
 	} else {
@@ -144,9 +158,21 @@ let fromProps:
 	  }
 	| undefined;
 
-
-if (!authProviderType) {
+// Only the hosted mechanisms need one. A mnemonic sign-in is derived in this browser, so a host
+// with no hosted provider configured at all still completes one.
+//
+// Reachable despite the default above, and worth keeping for the case that reaches it: a
+// development document saying `"hostedAuthProvider": ""` is how somebody states that THIS host
+// answers no hosted mechanism, which is a reasonable thing to run locally. Then email and oauth say
+// so plainly instead of constructing a provider with no credentials and failing later.
+if (mechanism && mechanism.type !== 'mnemonic' && !hostedAuthProviderType) {
 	errors.push({message: `no auth provider configured`, canClose: true});
+}
+
+// Said as early as it can be said, because the failure it describes is invisible: the sign-in below
+// will complete and the result will be posted to an origin nobody is at.
+if (originMismatch) {
+	console.error(originMismatch);
 }
 
 if (!mechanism) {
@@ -160,7 +186,9 @@ if (!accountGenerator) {
 
 let authProvider: AuthProvider | undefined;
 if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType && accountGenerator) {
-	console.log(`mechanism`, mechanism, `provider`, authProviderType);
+	const providerUsed =
+		mechanism.type === 'mnemonic' ? 'local (derived in this browser)' : `hosted "${hostedAuthProviderType}"`;
+	console.log(`[etherplay] mechanism "${mechanism.type}" -> provider ${providerUsed}`, mechanism);
 	let canCloseAutomatically = false;
 	if (type === 'mnemonic') {
 		canCloseAutomatically = true;
@@ -176,13 +204,11 @@ if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType 
 
 	const signingOriginToUse = signingOrigin || windowOrigin;
 
-	const authProviderToUse = createAuthProvider(
-		authProviderType,
-		accountGenerator,
+	const authProviderToUse = createAuthProvider(mechanism, hostedAuthProviderType, accountGenerator, {
 		windowOrigin,
-		signingOriginToUse,
+		signingOrigin: signingOriginToUse,
 		permissions,
-	);
+	});
 
 	const initialisingAuthProvider = authProviderToUse.init();
 
@@ -230,4 +256,4 @@ if (errors.length == 0 && windowOrigin && requestID && mechanism && accountType 
 	}
 }
 
-export {authProvider, errors, authProviderType, fromProps, accountGenerator};
+export {authProvider, errors, hostedAuthProviderType, fromProps, accountGenerator};
