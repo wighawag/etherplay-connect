@@ -1,6 +1,6 @@
 {
 	"name": "@etherplay/dev-wallet-host",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "The Etherplay sign-in host, prebuilt, for DEVELOPMENT and e2e only - run it next to your app the way you run a faucet. Unfit for real accounts by construction.",
 	"keywords": [
 		"etherplay",
