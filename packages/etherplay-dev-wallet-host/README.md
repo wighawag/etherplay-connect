@@ -47,7 +47,9 @@ With no configuration at all it serves a working sign-in. The mnemonic mechanism
 
 ## Configuring it
 
-Optional. Write a JSON file anywhere in your project and pass `--config`; it is re-read on every request, so editing it and reloading the popup is the whole loop. Copy `node_modules/@etherplay/dev-wallet-host/config.example.json` to start from.
+Optional. Write a JSON file anywhere in your project and pass `--config`; it is re-read on every request, so editing it and reloading the popup is the whole loop. Copy `node_modules/@etherplay/dev-wallet-host/config.example.json` to start from. A `config.json` sitting in the served directory works too.
+
+With neither, `/config.json` answers with an empty document rather than a 404: absence is this file's normal state and the host asks for it on every popup, so a red line in the console of a correctly configured host would only teach you to ignore that line. The host then says, on startup, that it is on its built-in defaults. When a document DOES change something, it names the fields it changed, which is the quickest way to catch a typo'd field name that is being silently ignored.
 
 | field                       | what it is                                                                     |
 | --------------------------- | ------------------------------------------------------------------------------ |

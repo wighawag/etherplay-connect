@@ -89,6 +89,24 @@ describe('the development wallet host server', () => {
 		assert.equal(new URL('/../../../etc/passwd', 'http://x').pathname, '/etc/passwd');
 	});
 
+	test('serves a config.json that is IN the directory, rather than the empty one', async () => {
+		// The `--config` flag is one way to hand this host a document; dropping the file next to
+		// index.html is the other, and it must not be shadowed by the empty answer above.
+		await writeFile(join(dir, 'config.json'), JSON.stringify({devMnemonic: 'from the directory'}));
+		const bare = createHost({dir});
+		await new Promise((resolve) => bare.listen(0, '127.0.0.1', resolve));
+		const bareOrigin = `http://127.0.0.1:${bare.address().port}`;
+		try {
+			assert.deepEqual(await (await fetch(`${bareOrigin}/config.json`)).json(), {
+				devMnemonic: 'from the directory',
+			});
+		} finally {
+			bare.closeAllConnections();
+			await new Promise((resolve) => bare.close(resolve));
+			await rm(join(dir, 'config.json'), {force: true});
+		}
+	});
+
 	test('redirects a directory without emitting an invalid header', async () => {
 		// `pathname` is decoded on the way in, so a name with a space in it would put a raw space in
 		// the Location header, which Node refuses by throwing - inside an async handler, where a
@@ -117,14 +135,22 @@ describe('the development wallet host server', () => {
 		}
 	});
 
-	test('answers 404 for the configuration document when there is none', async () => {
+	test('answers an EMPTY document, not a 404, when there is no configuration', async () => {
 		const bare = createHost({dir});
 		await new Promise((resolve) => bare.listen(0, '127.0.0.1', resolve));
 		const bareOrigin = `http://127.0.0.1:${bare.address().port}`;
 		try {
-			// Which is how the host decides to use its built-in defaults: absence is the normal case,
-			// not an error.
-			assert.equal((await fetch(`${bareOrigin}/config.json`)).status, 404);
+			// Absence is this file's normal state, and the host asks for it on every popup. A 404
+			// would put a red line in the console of a correctly configured host, and the host would
+			// then have to describe "no document" and "an empty document" as different things when
+			// they mean the same one. It says `{}` instead, and the host reports built-in defaults.
+			const response = await fetch(`${bareOrigin}/config.json`);
+			assert.equal(response.status, 200);
+			assert.match(response.headers.get('content-type'), /json/);
+			assert.deepEqual(await response.json(), {});
+
+			// And nothing else gets an answer it did not ask for.
+			assert.equal((await fetch(`${bareOrigin}/login/nope.json`)).status, 404);
 			assert.equal((await fetch(`${bareOrigin}/login/`)).status, 200);
 		} finally {
 			bare.closeAllConnections();

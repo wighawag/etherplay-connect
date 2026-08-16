@@ -381,12 +381,13 @@ export async function fetchDocument(): Promise<RuntimeConfigDocument | undefined
  */
 export async function prepareConfiguration(): Promise<HostConfig> {
 	if (DEVELOPMENT_BUILD) {
+		const defaults = bakedDefaults();
 		const document = await fetchDocument();
-		applied = document ? mergeDocument(bakedDefaults(), document) : bakedDefaults();
-		announce(!!document);
+		applied = document ? mergeDocument(defaults, document) : defaults;
+		announce(describeDocument(document, defaults, applied));
 	} else {
 		applied = bakedDefaults();
-		announce(false);
+		announce('configured at build time');
 		fetchDocument().then((document) => {
 			if (document) {
 				console.warn(
@@ -401,20 +402,55 @@ export async function prepareConfiguration(): Promise<HostConfig> {
 }
 
 /**
+ * Which top-level values this host ended up with that are not the ones it was built with.
+ *
+ * Compared by value rather than tracked during the merge, so it cannot drift from what was actually
+ * applied: it reports the difference that EXISTS, not the difference the merge believes it made.
+ */
+function changedFields(defaults: HostConfig, merged: HostConfig): string[] {
+	return (Object.keys(defaults) as (keyof HostConfig)[]).filter(
+		(key) => JSON.stringify(defaults[key]) !== JSON.stringify(merged[key]),
+	);
+}
+
+/**
+ * WHAT THE DOCUMENT DID, which is not the same question as whether there was one.
+ *
+ * Three outcomes, and the middle one is why this exists. A document that is present and changes
+ * nothing is the normal state of a host nobody has configured (the bundled server answers `{}` so
+ * that an absent optional file does not look like a failed request), and announcing that as
+ * "configured by config.json" would be a claim nobody could check and everybody would misread: the
+ * developer whose settings are being ignored because of a typo'd field name would read it as
+ * confirmation that they were applied.
+ *
+ * Naming the fields that DID change costs one line and answers the only question anybody asks of
+ * this message next.
+ */
+function describeDocument(
+	document: RuntimeConfigDocument | undefined,
+	defaults: HostConfig,
+	merged: HostConfig,
+): string {
+	if (!document) {
+		return `no ${RUNTIME_CONFIG_URL} found, using built-in defaults`;
+	}
+	const changed = changedFields(defaults, merged);
+	if (changed.length === 0) {
+		return `${RUNTIME_CONFIG_URL} is present but sets nothing, so this host is on its built-in defaults`;
+	}
+	return `configured by ${RUNTIME_CONFIG_URL}: ${changed.join(', ')}`;
+}
+
+/**
  * The startup line.
  *
  * Which origin this is being served from and which provider it will use for hosted mechanisms are
  * the two facts a developer needs to match against their app's `walletHost` and their own
  * expectations, and looking either of them up costs more than printing them.
  */
-function announce(documentApplied: boolean) {
+function announce(document: string) {
 	const config = hostConfig();
 	const build = DEVELOPMENT_BUILD ? 'DEVELOPMENT build (not for real accounts)' : 'production build';
-	const document = DEVELOPMENT_BUILD
-		? documentApplied
-			? `configured by ${RUNTIME_CONFIG_URL}`
-			: `no ${RUNTIME_CONFIG_URL} found, using built-in defaults`
-		: 'configured at build time';
 	console.log(
 		`[etherplay] login host serving ${window.location.origin} - ${build}, ${document}.\n` +
 			`[etherplay] email and oauth go to the hosted provider "${config.hostedAuthProvider}"; ` +

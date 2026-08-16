@@ -69,6 +69,7 @@ describe('a development build', () => {
 		expect(config.originAllowlist).toEqual(allowlist);
 		expect(config.autoSignedLifetimeSeconds).toBe(120);
 		expect(logs.join('\n')).toContain('configured by /config.json');
+		expect(logs.join('\n')).toContain('originAllowlist');
 	});
 
 	it('waits for the document before answering, so nothing reads the defaults first', async () => {
@@ -85,6 +86,53 @@ describe('a development build', () => {
 		expect(() => hostConfig()).toThrow(/before the runtime document was loaded/);
 		release!(jsonResponse({autoSignedLifetimeSeconds: 7}));
 		expect((await pending).autoSignedLifetimeSeconds).toBe(7);
+	});
+
+	it('says a document that is PRESENT and sets nothing is not configuration', async () => {
+		// The normal state of a host nobody has configured: the bundled server answers `{}` so that
+		// an absent optional file does not look like a failed request. Announcing that as
+		// "configured by config.json" would be read as confirmation by the one person who most needs
+		// to be told otherwise: the developer whose settings are being ignored because they typo'd a
+		// field name.
+		const {prepareConfiguration} = await loadConfig('development');
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => jsonResponse({})),
+		);
+
+		const config = await prepareConfiguration();
+		expect(config).toEqual((await loadConfig('development')).bakedDefaults());
+		expect(logs.join('\n')).toContain('present but sets nothing');
+		expect(logs.join('\n')).not.toContain('configured by');
+	});
+
+	it('says the same when every field in the document was refused', async () => {
+		// A document of nothing but typos changes nothing, and this is the line that says so.
+		const {prepareConfiguration} = await loadConfig('development');
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => jsonResponse({autoSignedLifetimeSeconds: 'soon', unknownField: true})),
+		);
+
+		await prepareConfiguration();
+		expect(logs.join('\n')).toContain('present but sets nothing');
+		expect(errors.join('\n')).toContain('autoSignedLifetimeSeconds');
+	});
+
+	it('names the fields a document actually changed', async () => {
+		const {prepareConfiguration} = await loadConfig('development');
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => jsonResponse({autoSignedLifetimeSeconds: 120, devMnemonic: 'a b c'})),
+		);
+
+		await prepareConfiguration();
+		const line = logs.join('\n');
+		expect(line).toContain('configured by /config.json');
+		expect(line).toContain('autoSignedLifetimeSeconds');
+		expect(line).toContain('devMnemonic');
+		// And not the ones it left alone, which is what makes the list worth reading.
+		expect(line).not.toContain('crossOriginAllowlist');
 	});
 
 	it('runs on its defaults when there is no document, and says so', async () => {

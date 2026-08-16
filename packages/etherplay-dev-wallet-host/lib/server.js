@@ -109,8 +109,19 @@ async function handle(request, response, root, options) {
 	try {
 		info = await stat(file);
 	} catch {
-		// DELIBERATELY NOT index.html. See the header of this file: a fallback here turns a missing
-		// configuration document into one that silently did nothing.
+		// THE ONE PATH WITH AN ANSWER FOR "ABSENT", because absent is its normal state. The host
+		// asks for this on every popup, the document is optional, and a 404 in the console of a
+		// correctly configured host is a red line that means nothing is wrong, which is exactly the
+		// kind of noise that gets real errors ignored. An empty document is what "no configuration"
+		// IS, and the host says so in as many words rather than claiming it was configured.
+		//
+		// Only when there is no such file: a `config.json` sitting in the served directory is served
+		// above, and `--config` is answered earlier still.
+		if (pathname === '/config.json') {
+			return send(200, '{}', MIME['.json']);
+		}
+		// DELIBERATELY NOT index.html for anything else. See the header of this file: a fallback
+		// turns a missing configuration document into one that silently did nothing.
 		return send(404, `not found: ${pathname}`);
 	}
 	if (info.isDirectory()) {
