@@ -1,0 +1,60 @@
+# Code observations: WalletChosen connection flow
+
+Honest assessment: the code is still fine to ship, but it is starting to get messy—especially around the connection state machine.
+
+The final one-line fix is clean. The concern is the overall shape after adding `WalletChosen`.
+
+## What is still good
+
+- The behavior is well specified and heavily tested.
+- The failure semantics are clear: chosen wallets survive failed upgrades; wallet teardown prevents stale signing/routing.
+- The comments explain non-obvious invariants well.
+- The current diff passes all 164 package tests, build, formatting, and type checks.
+
+## Where it is becoming messy
+
+The main warning sign is `connect()` in `packages/etherplay-connect/src/index.ts`, now roughly 388 lines with 25 conditionals. It currently handles:
+
+- Wallet-name resolution
+- Provider registration
+- Chain-ID checks
+- Account discovery
+- Account prompting
+- Account selection
+- Last-wallet persistence
+- Automatic signature initiation
+- WalletChosen restoration
+- Wallet switching
+- Failure classification
+- State transitions
+
+`WalletChosen` added another parallel path rather than becoming a natural transition in one centralized state machine. There are now several places that need to remember the same invariants:
+
+- `$connection.wallet`
+- `_wallet`
+- `alwaysOnProviderWrapper` provider/status
+- account and chain watchers
+- persisted wallet state
+
+That split is why the feature needed repair paths such as `restoreWalletChosenAfterFailedConnect`. The code works, but each new resting step or target step will make these invariants harder to keep synchronized.
+
+## Recommendation
+
+Ship this change rather than refactor it now. The implementation is tested and the API is coherent.
+
+Before adding another target step, permission path, or wallet-selection behavior, refactor:
+
+1. Extract wallet lifecycle management into one helper/service:
+   - register provider
+   - set wrapper status
+   - start watchers
+   - stop watchers/unregister
+2. Extract `connectWallet()` from `connect()`.
+3. Centralize transitions such as `transitionToWalletChosen`, `transitionToWalletConnected`, and `transitionToIdle`.
+4. Remove duplicated `WalletConnected` state construction in the empty/nonempty account branches.
+5. Consider making step satisfaction table-driven:
+   - `WalletChosen` → chosen or better
+   - `WalletConnected` → connected or better
+   - `SignedIn` → signed in
+
+Bottom line: fine to merge, increasingly expensive to extend. It has not become unmaintainable yet, but this is the point where the next feature should probably start with a small structural cleanup.
