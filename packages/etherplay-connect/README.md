@@ -173,6 +173,39 @@ const connection = createConnection({
 
 This shape is wallet-only by definition, so `connection.walletOnly` is `true` whether or not you passed `walletOnly`, and the returned store is typed to say so.
 
+### 4. Wallet choice for reads without connect (`WalletChosen`)
+
+Pick an EIP-6963 wallet and use its provider for **reads**, without ever calling `eth_requestAccounts`. No connect popup, no account reveal, no signing. The motivating consumer is a blockchain indexer or read-only dashboard: it wants the user's own wallet as its node (a genuinely decentralised read path) but has no need for accounts, so requiring a connect prompt is friction that buys nothing.
+
+```typescript
+const connection = createConnection({
+	targetStep: 'WalletChosen',
+	chainInfo,
+	prioritizeWalletProvider: true, // route reads through the wallet
+	autoConnect: true, // restore the choice on reload, still without requesting accounts
+});
+
+// Let the user pick a wallet (auto-selects when only one is installed):
+await connection.selectWallet();
+
+// Reads (eth_chainId, eth_blockNumber, eth_getLogs, ...) now go through the wallet:
+const blockNumber = await connection.provider.request({method: 'eth_blockNumber'});
+
+// Signing and account-revealing methods are refused while the wallet is merely chosen:
+await connection.provider.request({method: 'personal_sign', ...}); // rejected, code 4001
+
+// Later, if the user wants to sign, the SAME wallet upgrades to WalletConnected:
+await connection.connect({type: 'wallet'});
+```
+
+The resting step is `WalletChosen`: `wallet.provider` is set, `wallet.accounts` is empty and `wallet.status` is `'disconnected'`. `isTargetStepReached` / `ensureConnected()` treat `WalletConnected` and `SignedIn`-via-wallet as satisfying the lower target, so a WalletChosen-target store keeps working if the user upgrades.
+
+**Handling the wallet picker.** With several wallets installed, `selectWallet()` (or `ensureConnected()`) lands on `WalletToChoose`. Nothing about that step distinguishes "pick to choose" from "pick to connect", and the wallet-picker handler in most apps is `connection.connect({type: 'wallet', name})` — which **upgrades**: it pops `eth_requestAccounts`, the exact friction this shape exists to avoid. On a WalletChosen-target store, wire the picker to call `connection.selectWallet(name)` instead. `connect()` stays available as the deliberate upgrade path; a `WalletConnected` outcome still satisfies the target.
+
+**Failure semantics.** If an upgrade from `WalletChosen` fails (rejected accounts prompt, an empty accounts answer, a wallet that stops answering mid-way), the choice is **not** thrown away: the flow restores `WalletChosen` with reads still routed through the chosen wallet — even when the failed attempt targeted a different one — and sets the error on that state. The choice also survives a `back()`, which drops the live wallet from the state but keeps the persisted choice: a reload restores it through auto-connect. To drop the choice entirely, use `disconnect()` — or `cancel()`, which abandons the flow like `back()` but clears the persisted choice too.
+
+This shape is wallet-only by definition, like shape 3, and the store is typed to say so.
+
 ### Do not use `walletHost` to detect whether the app has a session signer
 
 A common downstream mistake is deciding "can this app have a local signer?" by testing whether a `PUBLIC_WALLET_HOST`-style environment variable is set. **That test is wrong**, because shapes 2 and 3 both run with no host and only one of them has a signer.
@@ -191,20 +224,20 @@ const hasSigner = connection.targetStep === 'SignedIn';
 
 ### createConnection Options
 
-| Option                                    | Type                              | Required    | Description                                                                                                                                                                                                   |
-| ----------------------------------------- | --------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chainInfo`                               | `ChainInfo`                       | Yes         | Chain configuration including id, name, rpcUrls                                                                                                                                                               |
-| `targetStep`                              | `'WalletConnected' \| 'SignedIn'` | No          | Target connection step (default: `'SignedIn'`)                                                                                                                                                                |
-| `walletOnly`                              | `boolean`                         | No          | Offer only built-in (EIP-6963) wallets, no hosted mechanisms                                                                                                                                                  |
-| `walletHost`                              | `string`                          | Conditional | URL for popup-based auth. Required for `targetStep: 'SignedIn'` **unless** `walletOnly: true`; never used by `targetStep: 'WalletConnected'`. See [Supported connection shapes](#supported-connection-shapes) |
-| `signingOrigin`                           | `string`                          | No          | Sign for ANOTHER origin's account (defaults to the current origin). Refused unless that origin consents; see [Signing for another origin](#signing-for-another-origin)                                        |
-| `autoConnect`                             | `boolean`                         | No          | Auto-reconnect returning users (default: `true`)                                                                                                                                                              |
-| `walletConnector`                         | `WalletConnector`                 | No          | Custom wallet connector (defaults to Ethereum)                                                                                                                                                                |
-| `requestSignatureAutomaticallyIfPossible` | `boolean`                         | No          | Auto-request signature after wallet connection                                                                                                                                                                |
-| `useCurrentAccount`                       | `'always' \| 'whenSingle'`        | No          | Always use current wallet account                                                                                                                                                                             |
-| `prioritizeWalletProvider`                | `boolean`                         | No          | Prioritize wallet for RPC calls                                                                                                                                                                               |
-| `requestsPerSecond`                       | `number`                          | No          | Rate limit for RPC requests                                                                                                                                                                                   |
-| `storagePrefix`                           | `string`                          | No          | Namespace this connection's persisted state (default: `''`)                                                                                                                                                   |
+| Option                                    | Type                                                | Required    | Description                                                                                                                                                                                                                       |
+| ----------------------------------------- | --------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chainInfo`                               | `ChainInfo`                                         | Yes         | Chain configuration including id, name, rpcUrls                                                                                                                                                                                   |
+| `targetStep`                              | `'WalletChosen' \| 'WalletConnected' \| 'SignedIn'` | No          | Target connection step (default: `'SignedIn'`). `'WalletChosen'` picks the wallet for reads only — no accounts requested, signing refused; see [shape 4](#4-wallet-choice-for-reads-without-connect-walletchosen)                 |
+| `walletOnly`                              | `boolean`                                           | No          | Offer only built-in (EIP-6963) wallets, no hosted mechanisms                                                                                                                                                                      |
+| `walletHost`                              | `string`                                            | Conditional | URL for popup-based auth. Required for `targetStep: 'SignedIn'` **unless** `walletOnly: true`; never used by `targetStep: 'WalletConnected'` or `'WalletChosen'`. See [Supported connection shapes](#supported-connection-shapes) |
+| `signingOrigin`                           | `string`                                            | No          | Sign for ANOTHER origin's account (defaults to the current origin). Refused unless that origin consents; see [Signing for another origin](#signing-for-another-origin)                                                            |
+| `autoConnect`                             | `boolean`                                           | No          | Auto-reconnect returning users (default: `true`)                                                                                                                                                                                  |
+| `walletConnector`                         | `WalletConnector`                                   | No          | Custom wallet connector (defaults to Ethereum)                                                                                                                                                                                    |
+| `requestSignatureAutomaticallyIfPossible` | `boolean`                                           | No          | Auto-request signature after wallet connection                                                                                                                                                                                    |
+| `useCurrentAccount`                       | `'always' \| 'whenSingle'`                          | No          | Always use current wallet account                                                                                                                                                                                                 |
+| `prioritizeWalletProvider`                | `boolean`                                           | No          | Prioritize wallet for RPC calls                                                                                                                                                                                                   |
+| `requestsPerSecond`                       | `number`                                            | No          | Rate limit for RPC requests                                                                                                                                                                                                       |
+| `storagePrefix`                           | `string`                                            | No          | Namespace this connection's persisted state (default: `''`)                                                                                                                                                                       |
 
 ## Signing for another origin
 
@@ -293,17 +326,18 @@ You do not need to share a `walletConnector` between connections. EIP-6963 disco
 
 The connection follows a state machine with these primary steps:
 
-| Step                         | Description                                          |
-| ---------------------------- | ---------------------------------------------------- |
-| `Idle`                       | Initial state, not connected                         |
-| `MechanismToChoose`          | Waiting for auth mechanism selection                 |
-| `WalletToChoose`             | Multiple wallets available, waiting for selection    |
-| `WaitingForWalletConnection` | Connecting to selected wallet                        |
-| `ChooseWalletAccount`        | Multiple accounts available, waiting for selection   |
-| `WalletConnected`            | Wallet connected (target for `WalletConnected` mode) |
-| `WaitingForSignature`        | Waiting for user to sign message                     |
-| `PopupLaunched`              | Popup opened for social login                        |
-| `SignedIn`                   | Fully authenticated with session account             |
+| Step                         | Description                                                                                         |
+| ---------------------------- | --------------------------------------------------------------------------------------------------- |
+| `Idle`                       | Initial state, not connected                                                                        |
+| `MechanismToChoose`          | Waiting for auth mechanism selection                                                                |
+| `WalletToChoose`             | Multiple wallets available, waiting for selection                                                   |
+| `WaitingForWalletConnection` | Connecting to selected wallet                                                                       |
+| `ChooseWalletAccount`        | Multiple accounts available, waiting for selection                                                  |
+| `WalletChosen`               | Wallet picked for reads only: no accounts requested, signing refused (`targetStep: 'WalletChosen'`) |
+| `WalletConnected`            | Wallet connected (target for `WalletConnected` mode)                                                |
+| `WaitingForSignature`        | Waiting for user to sign message                                                                    |
+| `PopupLaunched`              | Popup opened for social login                                                                       |
+| `SignedIn`                   | Fully authenticated with session account                                                            |
 
 ### Where a failed attempt comes to rest
 
@@ -316,6 +350,10 @@ The connection follows a state machine with these primary steps:
 | Wallet-only, a single (or no) wallet  | `Idle`, there is no choice left to offer                 |
 
 The `error` is kept in every case, so the UI can explain the failure next to the picker (or on the connect button when back at `Idle`). Wallet-only mode never shows a mechanism picker (`connect` defaults the mechanism to `{type: 'wallet'}`), which is why a failure there never rests on `MechanismToChoose`.
+
+The exception is a failed UPGRADE from `WalletChosen`: a wallet that was chosen for reads stays chosen. The flow restores `WalletChosen` — with reads still routed through the wallet — and sets the error on that state, on the principle that a refused accounts prompt must not silently deselect the user's read path.
+
+And the mirror rule: every resting state above has `wallet: undefined`, and reaching one (via failure, `cancel()`, or `back()`) tears the live wallet down — the provider stops routing requests, and signing requests, through it. It used to be possible for an `Idle` state to keep signing through a wallet it no longer showed.
 
 Auto-connect failures rest on `Idle`: the user asked for nothing, so there is no decision to offer them.
 
@@ -422,21 +460,22 @@ reproduce it and then drift from it.
 
 ### ConnectionStore Methods
 
-| Method                                         | Description                           |
-| ---------------------------------------------- | ------------------------------------- |
-| `subscribe(callback)`                          | Subscribe to state changes            |
-| `connect(mechanism?, options?)`                | Initiate connection                   |
-| `cancel()`                                     | Cancel ongoing connection             |
-| `back(step)`                                   | Navigate back to previous step        |
-| `disconnect()`                                 | Disconnect and clear stored data      |
-| `requestSignature()`                           | Request signature for session account |
-| `connectToAddress(address, options?)`          | Connect to specific wallet address    |
-| `switchWalletChain(chainInfo?)`                | Switch wallet to different chain      |
-| `unlock()`                                     | Unlock locked wallet                  |
-| `ensureConnected(step?, mechanism?, options?)` | Promise-based connection              |
-| `isTargetStepReached(connection)`              | Check if target step is reached       |
-| `getSignatureForPublicKeyPublication()`        | Get signature for public key          |
-| `getDelegation(target)`                        | Get a delegation credential           |
+| Method                                         | Description                                                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `subscribe(callback)`                          | Subscribe to state changes                                                                              |
+| `connect(mechanism?, options?)`                | Initiate connection                                                                                     |
+| `cancel()`                                     | Cancel ongoing connection and drop the wallet                                                           |
+| `back(step)`                                   | Navigate back to previous step (drops the wallet)                                                       |
+| `disconnect()`                                 | Disconnect and clear stored data                                                                        |
+| `selectWallet(name?, options?)`                | Pick a wallet for reads without connect (`WalletChosen`); `options.doNotStoreLocally` skips persistence |
+| `requestSignature()`                           | Request signature for session account                                                                   |
+| `connectToAddress(address, options?)`          | Connect to specific wallet address                                                                      |
+| `switchWalletChain(chainInfo?)`                | Switch wallet to different chain                                                                        |
+| `unlock()`                                     | Unlock locked wallet                                                                                    |
+| `ensureConnected(step?, mechanism?, options?)` | Promise-based connection                                                                                |
+| `isTargetStepReached(connection)`              | Check if target step is reached                                                                         |
+| `getSignatureForPublicKeyPublication()`        | Get signature for public key                                                                            |
+| `getDelegation(target)`                        | Get a delegation credential                                                                             |
 
 ### `getSignatureForPublicKeyPublication()`
 

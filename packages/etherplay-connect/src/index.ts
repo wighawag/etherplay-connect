@@ -142,7 +142,7 @@ export type Mechanism = AuthMechanism | WalletMechanism<string | undefined, `0x$
 
 export type FullfilledMechanism = AuthMechanism | WalletMechanism<string, `0x${string}`>;
 
-export type TargetStep = 'WalletConnected' | 'SignedIn';
+export type TargetStep = 'WalletChosen' | 'WalletConnected' | 'SignedIn';
 
 export type WalletState<WalletProviderType> = {
 	provider: WalletProvider<WalletProviderType>;
@@ -159,6 +159,12 @@ type WaitingForSignature<WalletProviderType> = {
 	mechanism: WalletMechanism<string, `0x${string}`>;
 	wallet: WalletState<WalletProviderType>;
 	account: {address: `0x${string}`};
+};
+
+type WalletChosen<WalletProviderType> = {
+	step: 'WalletChosen';
+	mechanism: WalletMechanism<string, undefined>;
+	wallet: WalletState<WalletProviderType>;
 };
 
 type WalletConnected<WalletProviderType> = {
@@ -220,6 +226,12 @@ export type Connection<WalletProviderType> = {
 			wallet: undefined;
 			mechanism: WalletMechanism<string, undefined>;
 	  }
+	// Once a user has chosen a wallet via EIP-6963 but has NOT gone through the
+	// connect/accounts flow. The wallet provider is set on the always-on wrapper so
+	// reads route through it (when `prioritizeWalletProvider` is true), but no
+	// accounts have been requested and signing is refused (status: 'disconnected').
+	// This is the resting step for `targetStep: 'WalletChosen'`.
+	| WalletChosen<WalletProviderType>
 	// Once the wallet is connected, if multiple account are connected to the site
 	// the user can choose which one to connect to
 	| {
@@ -253,6 +265,9 @@ export type WalletConnectedState<WalletProviderType> = Extract<
 	{step: 'WalletConnected'}
 >;
 
+// Full WalletChosen type from Connection
+export type WalletChosenState<WalletProviderType> = Extract<Connection<WalletProviderType>, {step: 'WalletChosen'}>;
+
 // Type representing wallet-connected states (both WalletConnected and SignedIn-via-wallet)
 // This is what you get when targetStep is 'WalletConnected' and target is reached
 // Both variants have WalletMechanism and wallet
@@ -260,10 +275,19 @@ export type ConnectedWithWallet<WalletProviderType> =
 	| WalletConnectedState<WalletProviderType>
 	| SignedInWithWallet<WalletProviderType>;
 
+// Type representing the chosen-or-better states. This is what you get when targetStep is
+// 'WalletChosen' and the target is reached: the wallet may be merely chosen, fully connected,
+// or signed-in via wallet — all satisfy the lower target.
+export type ChosenOrBetter<WalletProviderType> =
+	| WalletChosenState<WalletProviderType>
+	| WalletConnectedState<WalletProviderType>
+	| SignedInWithWallet<WalletProviderType>;
+
 // Full SignedIn type from Connection (includes both popup-based and wallet-based variants)
 export type SignedInState<WalletProviderType> = Extract<Connection<WalletProviderType>, {step: 'SignedIn'}>;
 
 // Type guard - narrows Connection based on targetStep and walletOnly
+// For 'WalletChosen' target: narrows to ChosenOrBetter (WalletChosen | WalletConnected | SignedIn-with-wallet)
 // For 'WalletConnected' target: narrows to ConnectedWithWallet (WalletConnected | SignedIn-with-wallet)
 // For 'SignedIn' target with walletOnly: narrows to SignedInWithWallet
 // For 'SignedIn' target (default): narrows to SignedIn
@@ -271,11 +295,21 @@ export function isTargetStepReached<WalletProviderType, Target extends TargetSte
 	connection: Connection<WalletProviderType>,
 	targetStep: Target,
 	walletOnly?: WalletOnly,
-): connection is Target extends 'WalletConnected'
-	? ConnectedWithWallet<WalletProviderType>
-	: WalletOnly extends true
-		? SignedInWithWallet<WalletProviderType>
-		: SignedInState<WalletProviderType> {
+): connection is Target extends 'WalletChosen'
+	? ChosenOrBetter<WalletProviderType>
+	: Target extends 'WalletConnected'
+		? ConnectedWithWallet<WalletProviderType>
+		: WalletOnly extends true
+			? SignedInWithWallet<WalletProviderType>
+			: SignedInState<WalletProviderType> {
+	if (targetStep === 'WalletChosen') {
+		// For WalletChosen target, accept WalletChosen OR any higher step (WalletConnected, SignedIn-with-wallet)
+		return (
+			connection.step === 'WalletChosen' ||
+			connection.step === 'WalletConnected' ||
+			(connection.step === 'SignedIn' && connection.wallet !== undefined)
+		);
+	}
 	if (targetStep === 'WalletConnected') {
 		// For WalletConnected target, accept WalletConnected OR SignedIn-with-wallet
 		return connection.step === 'WalletConnected' || (connection.step === 'SignedIn' && connection.wallet !== undefined);
@@ -383,7 +417,10 @@ const stepsInProgress: readonly string[] = [
 // Steps where the flow is at rest, waiting for a brand new user decision.
 // Note these are also the steps `ensureConnected` is commonly called from (the picker is showing),
 // so being in one of them is NOT a failure by itself: only a transition back into one after an attempt started is.
-const stepsAtRest: readonly string[] = ['Idle', 'MechanismToChoose', 'WalletToChoose'];
+// `WalletChosen` counts as at rest too: a failed upgrade restores it WITH a fresh error, so the
+// error branch rejects before this list is even reached — and a resting `WalletChosen` carrying a
+// stale error is as retryable as a picker carrying one.
+const stepsAtRest: readonly string[] = ['Idle', 'MechanismToChoose', 'WalletToChoose', 'WalletChosen'];
 
 export type ConnectionStore<
 	WalletProviderType,
@@ -408,58 +445,84 @@ export type ConnectionStore<
 		options?: {requireUserConfirmationBeforeSignatureRequest: boolean},
 	) => void;
 	disconnect: () => void;
+	// Pick a wallet via EIP-6963 and set it as the read provider WITHOUT going through
+	// the connect/accounts flow. The wallet's provider is set on the always-on wrapper so
+	// reads route through it (when `prioritizeWalletProvider` is true), but no accounts are
+	// requested and signing is refused. Transitions to the `WalletChosen` step.
+	// If `name` is omitted and only one wallet is detected, auto-selects it; if multiple
+	// wallets are detected, transitions to `WalletToChoose` for the user to pick. On a
+	// `targetStep: 'WalletChosen'` store, that picker's handler should call `selectWallet`
+	// (not `connect`, which is the upgrade path and pops eth_requestAccounts).
+	// Note `WalletChosen` is a resting point, not a step towards a HIGHER target: on a
+	// 'SignedIn'/'WalletConnected' store it satisfies nothing by itself — call `connect()`
+	// to upgrade from it. Pass `options.doNotStoreLocally` to keep the choice out of
+	// persisted storage (no auto-connect restore on reload).
+	selectWallet: (name?: string, options?: {doNotStoreLocally?: boolean}) => Promise<void>;
 	getSignatureForPublicKeyPublication: () => Promise<`0x${string}`>;
 	getDelegation: (target: {chainId: number; contract: `0x${string}`; deadline?: number}) => Promise<SavedDelegation>;
 	switchWalletChain: (chainInfo?: BasicChainInfo) => Promise<void>;
 	unlock: () => Promise<void>;
 
 	// ensureConnected signature depends on target and walletOnly
-	ensureConnected: Target extends 'WalletConnected'
+	ensureConnected: Target extends 'WalletChosen'
 		? {
-				(options?: EnsureConnectedOptions): Promise<WalletConnected<WalletProviderType>>;
+				// Resolves to ChosenOrBetter rather than exactly WalletChosen: a wallet that is
+				// already connected or signed in satisfies the lower target.
+				(options?: EnsureConnectedOptions): Promise<ChosenOrBetter<WalletProviderType>>;
 				(
-					step: 'WalletConnected',
+					step: 'WalletChosen',
 					mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
 					options?: EnsureConnectedOptions,
-				): Promise<WalletConnected<WalletProviderType>>;
+				): Promise<ChosenOrBetter<WalletProviderType>>;
 			}
-		: WalletOnly extends true
+		: Target extends 'WalletConnected'
 			? {
-					// walletOnly: true for SignedIn - returns SignedInWithWallet (not full SignedIn union)
-					(options?: EnsureConnectedOptions): Promise<SignedInWithWallet<WalletProviderType>>;
+					(options?: EnsureConnectedOptions): Promise<WalletConnected<WalletProviderType>>;
 					(
 						step: 'WalletConnected',
 						mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
 						options?: EnsureConnectedOptions,
 					): Promise<WalletConnected<WalletProviderType>>;
-					(
-						step: 'SignedIn',
-						mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
-						options?: EnsureConnectedOptions,
-					): Promise<SignedInWithWallet<WalletProviderType>>;
 				}
-			: {
-					(options?: EnsureConnectedOptions): Promise<SignedIn<WalletProviderType>>;
-					(
-						step: 'WalletConnected',
-						mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
-						options?: EnsureConnectedOptions,
-					): Promise<WalletConnected<WalletProviderType>>;
-					(
-						step: 'SignedIn',
-						mechanism?: Mechanism,
-						options?: EnsureConnectedOptions,
-					): Promise<SignedIn<WalletProviderType>>;
-				};
+			: WalletOnly extends true
+				? {
+						// walletOnly: true for SignedIn - returns SignedInWithWallet (not full SignedIn union)
+						(options?: EnsureConnectedOptions): Promise<SignedInWithWallet<WalletProviderType>>;
+						(
+							step: 'WalletConnected',
+							mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
+							options?: EnsureConnectedOptions,
+						): Promise<WalletConnected<WalletProviderType>>;
+						(
+							step: 'SignedIn',
+							mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
+							options?: EnsureConnectedOptions,
+						): Promise<SignedInWithWallet<WalletProviderType>>;
+					}
+				: {
+						(options?: EnsureConnectedOptions): Promise<SignedIn<WalletProviderType>>;
+						(
+							step: 'WalletConnected',
+							mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
+							options?: EnsureConnectedOptions,
+						): Promise<WalletConnected<WalletProviderType>>;
+						(
+							step: 'SignedIn',
+							mechanism?: Mechanism,
+							options?: EnsureConnectedOptions,
+						): Promise<SignedIn<WalletProviderType>>;
+					};
 
 	// Method to check if target step is reached with proper type narrowing
 	isTargetStepReached: (
 		connection: Connection<WalletProviderType>,
-	) => connection is Target extends 'WalletConnected'
-		? ConnectedWithWallet<WalletProviderType>
-		: WalletOnly extends true
-			? SignedInWithWallet<WalletProviderType>
-			: SignedInState<WalletProviderType>;
+	) => connection is Target extends 'WalletChosen'
+		? ChosenOrBetter<WalletProviderType>
+		: Target extends 'WalletConnected'
+			? ConnectedWithWallet<WalletProviderType>
+			: WalletOnly extends true
+				? SignedInWithWallet<WalletProviderType>
+				: SignedInState<WalletProviderType>;
 
 	// New properties
 	targetStep: Target;
@@ -479,8 +542,10 @@ export type ConnectionStore<
 // `WalletOnly = true`. It is kept in the union deliberately, because the type is exported and
 // narrowing it would break any consumer that spelled it out explicitly. For `WalletConnected` the
 // two members differ only in the `walletOnly` literal anyway: every other member of
-// `ConnectionStore` ignores `WalletOnly` once `Target` is `'WalletConnected'`.
+// `ConnectionStore` ignores `WalletOnly` once `Target` is `'WalletChosen'` or `'WalletConnected'`
+// (both are wallet-only by definition, so the union spells them with `WalletOnly = true` only).
 export type AnyConnectionStore<WalletProviderType> =
+	| ConnectionStore<WalletProviderType, 'WalletChosen', true>
 	| ConnectionStore<WalletProviderType, 'SignedIn', true>
 	| ConnectionStore<WalletProviderType, 'WalletConnected', true>
 	| ConnectionStore<WalletProviderType, 'SignedIn', false>
@@ -496,9 +561,35 @@ export type AnyConnectionStore<WalletProviderType> =
 // "Wallet-only sign-in with no backend", and `test/types/wallet-only-no-host.types.ts` which fails
 // to compile if it is flattened.
 //
-// Both `WalletConnected` overloads report `WalletOnly = true`, because that is what the runtime
-// computes: `walletOnly = settings.walletOnly || targetStep === 'WalletConnected'`, so a
-// `WalletConnected` store always exposes `walletOnly === true`.
+// The `WalletChosen` and `WalletConnected` overloads report `WalletOnly = true`, because that is
+// what the runtime computes: `walletOnly = settings.walletOnly || targetStep === 'WalletChosen' ||
+// targetStep === 'WalletConnected'`, so both stores always expose `walletOnly === true`.
+
+// WalletChosen target with custom wallet connector - walletHost optional
+export function createConnection<WalletProviderType>(settings: {
+	targetStep: 'WalletChosen';
+	walletHost?: string;
+	nodeURL?: string;
+	chainInfo: ChainInfo<WalletProviderType>;
+	walletConnector: WalletConnector<WalletProviderType>;
+	autoConnect?: boolean;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
+	storagePrefix?: string;
+}): ConnectionStore<WalletProviderType, 'WalletChosen', true>;
+
+// WalletChosen target with default Ethereum connector - walletHost optional
+export function createConnection(settings: {
+	targetStep: 'WalletChosen';
+	walletHost?: string;
+	nodeURL?: string;
+	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
+	walletConnector?: undefined;
+	autoConnect?: boolean;
+	prioritizeWalletProvider?: boolean;
+	requestsPerSecond?: number;
+	storagePrefix?: string;
+}): ConnectionStore<UnderlyingEthereumProvider, 'WalletChosen', true>;
 
 // WalletConnected target with custom wallet connector - walletHost optional
 export function createConnection<WalletProviderType>(settings: {
@@ -679,7 +770,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	const targetStep: TargetStep = settings.targetStep || 'SignedIn';
 
 	// Determine walletOnly (defaults to false, but true implies WalletConnected target behavior for mechanism)
-	const walletOnly = settings.walletOnly || targetStep === 'WalletConnected';
+	const walletOnly = settings.walletOnly || targetStep === 'WalletChosen' || targetStep === 'WalletConnected';
 
 	let autoConnect = true;
 	if (typeof settings.autoConnect !== 'undefined') {
@@ -713,6 +804,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// no decision to offer them. A cancelled popup is likewise a cancellation, not a failure, and rests on `Idle`.
 	function setConnectionFailure(error: {message: string; cause?: any}) {
 		const wallets = $connection.wallets;
+		// The resting states below all have `wallet: undefined`: tear down any live wallet
+		// first, or the wrapper would keep routing — and, while its status is 'connected',
+		// even SIGNING — through a wallet the state no longer shows.
+		teardownWallet();
 		if (!walletOnly) {
 			set({step: 'MechanismToChoose', wallets, wallet: undefined, error});
 		} else if (wallets.length > 1) {
@@ -866,6 +961,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									watchForAccountChange(walletProvider);
 								})
 								.catch((err) => {
+									// The wallet may have been registered on the wrapper before the
+									// failure (e.g. getAccounts threw): tear it down — Idle carries no
+									// wallet, so it must not keep routing requests.
+									teardownWallet();
 									set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 								});
 						} else {
@@ -880,10 +979,59 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					}
 				}
 
+				// For WalletChosen target, restore the wallet choice without requesting accounts.
+				// This is the auto-connect path for the "chosen but unconnected" feature: the
+				// wallet provider is set so reads route through it, but no eth_requestAccounts or
+				// eth_accounts is called. The wallet is in 'disconnected' status.
+				if (targetStep === 'WalletChosen') {
+					autoConnectHandled = true;
+					const lastWallet = getLastWallet();
+					if (lastWallet) {
+						waitForWallet(lastWallet.name)
+							.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
+								const walletProvider = walletDetails.walletProvider;
+								const chainIdAsHex = await withTimeout(walletProvider.getChainId());
+								const chainId = Number(chainIdAsHex).toString();
+								_wallet = {provider: walletProvider, chainId};
+								alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
+								alwaysOnProviderWrapper.setWalletStatus('disconnected');
+								watchForChainIdChange(_wallet.provider);
+								set({
+									step: 'WalletChosen',
+									mechanism: {type: 'wallet', name: lastWallet.name},
+									wallets: $connection.wallets,
+									wallet: {
+										provider: walletProvider,
+										accounts: [],
+										status: 'disconnected',
+										connecting: false,
+										accountChanged: undefined,
+										chainId,
+										invalidChainId: alwaysOnChainId != chainId,
+										switchingChain: false,
+										pendingRequests: [],
+									},
+								});
+							})
+							.catch((err) => {
+								// The wallet may have been registered on the wrapper before the
+								// failure (e.g. getAccounts threw): tear it down — Idle carries no
+								// wallet, so it must not keep routing requests.
+								teardownWallet();
+								set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
+							});
+					} else {
+						set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
+					}
+				}
+
 				// For both targets, fallback to lastWallet if no account found (or WalletConnected target)
 				if (!autoConnectHandled) {
 					const lastWallet = getLastWallet();
-					if (lastWallet) {
+					// A lastWallet without an address was saved by selectWallet (WalletChosen flow).
+					// The WalletConnected/SignedIn auto-connect needs an address to restore the
+					// account; without one, fall back to Idle rather than constructing an invalid state.
+					if (lastWallet && lastWallet.address) {
 						waitForWallet(lastWallet.name)
 							.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
 								const walletProvider = walletDetails.walletProvider;
@@ -917,6 +1065,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								watchForAccountChange(walletProvider);
 							})
 							.catch((err) => {
+								// The wallet may have been registered on the wrapper before the
+								// failure (e.g. getAccounts threw): tear it down — Idle carries no
+								// wallet, so it must not keep routing requests.
+								teardownWallet();
 								set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 							});
 					} else {
@@ -981,13 +1133,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		localStorage.removeItem(storageKeyAccount);
 	}
 
-	function getLastWallet(): WalletMechanism<string, `0x${string}`> | undefined {
+	function getLastWallet(): WalletMechanism<string, `0x${string}` | undefined> | undefined {
 		const fromStorage = localStorage.getItem(storageKeyLastWallet);
 		if (fromStorage) {
-			return JSON.parse(fromStorage) as WalletMechanism<string, `0x${string}`>;
+			return JSON.parse(fromStorage) as WalletMechanism<string, `0x${string}` | undefined>;
 		}
 	}
-	function saveLastWallet(wallet: WalletMechanism<string, `0x${string}`>) {
+	function saveLastWallet(wallet: WalletMechanism<string, `0x${string}` | undefined>) {
 		const lastWalletSTR = JSON.stringify(wallet);
 		sessionStorage.setItem(storageKeyLastWallet, lastWalletSTR);
 		localStorage.setItem(storageKeyLastWallet, lastWalletSTR);
@@ -1263,6 +1415,80 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		walletProvider.stopListenForChainChanged(onChainChanged);
 	}
 
+	// Tear down the live wallet: stop routing requests through it, stop watching it, and
+	// refuse signing. Any transition to a state whose `wallet` is `undefined` must go through
+	// this (or re-register a different wallet immediately after), otherwise the always-on
+	// wrapper keeps routing — and, while its status is 'connected', even SIGNING — through a
+	// wallet the state no longer shows.
+	function teardownWallet() {
+		if (_wallet) {
+			alwaysOnProviderWrapper.setWalletProvider(undefined);
+			alwaysOnProviderWrapper.setWalletStatus('disconnected');
+			stopWatchingForAccountChange(_wallet.provider);
+			stopWatchingForChainIdChange(_wallet.provider);
+			_wallet = undefined;
+		}
+	}
+
+	// Restore the WalletChosen state after a failed upgrade attempt (a rejected accounts
+	// request, an empty accounts answer, a dropped chainId, ...). The wallet was successfully
+	// CHOSEN — only the connect/accounts step failed — so the choice must not be thrown away:
+	// reads keep routing through the CHOSEN wallet (status: 'disconnected') and the failure is
+	// set as the error on the restored state. This holds even when the failed attempt targeted
+	// a DIFFERENT wallet: a refused accounts prompt on wallet B must not silently move the
+	// read path the user had chosen on wallet A.
+	//
+	// Returns false when the flow was not upgrading from WalletChosen (no chosen mechanism or
+	// wallet was captured), so the caller falls back to the ordinary connection-failure handling.
+	function restoreWalletChosenAfterFailedConnect(
+		errorMessage: string,
+		cause: unknown,
+		chosenMechanism: WalletMechanism<string, undefined> | undefined,
+		chosenWallet: {provider: WalletProvider<WalletProviderType>; chainId: string} | undefined,
+	): boolean {
+		if (!chosenMechanism || !chosenWallet) {
+			return false;
+		}
+		if (_wallet && _wallet.provider !== chosenWallet.provider) {
+			// The attempt got far enough to register a DIFFERENT wallet on the wrapper: stop
+			// watching it before the chosen one takes the wrapper back.
+			stopWatchingForAccountChange(_wallet.provider);
+			stopWatchingForChainIdChange(_wallet.provider);
+		}
+		// The fresher chainId wins: `onChainChanged` keeps updating the live `_wallet`, so when
+		// the attempt was on the same provider its chainId may be newer than the captured one.
+		const chainId = _wallet && _wallet.provider === chosenWallet.provider ? _wallet.chainId : chosenWallet.chainId;
+		_wallet = {provider: chosenWallet.provider, chainId};
+		stopWatchingForAccountChange(_wallet.provider);
+		// Re-establish what the start of connect() tore down. If the failure happened early
+		// (getChainId threw), the wrapper provider and the chain watcher were never
+		// re-registered: without this the restored state would claim reads route through the
+		// wallet while they silently fall back to the configured endpoint. stop-then-start so
+		// a late failure (after re-registration) cannot register the watcher twice.
+		alwaysOnProviderWrapper.setWalletProvider(_wallet.provider.underlyingProvider);
+		alwaysOnProviderWrapper.setWalletStatus('disconnected');
+		stopWatchingForChainIdChange(_wallet.provider);
+		watchForChainIdChange(_wallet.provider);
+		set({
+			step: 'WalletChosen',
+			mechanism: chosenMechanism,
+			wallets: $connection.wallets,
+			wallet: {
+				provider: _wallet.provider,
+				accounts: [],
+				status: 'disconnected',
+				connecting: false,
+				accountChanged: undefined,
+				chainId,
+				invalidChainId: alwaysOnChainId != chainId,
+				switchingChain: false,
+				pendingRequests: [],
+			},
+			error: {message: errorMessage, cause},
+		});
+		return true;
+	}
+
 	let remember: boolean = false;
 	async function connect(mechanism?: Mechanism, options?: ConnectOptions) {
 		if (!mechanism && (targetStep === 'WalletConnected' || walletOnly)) {
@@ -1271,9 +1497,18 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		remember = !(options?.doNotStoreLocally || false);
 		if (mechanism) {
 			if (mechanism.type === 'wallet') {
+				// Remember what connect() is about to modify, so the catch block can distinguish
+				// "was upgrading from WalletChosen" from "first-time connect". A failed upgrade
+				// restores WalletChosen, and the restored state must describe the wallet that was
+				// CHOSEN, which stays the read path even when the failed attempt targeted a
+				// different wallet.
+				const chosenMechanismBeforeConnect = $connection.step === 'WalletChosen' ? $connection.mechanism : undefined;
+				const chosenWalletBeforeConnect = $connection.step === 'WalletChosen' ? _wallet : undefined;
 				const specificAddress = mechanism.address;
 				const walletName =
-					mechanism.name || ($connection.wallets.length == 1 ? $connection.wallets[0].info.name : undefined);
+					mechanism.name ||
+					($connection.step === 'WalletChosen' ? $connection.mechanism.name : undefined) ||
+					($connection.wallets.length == 1 ? $connection.wallets[0].info.name : undefined);
 				if (walletName) {
 					const wallet = $connection.wallets.find((v) => v.info.name == walletName || v.info.uuid == walletName);
 					if (wallet) {
@@ -1389,7 +1624,19 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										watchForAccountChange(_wallet.provider);
 									}
 								} else {
-									setConnectionFailure({message: 'could not get any accounts'});
+									// An empty accounts answer after a successful request is a failed
+									// upgrade when coming from WalletChosen: keep the choice, exactly as
+									// the catch block does for a REJECTED accounts request.
+									if (
+										!restoreWalletChosenAfterFailedConnect(
+											'could not get any accounts',
+											undefined,
+											chosenMechanismBeforeConnect,
+											chosenWalletBeforeConnect,
+										)
+									) {
+										setConnectionFailure({message: 'could not get any accounts'});
+									}
 								}
 							} else {
 								let account = accounts[0];
@@ -1461,35 +1708,37 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								}
 							}
 						} catch (err) {
-							// Clean up the wallet provider that was set mid-connect: if the
-							// attempt fails (4100, 4001, timeout, …) the always-on
-							// provider wrapper would otherwise keep routing ALL requests
-							// (including read-only RPC calls like eth_call) through the
-							// failed wallet, breaking the dapp's data fetches.
-							if (_wallet) {
-								stopWatchingForChainIdChange(_wallet.provider);
-								stopWatchingForAccountChange(_wallet.provider);
-								alwaysOnProviderWrapper.setWalletProvider(undefined);
-								_wallet = undefined;
-							}
-							// Distinguish EIP-1193 error codes so the dapp can surface a
-							// meaningful message instead of a generic "failed to connect".
-							// 4100 (Unauthorized): the wallet cannot authorise accounts —
-							// it may be read-only, locked, or not yet configured (e.g.
-							// werust's keyless provider). 4001 (User Rejected Request):
-							// the user actively declined in the wallet popup. Anything
-							// else is a genuine failure.
+							// Distinguish EIP-1193 error codes so the dapp can surface a meaningful
+							// message instead of a generic "failed to connect".
+							// 4100 (Unauthorized): the wallet cannot authorise accounts — it may be
+							// read-only, locked, or not yet configured (e.g. werust's keyless
+							// provider). 4001 (User Rejected Request): the user actively declined in
+							// the wallet popup. Anything else is a genuine failure.
 							const code = (err as {code?: unknown})?.code;
+							let errorMessage = `failed to connect to wallet`;
 							if (code === 4100) {
-								setConnectionFailure({
-									message:
-										'The wallet is not authorized to provide accounts. It may be read-only, locked, or not yet configured.',
-									cause: err,
-								});
+								errorMessage =
+									'The wallet is not authorized to provide accounts. It may be read-only, locked, or not yet configured.';
 							} else if (code === 4001) {
-								setConnectionFailure({message: 'Connection request was declined.', cause: err});
-							} else {
-								setConnectionFailure({message: `failed to connect to wallet`, cause: err});
+								errorMessage = 'Connection request was declined.';
+							}
+							// If the user was upgrading from WalletChosen (they had already picked a
+							// wallet for reads and then tried to connect for accounts), a failed
+							// connect must NOT throw away the choice: restore WalletChosen so reads
+							// keep routing through the wallet (status: 'disconnected').
+							// Otherwise setConnectionFailure lands the flow on its resting step; it
+							// also tears the wallet down, because every failure state's `wallet` is
+							// `undefined` — a failed attempt must not keep routing requests (including
+							// read-only RPC calls like eth_call) through the failed wallet.
+							if (
+								!restoreWalletChosenAfterFailedConnect(
+									errorMessage,
+									err,
+									chosenMechanismBeforeConnect,
+									chosenWalletBeforeConnect,
+								)
+							) {
+								setConnectionFailure({message: errorMessage, cause: err});
 							}
 						}
 					} else {
@@ -1503,6 +1752,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					// 	mechanism: { type: 'wallet', wallet: undefined }
 					// });
 
+					// The picker state drops the wallet, so any live one must be torn down here or
+					// the wrapper would keep routing through a wallet the state no longer shows.
+					teardownWallet();
 					set({
 						step: 'WalletToChoose',
 						mechanism: {type: 'wallet'},
@@ -1628,7 +1880,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// ensureConnected overloads - the default step depends on targetStep
 	function ensureConnected(
 		options?: EnsureConnectedOptions,
-	): Promise<WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>>;
+	): Promise<WalletChosen<WalletProviderType> | WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>>;
+	function ensureConnected(
+		step: 'WalletChosen',
+		mechanismOrOptions?: WalletMechanism<string | undefined, `0x${string}` | undefined> | EnsureConnectedOptions,
+		options?: EnsureConnectedOptions,
+	): Promise<ChosenOrBetter<WalletProviderType>>;
 	function ensureConnected(
 		step: 'WalletConnected',
 		mechanismOrOptions?: WalletMechanism<string | undefined, `0x${string}` | undefined> | EnsureConnectedOptions,
@@ -1639,19 +1896,19 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		mechanism?: Mechanism,
 		options?: EnsureConnectedOptions,
 	): Promise<SignedIn<WalletProviderType>>;
-	async function ensureConnected<Step extends 'WalletConnected' | 'SignedIn'>(
+	async function ensureConnected<Step extends 'WalletChosen' | 'WalletConnected' | 'SignedIn'>(
 		stepOrMechanismOrOptions?: Step | Mechanism | EnsureConnectedOptions,
 		mechanismOrOptions?: Mechanism | EnsureConnectedOptions,
 		options?: EnsureConnectedOptions,
-	): Promise<WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>> {
+	): Promise<WalletChosen<WalletProviderType> | WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>> {
 		// Determine if first arg is a step string, mechanism, or options
-		let step: 'WalletConnected' | 'SignedIn';
+		let step: 'WalletChosen' | 'WalletConnected' | 'SignedIn';
 		let mechanism: Mechanism | undefined;
 		let opts: EnsureConnectedOptions | undefined;
 
 		if (typeof stepOrMechanismOrOptions === 'string') {
 			// First arg is a step
-			step = stepOrMechanismOrOptions as 'WalletConnected' | 'SignedIn';
+			step = stepOrMechanismOrOptions as 'WalletChosen' | 'WalletConnected' | 'SignedIn';
 			// Check if second arg is a mechanism (has 'type') or options (doesn't have 'type')
 			if (mechanismOrOptions && 'type' in (mechanismOrOptions as any)) {
 				mechanism = mechanismOrOptions as Mechanism;
@@ -1672,119 +1929,135 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			opts = stepOrMechanismOrOptions as EnsureConnectedOptions | undefined;
 		}
 
-		// For WalletConnected step, default to wallet mechanism
-		if (!mechanism && step === 'WalletConnected') {
+		// For WalletConnected or WalletChosen step, default to wallet mechanism
+		if (!mechanism && (step === 'WalletConnected' || step === 'WalletChosen')) {
 			mechanism = {type: 'wallet'};
 		}
 
-		const promise = new Promise<WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>>(
-			(resolve, reject) => {
-				let forceConnect = false;
+		const promise = new Promise<
+			WalletChosen<WalletProviderType> | WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>
+		>((resolve, reject) => {
+			let forceConnect = false;
 
-				// The error (if any) already sitting in the store before we start.
-				// Only an error that appears after this point tells us that *our* attempt failed.
-				const errorOnEntry = $connection.error;
+			// The error (if any) already sitting in the store before we start.
+			// Only an error that appears after this point tells us that *our* attempt failed.
+			const errorOnEntry = $connection.error;
 
-				// Helper to check if resolution conditions are met
-				const canResolve = (connection: Connection<WalletProviderType>): boolean => {
-					// Must be at the target step
-					if (connection.step !== step) return false;
-
-					// For WalletConnected step, check chain validity unless skipped
-					if (step === 'WalletConnected' && !opts?.skipChainCheck) {
-						// connection.wallet should exist when step is WalletConnected
-						if (connection.wallet?.invalidChainId) {
-							return false; // Wrong chain, wait for chain change
-						}
-					}
-
-					return true;
-				};
-
-				if (
-					$connection.step == 'WalletConnected' &&
-					($connection.wallet.status == 'locked' || $connection.wallet.status === 'disconnected')
-				) {
-					forceConnect = true;
-					mechanism = $connection.mechanism; // we reuse existing mechanism as we just want to reconnect
-				} else if (canResolve($connection)) {
-					// Only resolve if step matches AND chain is valid (or skipChainCheck)
-					resolve($connection as any);
-					return;
+			// Helper to check if resolution conditions are met
+			const canResolve = (connection: Connection<WalletProviderType>): boolean => {
+				if (step === 'WalletChosen') {
+					// For WalletChosen, accept WalletChosen OR any higher step
+					return (
+						connection.step === 'WalletChosen' ||
+						connection.step === 'WalletConnected' ||
+						(connection.step === 'SignedIn' && connection.wallet !== undefined)
+					);
 				}
-				let idlePassed = $connection.step != 'Idle';
+				// Must be at the target step
+				if (connection.step !== step) return false;
 
-				// Initiating from a picker step is only safe when we can tell it apart from "the user is choosing
-				// right now": a picker still carrying the error of a previous attempt means that attempt failed and
-				// nothing has driven the flow since, so re-initiating is exactly what the caller asked for. It cannot
-				// hijack a choice either: when a choice is genuinely needed, `connect` with a default mechanism just
-				// re-enters the same picker (and clears the stale error), and we keep waiting for the user.
-				const retryingAfterFailure = idlePassed && stepsAtRest.includes($connection.step) && !!errorOnEntry;
-				if (!idlePassed || forceConnect || opts?.forceConnect || retryingAfterFailure) {
+				// For WalletConnected step, check chain validity unless skipped
+				if (step === 'WalletConnected' && !opts?.skipChainCheck) {
+					// connection.wallet should exist when step is WalletConnected
+					if (connection.wallet?.invalidChainId) {
+						return false; // Wrong chain, wait for chain change
+					}
+				}
+
+				return true;
+			};
+
+			if (
+				$connection.step == 'WalletConnected' &&
+				($connection.wallet.status == 'locked' || $connection.wallet.status === 'disconnected')
+			) {
+				forceConnect = true;
+				mechanism = $connection.mechanism; // we reuse existing mechanism as we just want to reconnect
+			} else if (canResolve($connection)) {
+				// Only resolve if step matches AND chain is valid (or skipChainCheck)
+				resolve($connection as any);
+				return;
+			}
+			let idlePassed = $connection.step != 'Idle';
+
+			// Initiating from a picker step is only safe when we can tell it apart from "the user is choosing
+			// right now": a picker still carrying the error of a previous attempt means that attempt failed and
+			// nothing has driven the flow since, so re-initiating is exactly what the caller asked for. It cannot
+			// hijack a choice either: when a choice is genuinely needed, `connect` with a default mechanism just
+			// re-enters the same picker (and clears the stale error), and we keep waiting for the user.
+			const retryingAfterFailure = idlePassed && stepsAtRest.includes($connection.step) && !!errorOnEntry;
+			if (!idlePassed || forceConnect || opts?.forceConnect || retryingAfterFailure) {
+				if (step === 'WalletChosen') {
+					const walletName =
+						mechanism && typeof mechanism === 'object' && 'name' in mechanism
+							? (mechanism as {name?: string}).name
+							: undefined;
+					selectWallet(walletName, opts);
+				} else {
 					connect(mechanism, opts);
 				}
+			}
 
-				// An attempt is considered started once we observe a step where the connection is in progress.
-				// Falling back to a resting step from there means the attempt ended without reaching the target.
-				let attemptStarted = false;
-				let settled = false;
-				let unsubscribe: (() => void) | undefined;
-				const settle = (perform: () => void) => {
-					if (settled) {
-						return;
-					}
-					settled = true;
-					// unsubscribe can still be undefined here if the store settles during the initial (synchronous) subscription
-					unsubscribe?.();
-					perform();
-				};
-
-				unsubscribe = _store.subscribe((connection) => {
-					if (settled) {
-						return;
-					}
-					if (!idlePassed && connection.step !== 'Idle') {
-						idlePassed = true;
-					}
-					// Check full resolution conditions including chain validity
-					if (canResolve(connection)) {
-						settle(() => resolve(connection as any));
-						return;
-					}
-
-					if (stepsInProgress.includes(connection.step)) {
-						// still going, nothing to decide yet
-						attemptStarted = true;
-						return;
-					}
-
-					// A fresh error means the attempt failed (rejected wallet prompt, no accounts, unusable wallet, ...).
-					// The failure handlers set it at the very moment they fall back to a resting step, which can be `Idle`,
-					// so this is checked before the cancellation case below to report the actual cause rather than
-					// a generic cancellation.
-					const error = connection.error;
-					if (error && error !== errorOnEntry) {
-						settle(() => reject(new ConnectionFailure(error.message, error.cause)));
-						return;
-					}
-
-					// Reject on disconnect/back to Idle
-					if (connection.step === 'Idle' && idlePassed) {
-						settle(() => reject(new ConnectionFailure('Connection cancelled')));
-						return;
-					}
-
-					// The attempt went back to a resting step without an error: it was aborted (back/cancel).
-					// This must never trigger on a resting step we merely started from, hence `attemptStarted`.
-					if (attemptStarted && stepsAtRest.includes(connection.step)) {
-						settle(() => reject(new ConnectionFailure('Connection cancelled')));
-					}
-				});
+			// An attempt is considered started once we observe a step where the connection is in progress.
+			// Falling back to a resting step from there means the attempt ended without reaching the target.
+			let attemptStarted = false;
+			let settled = false;
+			let unsubscribe: (() => void) | undefined;
+			const settle = (perform: () => void) => {
 				if (settled) {
-					unsubscribe();
+					return;
 				}
-			},
-		);
+				settled = true;
+				// unsubscribe can still be undefined here if the store settles during the initial (synchronous) subscription
+				unsubscribe?.();
+				perform();
+			};
+
+			unsubscribe = _store.subscribe((connection) => {
+				if (settled) {
+					return;
+				}
+				if (!idlePassed && connection.step !== 'Idle') {
+					idlePassed = true;
+				}
+				// Check full resolution conditions including chain validity
+				if (canResolve(connection)) {
+					settle(() => resolve(connection as any));
+					return;
+				}
+
+				if (stepsInProgress.includes(connection.step)) {
+					// still going, nothing to decide yet
+					attemptStarted = true;
+					return;
+				}
+
+				// A fresh error means the attempt failed (rejected wallet prompt, no accounts, unusable wallet, ...).
+				// The failure handlers set it at the very moment they fall back to a resting step, which can be `Idle`,
+				// so this is checked before the cancellation case below to report the actual cause rather than
+				// a generic cancellation.
+				const error = connection.error;
+				if (error && error !== errorOnEntry) {
+					settle(() => reject(new ConnectionFailure(error.message, error.cause)));
+					return;
+				}
+
+				// Reject on disconnect/back to Idle
+				if (connection.step === 'Idle' && idlePassed) {
+					settle(() => reject(new ConnectionFailure('Connection cancelled')));
+					return;
+				}
+
+				// The attempt went back to a resting step without an error: it was aborted (back/cancel).
+				// This must never trigger on a resting step we merely started from, hence `attemptStarted`.
+				if (attemptStarted && stepsAtRest.includes(connection.step)) {
+					settle(() => reject(new ConnectionFailure('Connection cancelled')));
+				}
+			});
+			if (settled) {
+				unsubscribe();
+			}
+		});
 
 		return promise;
 	}
@@ -1792,12 +2065,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	function disconnect() {
 		deleteOriginAccount();
 		deleteLastWallet();
-		if (_wallet) {
-			alwaysOnProviderWrapper.setWalletProvider(undefined);
-			stopWatchingForAccountChange(_wallet.provider);
-			stopWatchingForChainIdChange(_wallet.provider);
-		}
-		_wallet = undefined;
+		teardownWallet();
 		unsubscribeRequestEvents();
 		set({
 			step: 'Idle',
@@ -1807,8 +2075,93 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		});
 	}
 
+	// Pick a wallet via EIP-6963 and set it as the read provider WITHOUT going through the
+	// connect/accounts flow. The wallet's provider is set on the always-on wrapper so reads route
+	// through it (when `prioritizeWalletProvider` is true), but no accounts are requested and
+	// signing is refused (status: 'disconnected').
+	//
+	// This is the entry point for the `targetStep: 'WalletChosen'` flow: a blockchain indexer (or
+	// any read-only consumer) can let the user pick their wallet as a decentralised read node
+	// without the friction of eth_requestAccounts.
+	//
+	// If `name` is omitted and only one wallet is detected, auto-selects it; if multiple wallets
+	// are detected, transitions to `WalletToChoose` for the user to pick.
+	async function selectWallet(name?: string, options?: {doNotStoreLocally?: boolean}) {
+		const walletName = name || ($connection.wallets.length == 1 ? $connection.wallets[0].info.name : undefined);
+		if (!walletName) {
+			// Multiple wallets, no name specified - show picker. The picker state drops the
+			// wallet, so a previously chosen one must be torn down here or the wrapper would
+			// keep routing through a wallet the state no longer shows.
+			teardownWallet();
+			set({
+				step: 'WalletToChoose',
+				mechanism: {type: 'wallet'},
+				wallets: $connection.wallets,
+				wallet: undefined,
+			});
+			return;
+		}
+		const wallet = $connection.wallets.find((v) => v.info.name == walletName || v.info.uuid == walletName);
+		if (!wallet) {
+			// A name lookup miss attempts nothing: keep the current choice (and the read path
+			// through it) and report the error on the CURRENT state — throwing the choice away
+			// over a typo or a wallet uninstalled between render and click would deselect the
+			// user's read path without them refusing anything.
+			setError({message: `failed to get wallet ${walletName}`});
+			return;
+		}
+		// Clear old wallet watchers if switching from a previously chosen/connected wallet.
+		// The provider is deliberately left on the wrapper until the new one replaces it
+		// (below or, on failure, via setConnectionFailure's teardown), so reads do not flap
+		// to the configured endpoint during the switch.
+		if (_wallet) {
+			stopWatchingForAccountChange(_wallet.provider);
+			stopWatchingForChainIdChange(_wallet.provider);
+		}
+		try {
+			const provider = wallet.walletProvider;
+			const chainIdAsHex = await withTimeout(provider.getChainId());
+			const chainId = Number(chainIdAsHex).toString();
+			_wallet = {chainId, provider};
+			alwaysOnProviderWrapper.setWalletProvider(provider.underlyingProvider);
+			alwaysOnProviderWrapper.setWalletStatus('disconnected');
+			watchForChainIdChange(provider);
+			// Persist the choice so it survives reloads. The address is undefined because we
+			// have not requested accounts; getLastWallet restores it as a chosen-but-unconnected
+			// wallet (the WalletChosen auto-connect path).
+			if (!options?.doNotStoreLocally) {
+				saveLastWallet({type: 'wallet', name: walletName});
+			}
+			set({
+				step: 'WalletChosen',
+				mechanism: {type: 'wallet', name: walletName},
+				wallets: $connection.wallets,
+				wallet: {
+					provider: provider,
+					accounts: [],
+					status: 'disconnected',
+					connecting: false,
+					accountChanged: undefined,
+					chainId,
+					invalidChainId: alwaysOnChainId != chainId,
+					switchingChain: false,
+					pendingRequests: [],
+				},
+			});
+		} catch (err) {
+			// setConnectionFailure tears down the previously chosen wallet (provider still on
+			// the wrapper if the new wallet's getChainId threw before setWalletProvider) before
+			// landing on its `wallet: undefined` resting step.
+			setConnectionFailure({message: `failed to select wallet ${walletName}`, cause: err});
+		}
+	}
+
 	function back(step: 'MechanismToChoose' | 'Idle' | 'WalletToChoose') {
 		popup?.cancel();
+		// Every back() target drops the wallet from the state, so the live wallet goes
+		// with it: leaving it would let the wrapper keep routing (and signing) through a
+		// wallet the state no longer shows.
+		teardownWallet();
 		if (step === 'MechanismToChoose') {
 			set({step, wallets: $connection.wallets, wallet: undefined});
 		} else if (step === 'Idle') {
@@ -1926,6 +2279,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	function cancel() {
 		popup?.cancel();
 		deleteLastWallet();
+		// Landing on Idle drops the wallet from the state: tear it down too, or the
+		// wrapper would keep routing (and, while its status is 'connected', SIGNING)
+		// through a wallet the state no longer shows.
+		teardownWallet();
 		set({step: 'Idle', wallet: undefined, loading: false, wallets: $connection.wallets});
 	}
 
@@ -2200,6 +2557,14 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 	// Method on the store to check if target step is reached
 	function storeIsTargetStepReached(connection: Connection<WalletProviderType>): boolean {
+		if (targetStep === 'WalletChosen') {
+			// For WalletChosen target, accept WalletChosen OR any higher step
+			return (
+				connection.step === 'WalletChosen' ||
+				connection.step === 'WalletConnected' ||
+				(connection.step === 'SignedIn' && connection.wallet !== undefined)
+			);
+		}
 		if (targetStep === 'WalletConnected') {
 			// For WalletConnected target, accept WalletConnected OR SignedIn-with-wallet
 			return (
@@ -2224,6 +2589,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		requestSignature,
 		connectToAddress,
 		disconnect,
+		selectWallet,
 		getSignatureForPublicKeyPublication,
 		getDelegation,
 		switchWalletChain,

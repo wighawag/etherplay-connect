@@ -203,6 +203,7 @@ The connection store goes through several states during the authentication flow:
 - **WalletToChoose** - User needs to select from available wallets
 - **WaitingForWalletConnection** - Connecting to selected wallet
 - **ChooseWalletAccount** - User needs to select wallet account
+- **WalletChosen** - Wallet picked for reads only (`targetStep: 'WalletChosen'`): no accounts requested, signing refused
 - **WalletConnected** - Wallet connected, waiting for signature
 - **WaitingForSignature** - Signature request pending
 - **SignedIn** - Fully authenticated
@@ -215,6 +216,7 @@ The connection store goes through several states during the authentication flow:
 {
   signingOrigin?: string;           // Sign for ANOTHER origin's account. Blocked unless that origin consents; see below
   walletHost: string;               // Host URL for login popup
+  targetStep?: 'WalletChosen' | 'WalletConnected' | 'SignedIn'; // How far the flow goes (default: 'SignedIn')
   autoConnect?: boolean;            // Auto-connect on load (default: true)
   autoConnectWallet?: boolean;      // Auto-connect to wallet (default: true)
   walletConnector?: WalletConnector; // Custom wallet connector
