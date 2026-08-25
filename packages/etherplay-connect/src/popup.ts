@@ -1,4 +1,4 @@
-import {writable, type Readable} from 'svelte/store';
+import {writable, type Readable} from 'sveltore';
 import {createStorePromise} from './utils.js';
 import {importPublicKeyB64, deriveAesKey, b64ToBuf} from '@etherplay/connect-core';
 

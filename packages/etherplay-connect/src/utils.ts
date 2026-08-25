@@ -1,4 +1,4 @@
-import type {Readable} from 'svelte/store';
+import type {Readable} from 'sveltore';
 
 export function createStorePromise<U, T, V extends Readable<T>>(
 	store: V,

@@ -584,7 +584,7 @@ connection.subscribe((state) => {
 
 ## Svelte Integration
 
-The connection store is a Svelte store and works seamlessly with Svelte's reactivity:
+The connection store implements the [Svelte store contract](https://svelte.dev/docs/svelte/stores#Store-contract) and works seamlessly with Svelte's reactivity. Note that this package does **not** depend on `svelte` itself: it uses [`sveltore`](https://www.npmjs.com/package/sveltore), a standalone copy of Svelte's store implementation, so it can be used from any framework (or none) without pulling in Svelte.
 
 ```svelte
 <script>
@@ -602,6 +602,8 @@ The connection store is a Svelte store and works seamlessly with Svelte's reacti
   <button on:click={() => connection.disconnect()}>Disconnect</button>
 {/if}
 ```
+
+In a Svelte app the `$` auto-subscription and helpers such as `get`/`derived` from `svelte/store` work on these stores as-is, because the contract is the same.
 
 ## Server-side rendering (SSR)
 

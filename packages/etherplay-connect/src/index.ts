@@ -6,7 +6,7 @@ import type {
 	RequestEventHandler,
 } from '@etherplay/wallet-connector';
 import {EthereumWalletConnector, type UnderlyingEthereumProvider} from '@etherplay/wallet-connector-ethereum';
-import {writable} from 'svelte/store';
+import {writable} from 'sveltore';
 import {createPopupLauncher, type PopupPromise} from './popup.js';
 import {withTimeout} from './utils.js';
 import {

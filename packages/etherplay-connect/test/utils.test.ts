@@ -1,5 +1,5 @@
 import {describe, it, expect, vi} from 'vitest';
-import {writable} from 'svelte/store';
+import {writable} from 'sveltore';
 import {createStorePromise, withTimeout} from '../src/utils.js';
 
 /**
