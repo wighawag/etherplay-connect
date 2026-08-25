@@ -1,6 +1,6 @@
 {
 	"name": "@etherplay/openfort",
-	"version": "0.4.0",
+	"version": "0.5.0",
 	"description": "Openfort implementation of the AuthProvider interface for etherplay-connect",
 	"homepage": "https://github.com/wighawag/etherplay-connect#readme",
 	"repository": {
