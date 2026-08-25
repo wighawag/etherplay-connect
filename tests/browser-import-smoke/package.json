@@ -1,0 +1,25 @@
+{
+	"name": "@etherplay/browser-import-smoke",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"description": "Guards the one failure mode node-based tests cannot see: importing @etherplay/connect in a REAL browser must settle. Also proves the harness itself delivered every byte, so a stalled static server is never mistaken for a hung import.",
+	"scripts": {
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"install:browsers": "playwright install chromium",
+		"format:check": "prettier --check .",
+		"format": "prettier --write ."
+	},
+	"dependencies": {
+		"@etherplay/connect": "workspace:*",
+		"@etherplay/connect-core": "workspace:*",
+		"@etherplay/wallet-connector": "workspace:*",
+		"@etherplay/wallet-connector-ethereum": "workspace:*"
+	},
+	"devDependencies": {
+		"playwright": "^1.50.0",
+		"vite": "^6.2.6",
+		"vitest": "^4.0.18"
+	}
+}
