@@ -1,5 +1,11 @@
 # @etherplay/openfort
 
+## 0.5.1
+
+### Patch Changes
+
+- @etherplay/connect-core@0.7.1
+
 ## 0.5.0
 
 ### Minor Changes
