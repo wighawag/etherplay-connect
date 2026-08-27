@@ -434,23 +434,42 @@ library Delegation {
     ///
     /// Both addresses are rendered lowercase; see {StringUtils-toHexString}.
     /// The deadline is decimal unix seconds, or the word `never` for zero.
+    ///
+    /// BUILT IN TWO PARTS, AND IT HAS TO BE. Do not fold these back into one
+    /// `abi.encodePacked`, however much it wants to be one: with the optimizer
+    /// ENABLED, solc 0.8.28 encodes a packed tuple through a generated Yul
+    /// block that holds every argument on the stack at once, and at seven or
+    /// more dynamic arguments that block is stack-too-deep before any of this
+    /// library's own locals are counted. Eight arguments is what the fields
+    /// below come to, so the single-call form does not compile under any
+    /// optimizer setting at all - not at low `runs`, not at `runs: 1` - while
+    /// compiling fine with the optimizer off, which is the reverse of the usual
+    /// stack-too-deep and the reason this looks like a rewrite of working code.
+    /// Six arguments is the last that fits, so the field block is encoded on
+    /// its own and the prose is prepended to it.
+    ///
+    /// THE BYTES ARE UNCHANGED BY THE SPLIT. Every piece here is a `string`, so
+    /// packed encoding is plain concatenation with no length prefix and no
+    /// padding, and concatenation is associative: `A | (B | C)` is `A | B | C`.
+    /// `vectors.json` is what actually holds that claim down.
     function message(
         address delegate,
         uint256 deadline
     ) internal view returns (string memory) {
+        bytes memory fields = abi.encodePacked(
+            MESSAGE_CONTRACT,
+            StringUtils.toHexString(address(this)),
+            MESSAGE_CHAIN_ID,
+            StringUtils.toString(block.chainid),
+            MESSAGE_EXPIRES,
+            deadline == 0 ? MESSAGE_NO_EXPIRY : StringUtils.toString(deadline)
+        );
         return
             string(
                 abi.encodePacked(
                     MESSAGE_HEAD,
                     StringUtils.toHexString(delegate),
-                    MESSAGE_CONTRACT,
-                    StringUtils.toHexString(address(this)),
-                    MESSAGE_CHAIN_ID,
-                    StringUtils.toString(block.chainid),
-                    MESSAGE_EXPIRES,
-                    deadline == 0
-                        ? MESSAGE_NO_EXPIRY
-                        : StringUtils.toString(deadline)
+                    fields
                 )
             );
     }
