@@ -876,6 +876,24 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// The deprecated `wallet.pendingRequests` mirror is stamped from the same read, so the two cannot
 	// drift while consumers migrate.
 	function set(connection: ConnectionInput<WalletProviderType>) {
+		// A STATE THAT SHOWS NO WALLET MUST NOT LEAVE ONE LIVE, and this is where that is made true
+		// rather than at each of the eleven places that used to remember it. Two of those eleven did
+		// not: a bare `connect()` landing on `MechanismToChoose`, and a sign-in popup launched by a
+		// user who was already wallet-connected. Both left the wrapper holding the wallet with its
+		// status still `connected`, so it kept SIGNING for a state showing no wallet.
+		//
+		// `WaitingForWalletConnection` is the one exception, and it is a real one rather than an
+		// oversight: it is the in-progress step of `connect` itself, which shows no wallet precisely
+		// because it is in the middle of registering one. Every other wallet-less step is somewhere the
+		// flow RESTS.
+		//
+		// Enforced here rather than asserted because the failure directions are not symmetric. A
+		// forgotten teardown keeps a wallet signing invisibly, which is the bug this exists to stop; an
+		// unwanted one makes reads fall back to the configured endpoint and signing refuse, which is
+		// loud and safe. So the automatic behaviour is the conservative one.
+		if (!connection.wallet && connection.step !== 'WaitingForWalletConnection') {
+			teardownWallet();
+		}
 		const pendingRequests = currentPendingRequests();
 		if (!connection.wallet) {
 			$connection = {...connection, pendingRequests};
@@ -942,10 +960,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// no decision to offer them. A cancelled popup is likewise a cancellation, not a failure, and rests on `Idle`.
 	function setConnectionFailure(error: {message: string; cause?: any}) {
 		const wallets = $connection.wallets;
-		// The resting states below all have `wallet: undefined`: tear down any live wallet
-		// first, or the wrapper would keep routing — and, while its status is 'connected',
-		// even SIGNING — through a wallet the state no longer shows.
-		teardownWallet();
+		// Every resting state below has `wallet: undefined`, so `set` tears the live wallet down.
 		if (!walletOnly) {
 			set({step: 'MechanismToChoose', wallets, wallet: undefined, error});
 		} else if (wallets.length > 1) {
@@ -1098,10 +1113,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									watchForAccountChange(walletProvider);
 								})
 								.catch((err) => {
-									// The wallet may have been registered on the wrapper before the
-									// failure (e.g. getAccounts threw): tear it down — Idle carries no
-									// wallet, so it must not keep routing requests.
-									teardownWallet();
+									// The wallet may have been registered on the wrapper before the failure (e.g.
+									// getAccounts threw). `set` tears it down: Idle carries no wallet.
 									set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 								});
 						} else {
@@ -1150,10 +1163,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								});
 							})
 							.catch((err) => {
-								// The wallet may have been registered on the wrapper before the
-								// failure (e.g. getAccounts threw): tear it down — Idle carries no
-								// wallet, so it must not keep routing requests.
-								teardownWallet();
+								// The wallet may have been registered on the wrapper before the failure (e.g.
+								// getAccounts threw). `set` tears it down: Idle carries no wallet.
 								set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 							});
 					} else {
@@ -1200,10 +1211,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								watchForAccountChange(walletProvider);
 							})
 							.catch((err) => {
-								// The wallet may have been registered on the wrapper before the
-								// failure (e.g. getAccounts threw): tear it down — Idle carries no
-								// wallet, so it must not keep routing requests.
-								teardownWallet();
+								// The wallet may have been registered on the wrapper before the failure (e.g.
+								// getAccounts threw). `set` tears it down: Idle carries no wallet.
 								set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 							});
 					} else {
@@ -1935,16 +1944,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					// 	mechanism: { type: 'wallet', wallet: undefined }
 					// });
 
-					// The picker state drops the wallet, so any live one must be torn down here or
-					// the wrapper would keep routing through a wallet the state no longer shows.
-					//
 					// Reached from a state that HAS a wallet whenever nothing names one: a bare
 					// `connect()` with several wallets announced, including on a locked wallet. That is
 					// this function's contract, not an oversight — see the note on `mechanismToReconnect`
 					// above for why `connect`, `ensureConnected` and `unlock` mean three different things
-					// here, and why a consumer facing a locked wallet wants `unlock()`. Whatever the
-					// wallet is still holding stays announced through this, on `pendingRequests`.
-					teardownWallet();
+					// here, and why a consumer facing a locked wallet wants `unlock()`. The picker state
+					// drops the wallet and `set` tears it down; whatever it is still holding stays
+					// announced, on `pendingRequests`.
 					set({
 						step: 'WalletToChoose',
 						mechanism: {type: 'wallet'},
@@ -1987,17 +1993,15 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// later launch replaced me". Launching a second popup rejects the first, and without this
 				// the first attempt's failure handler would land on `Idle` on top of the second attempt.
 				const launchedPopup = popup;
-				// `PopupLaunched` carries no wallet: a user who was wallet-connected and then chose email
-				// sign-in must stop being able to sign through that wallet from the moment the popup
-				// opens, not whenever the popup happens to finish. Without this the wrapper kept the
-				// wallet AND its `connected` status, so it would still sign for a state showing no wallet.
+				// `PopupLaunched` carries no wallet, so `set` tears down the one a user who was already
+				// wallet-connected had: it must stop being able to sign from the moment the popup opens,
+				// not whenever the popup happens to finish.
 				//
-				// Under `prioritizeWalletProvider` this also stops READS routing through that wallet for
-				// the popup's duration; they fall back to the configured endpoint, which still answers. That
-				// is the same trade `back()` and `cancel()` already make, and it is the right way round: a
-				// read served by the endpoint is correct, whereas a signature served by a wallet the state
-				// does not show is the hazard.
-				teardownWallet();
+				// Under `prioritizeWalletProvider` that also stops READS routing through it for the
+				// popup's duration; they fall back to the configured endpoint, which still answers. Same
+				// trade `back()` and `cancel()` make, and the right way round: a read served by the
+				// endpoint is correct, a signature served by a wallet the state does not show is the
+				// hazard.
 				set({
 					step: 'PopupLaunched',
 					popupClosed: false,
@@ -2070,11 +2074,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				}
 			}
 		} else {
-			// Same rule as the wallet picker above and as `back()`/`cancel()`: the picker state drops
-			// the wallet, so the live one goes with it. Leaving it registered let the wrapper keep
-			// routing — and, with its status still `connected`, SIGNING — through a wallet the state no
-			// longer showed.
-			teardownWallet();
+			// The mechanism picker drops the wallet, and `set` tears the live one down with it.
 			set({
 				step: 'MechanismToChoose',
 				wallets: $connection.wallets,
@@ -2288,7 +2288,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	function disconnect() {
 		deleteOriginAccount();
 		deleteLastWallet();
-		teardownWallet();
+		// The wallet goes with the Idle state below, via `set`.
 		// Request announcements are NOT torn down here. Disconnecting drops this app's wallet state;
 		// it does not reach into the user's wallet and withdraw a prompt already on their screen, and
 		// nothing re-subscribes, so unsubscribing here left the connection permanently unable to
@@ -2315,10 +2315,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	async function selectWallet(name?: string, options?: {doNotStoreLocally?: boolean}) {
 		const walletName = name || ($connection.wallets.length == 1 ? $connection.wallets[0].info.name : undefined);
 		if (!walletName) {
-			// Multiple wallets, no name specified - show picker. The picker state drops the
-			// wallet, so a previously chosen one must be torn down here or the wrapper would
-			// keep routing through a wallet the state no longer shows.
-			teardownWallet();
+			// Multiple wallets, no name specified - show picker. The picker state drops the wallet, so
+			// `set` tears down a previously chosen one rather than leaving it routing.
 			set({
 				step: 'WalletToChoose',
 				mechanism: {type: 'wallet'},
@@ -2383,10 +2381,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 	function back(step: 'MechanismToChoose' | 'Idle' | 'WalletToChoose') {
 		popup?.cancel();
-		// Every back() target drops the wallet from the state, so the live wallet goes
-		// with it: leaving it would let the wrapper keep routing (and signing) through a
-		// wallet the state no longer shows.
-		teardownWallet();
+		// Every back() target drops the wallet from the state, and `set` takes the live one with it.
 		if (step === 'MechanismToChoose') {
 			set({step, wallets: $connection.wallets, wallet: undefined});
 		} else if (step === 'Idle') {
@@ -2504,10 +2499,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	function cancel() {
 		popup?.cancel();
 		deleteLastWallet();
-		// Landing on Idle drops the wallet from the state: tear it down too, or the
-		// wrapper would keep routing (and, while its status is 'connected', SIGNING)
-		// through a wallet the state no longer shows.
-		teardownWallet();
+		// Landing on Idle drops the wallet from the state, and `set` tears it down with it.
 		set({step: 'Idle', wallet: undefined, loading: false, wallets: $connection.wallets});
 	}
 

@@ -172,4 +172,20 @@ The characterization test did exactly what it was written for: fixing the behavi
 
 **`PopupPromise.cancel()` closes the window and settles the promise.** The interesting part was not the cancelling but the consequence: settling the promise wakes `connect`'s own failure handler, which rests on `Idle`, so a naive fix would have sent `back('MechanismToChoose')` during a popup to `Idle` a microtask later. The handler now only acts while it still owns the flow, which also fixes a latent bug where launching a second popup rejected the first and the first's handler landed on `Idle` on top of the second. Pinned by three tests, verified by reverting the cancel and the guard separately.
 
-Nothing is left on the "found, not fixed" list from this pass. Still open from earlier passes: the `connect()` size and split-invariant problem described at the top of this file, which every change here has made more visible rather than less.
+Nothing is left on the "found, not fixed" list from this pass.
+
+## Update (2026-08-31): the teardown invariant is structural too
+
+Item 1 of the recommendation at the top of this file ("extract wallet lifecycle management into one helper") turned out to have a much cheaper first move than the extraction it describes, and it is the one that pays for the bugs actually found: `set` now tears the wallet down whenever the state it is publishing has none.
+
+The rule was already written on `teardownWallet` and in the README ("any transition to a state whose `wallet` is `undefined` must go through this"), and it was enforced by ELEVEN hand-written calls, two of which were missing. That is the same shape as `pendingRequests` before it: an invariant carried by discipline across a growing number of sites. It is now carried by the one function that publishes state, and the eleven calls are one.
+
+Established empirically rather than by reading: asserting the invariant inside `set` (throw if a wallet-less, non-`WaitingForWalletConnection` state is published while `_wallet` is live) passed all 193 tests, so exactly one exception exists and it is `connect`'s own in-progress step. Removing the enforcement afterwards fails five tests across two files, so it is pinned by behaviour rather than by shape.
+
+Enforced rather than asserted because the failure directions are not symmetric: a forgotten teardown keeps a wallet signing invisibly, an unwanted one makes reads fall back to the endpoint and signing refuse. The automatic behaviour fails safe.
+
+## Still open: the size of `connect()`
+
+Measured rather than felt, at the end of this pass: `connect` is ~400 lines, `index.ts` is at 80% statement and 71% BRANCH coverage. Roughly three branches in ten are unexercised, which is the number that decides whether the decomposition recommended at the top of this file (extract `connectWallet()`, centralise transitions) is a refactor or a gamble. Both invariants that produced this month's bugs are now structural, which removes the urgency; the remaining problem is legibility, not correctness.
+
+Sequence for whoever picks it up: publish, then characterization tests for the uncovered branches, then the extraction, on a clean baseline so a regression bisects to the refactor rather than to a mixed commit. The trigger in the first section still stands: before adding another target step, permission path or wallet-selection behaviour.
