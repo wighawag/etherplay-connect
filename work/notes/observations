@@ -223,11 +223,38 @@ A good stopping rule: cover every path a CONSUMER can reach deliberately, plus e
 
 The fix is not a line: the error should be set where the flow gives up, not before a recovery it may survive. `switchWalletChain` has eight `set` calls doing the same two things in different orders, and is the next candidate for the same treatment `set` gave the teardown invariant.
 
-## Remaining, in priority order
+## Done, in the order taken
 
-1. `connect` (14 stmts, 17 branches) - the function we intend to refactor, so its coverage is the precondition.
-2. `ensureConnected` (9, 8) - overload parsing, `skipChainCheck`, `forceConnect`, retry-after-failure.
-3. `connectViaPopup` (18, 25) - URL construction per mechanism, permissions, `signingOrigin`, the debug passthroughs. Cheap and mechanical: a wrong parameter is a broken sign-in.
-4. `getDelegation` / `getSignatureForPublicKeyPublication` (11, 13) - the hosted-account paths, where the remedy is "sign in again" and the message matters.
-5. `waitForWallet` (6, 2) - auto-connect restore, including the `WalletChosen` restore path.
-6. `storeIsTargetStepReached` (4, 9) - cheap, and it is what consumers branch on.
+All six areas of the original backlog are covered. `index.ts` went 80.7 -> 98.5% statements and 70.9 -> 92.3% branches, in 86 new tests across seven files, one commit per area.
+
+1. `switchWalletChain` - a public method that prompts the wallet, with no test at all, and the state its ADR-0001 exemption rests on.
+2. `connect` - including the popup half: closed-but-not-decided, a refusal keeping its reason, a reply with the wrong id, and the domain-redirect bridge.
+3. `ensureConnected` - all three argument forms, and the waiting conditions that are the reason it exists.
+4. `connectViaPopup` - the URL, which is a wire protocol between two separately deployed things.
+5. `getDelegation` / `getSignatureForPublicKeyPublication` - the hosted half, where the message IS the API.
+6. `waitForWallet` (auto-connect) and the wallet lifecycle: silent lock, unlock refusals, watcher teardown on switch, replaced signature requests.
+7. `storeIsTargetStepReached` and its exported twin, asserted against each other rather than against hardcoded expectations.
+
+## What the remaining ~7% is, and why to leave it
+
+Counted rather than guessed at the end: of everything still uncovered, 32 spots are defensive guards (`if ($connection.wallet)` re-checks after an await, `if (settled)` re-entry guards, `if (_wallet)`, `if (provider)`) and message fallbacks (`params?.chainName || 'chain with id = N'`). Reaching them needs a disconnect racing an in-flight prompt, or two settlements racing, or a half-described chain. A test for one of those asserts the shape of the code, and the refactor these tests exist to protect is the thing that would rewrite that shape.
+
+The rest is a genuine but thin tail: empty-valued debug parameters, the `ChooseWalletAccount` variant reached only after an unlock, `originToSignWith` under `nodeURL`, the catch of the SignedIn-with-wallet auto-connect restore. Worth doing opportunistically, not worth a campaign.
+
+## Bugs found while covering, all recorded as `it.fails`
+
+Two, both in the same shape: something that works, with a consequence nobody would notice from the code.
+
+1. `switchWalletChain` leaves `error: 'Failed to switch to <chain>'` on the state after a switch that SUCCEEDED through the add-chain fallback. The user lands on the right chain with a red banner. The error is set before `throw result`, and the throw lands in its own catch, which recovers and carries the error out on `...$connection`.
+2. `getSignatureForPublicKeyPublication` is declared `(): Promise<...>` but is not `async`, so its failures throw SYNCHRONOUSLY while `getDelegation` beside it rejects. The obvious `.catch(showTheReason)` gets an uncaught exception. One word to fix, but it changes when a caller's error arrives, so it wants its own change.
+
+## Two tests of mine were vacuous before they were fixed
+
+Worth recording because both passed, and a passing test that asserts nothing is worse than a missing one: it occupies the space where the real test would go.
+
+- An assertion on a storage key I had invented rather than looked up (`__etherplay_lastWallet`; the real one is `__last_wallet`), so it would have passed whether the option worked or the whole argument was dropped.
+- An assertion calling a fixture method that did not exist, guarded with `?? 0`, so it compared 0 to 0.
+
+The lesson that generalises: assert with something that CHANGES THE OUTCOME rather than something that leaves a trace, and check the name against the source rather than against memory. The (step, options) overload is now asserted through `skipChainCheck`, without which the call never resolves at all.
+
+Fixing the first of those also turned up a documented behaviour I had assumed backwards (`doNotStoreLocally` covers the origin account only, never the last wallet), which is now pinned by its own test.
