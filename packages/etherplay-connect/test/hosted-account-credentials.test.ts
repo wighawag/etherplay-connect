@@ -165,10 +165,9 @@ describe('credentials on a hosted account', () => {
 		// Named rather than a bare failure, because an app running several accounts needs to know
 		// WHICH one is unusable for this.
 		//
-		// Asserted synchronously because that is what it currently does. See the `it.fails` below.
 		const {connection} = await signedInAsHosted(hostedAccount());
 
-		expect(() => connection.getSignatureForPublicKeyPublication()).toThrow(ACCOUNT);
+		await expect(connection.getSignatureForPublicKeyPublication()).rejects.toThrow(ACCOUNT);
 	});
 
 	it('refuses both before sign-in, rather than reporting an absent credential', async () => {
@@ -177,25 +176,34 @@ describe('credentials on a hosted account', () => {
 		const connection = createConnection({walletHost: WALLET_HOST, chainInfo, autoConnect: false});
 
 		await expect(connection.getDelegation({chainId: 1, contract: CONTRACT})).rejects.toThrow('Not signed in');
-		expect(() => connection.getSignatureForPublicKeyPublication()).toThrow('Not signed in');
+		await expect(connection.getSignatureForPublicKeyPublication()).rejects.toThrow('Not signed in');
 	});
 
-	// KNOWN BUG, recorded rather than fixed. `it.fails` passes while the bug exists and turns red
-	// the moment somebody fixes it, so the marker cannot be forgotten, and the suite (which gates
-	// the release) stays green meanwhile.
-	//
-	// `getSignatureForPublicKeyPublication` is declared `(): Promise<`0x${string}`>` and its two
-	// failure paths `throw` from a NON-async function, so they throw SYNCHRONOUSLY. `getDelegation`
-	// beside it is `async`, so its identical-looking `throw` becomes a rejection. Two sibling
-	// methods on the same object, both typed as returning a promise, failing in two different ways.
-	//
-	// A consumer writing the obvious `getSignatureForPublicKeyPublication().catch(showTheReason)`
-	// gets an uncaught exception instead of its reason, and the shape of the code gives no warning:
-	// the signature says Promise. The fix is one word, `async`, but it changes when a caller's
-	// error arrives, so it belongs in its own change with a changeset that says so.
-	it.fails('reports its failure as a rejection, like getDelegation does', async () => {
+	it('fails by rejecting rather than by throwing, like getDelegation does', async () => {
+		// WAS a known bug, recorded as `it.fails` and now fixed. It was declared
+		// `(): Promise<`0x${string}`>` while its failure paths threw from a NON-async function, so they
+		// left SYNCHRONOUSLY, and `getDelegation` beside it rejected: two siblings on the same object,
+		// both typed as returning a promise, failing in two different ways with nothing in either
+		// signature to warn a caller.
+		//
+		// Asserted as two separate facts, because the pair is the contract: the call must NOT throw at
+		// call time, AND the promise it returns must reject. A test for the rejection alone would pass
+		// against the old code under `await`, since `await` propagates both.
 		const {connection} = await signedInAsHosted(hostedAccount());
 
-		await expect(connection.getSignatureForPublicKeyPublication()).rejects.toThrow(ACCOUNT);
+		let promise: Promise<unknown> | undefined;
+		expect(() => {
+			promise = connection.getSignatureForPublicKeyPublication();
+			promise.catch(() => {});
+		}).not.toThrow();
+		await expect(promise).rejects.toThrow(ACCOUNT);
+
+		// And the same for both of them, since the point is that they agree.
+		let delegation: Promise<unknown> | undefined;
+		expect(() => {
+			delegation = connection.getDelegation({chainId: 1, contract: CONTRACT});
+			delegation.catch(() => {});
+		}).not.toThrow();
+		await expect(delegation).rejects.toThrow(/sign in again/);
 	});
 });

@@ -2590,7 +2590,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		);
 	}
 
-	function getSignatureForPublicKeyPublication(): Promise<`0x${string}`> {
+	// `async` is load-bearing, not decoration: without it the `throw`s below leave this function
+	// SYNCHRONOUSLY while its signature promises a rejection, so
+	// `getSignatureForPublicKeyPublication().catch(showTheReason)` never runs its handler and the
+	// app gets an uncaught exception instead of the reason. `getDelegation` beside it is async and
+	// rejects, and two siblings on the same object failing in two different ways is a difference
+	// nothing in either signature would warn a caller about.
+	async function getSignatureForPublicKeyPublication(): Promise<`0x${string}`> {
 		if ($connection.step !== 'SignedIn') {
 			throw new Error('Not signed in');
 		}
