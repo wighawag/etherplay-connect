@@ -241,12 +241,18 @@ Counted rather than guessed at the end: of everything still uncovered, 32 spots 
 
 The rest is a genuine but thin tail: empty-valued debug parameters, the `ChooseWalletAccount` variant reached only after an unlock, `originToSignWith` under `nodeURL`, the catch of the SignedIn-with-wallet auto-connect restore. Worth doing opportunistically, not worth a campaign.
 
-## Bugs found while covering, all recorded as `it.fails`
+## Bugs found while covering: both recorded as `it.fails`, both now fixed
 
-Two, both in the same shape: something that works, with a consequence nobody would notice from the code.
+Two, and in the same shape: something that WORKS, with a consequence nobody would notice from reading the code.
 
-1. `switchWalletChain` leaves `error: 'Failed to switch to <chain>'` on the state after a switch that SUCCEEDED through the add-chain fallback. The user lands on the right chain with a red banner. The error is set before `throw result`, and the throw lands in its own catch, which recovers and carries the error out on `...$connection`.
-2. `getSignatureForPublicKeyPublication` is declared `(): Promise<...>` but is not `async`, so its failures throw SYNCHRONOUSLY while `getDelegation` beside it rejects. The obvious `.catch(showTheReason)` gets an uncaught exception. One word to fix, but it changes when a caller's error arrives, so it wants its own change.
+1. `switchWalletChain` left `error: 'Failed to switch to <chain>'` on the state after a switch that SUCCEEDED through the add-chain fallback, so the user landed on the right chain with a red banner. The error was set before `throw result`, that throw lands in the function's own catch, and the recovery carried the error out on `...$connection`. Fixed: whoever gives up sets the error, nothing sets one on the way past. The give-up branch now also keeps the wallet's own error as `cause`, which was being dropped.
+2. `getSignatureForPublicKeyPublication` was declared `(): Promise<...>` but was not `async`, so its failures threw SYNCHRONOUSLY while `getDelegation` beside it rejected. `.catch(showTheReason)` never ran. Fixed with `async`.
+
+### What the marker was worth
+
+Both fixes were announced by their own `it.fails` turning red ("Expect test to fail") rather than by anybody remembering to look, which is the entire argument for the mechanism over a skip or a comment. Neither could have been quietly left behind.
+
+The second fix taught something about how to assert it. The obvious test, `await expect(call()).rejects.toThrow()`, passes against the BROKEN code too, because `await` propagates a synchronous throw just as happily as a rejection: that is precisely why nobody noticed the difference for so long. The test asserts the pair instead: the call must not throw at call time, AND the promise must reject. Verified by putting each bug back and watching the right tests fail.
 
 ## Two tests of mine were vacuous before they were fixed
 
