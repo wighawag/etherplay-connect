@@ -64,6 +64,8 @@ export type LockableWallet = {
 	/** Run while the wallet is holding a `personal_sign`, the only moment worth looking at. */
 	set whileSigning(hook: (() => void | Promise<void>) | undefined);
 	requestAccountsCalls: () => number;
+	/** `eth_accounts` is the SILENT question; a flow that promises not to ask must not ask it either. */
+	getAccountsCalls: () => number;
 	info: {uuid: string; name: string; icon: string; rdns: string};
 };
 
@@ -91,6 +93,7 @@ export function installLockableWallet(options?: {
 	let failChainId = false;
 	let requestAccountsError: unknown | undefined;
 	let requestAccountsCount = 0;
+	let getAccountsCount = 0;
 	let whileSigning: (() => void | Promise<void>) | undefined;
 	let releaseTransaction: ((hash: string) => void) | undefined;
 
@@ -110,6 +113,7 @@ export function installLockableWallet(options?: {
 					}
 					return chainId;
 				case 'eth_accounts':
+					getAccountsCount++;
 					return locked ? [] : accounts;
 				case 'eth_requestAccounts':
 					requestAccountsCount++;
@@ -215,6 +219,7 @@ export function installLockableWallet(options?: {
 			emit('chainChanged', chainIdAsHex);
 		},
 		requestAccountsCalls: () => requestAccountsCount,
+		getAccountsCalls: () => getAccountsCount,
 		set whileSigning(hook: (() => void | Promise<void>) | undefined) {
 			whileSigning = hook;
 		},
