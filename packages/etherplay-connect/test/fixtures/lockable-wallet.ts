@@ -35,6 +35,21 @@ export type LockableWallet = {
 	releaseTransaction: (hash?: string) => void;
 	/** Make the password prompt fail, so a test can watch a FAILED reconnect. */
 	rejectRequestAccounts: (error: unknown) => void;
+	/**
+	 * How the wallet answers `wallet_switchEthereumChain` / `wallet_addEthereumChain`.
+	 *
+	 * Both are EIP-1193 methods with an unusual contract: null means SUCCESS, and a non-null result
+	 * is an error rather than a value, which is why the code under test checks the result as well as
+	 * catching. A handler may return either, or throw (`{code: 4001}` is the user refusing).
+	 */
+	setChainHandlers: (handlers: {
+		switchChain?: (chainId: string) => unknown;
+		addChain?: (params: any) => unknown;
+	}) => void;
+	switchChainCalls: () => {chainId: string}[];
+	addChainCalls: () => any[];
+	/** The chain the wallet reports, as a wallet does after the user approves a switch. */
+	setChainId: (chainIdAsHex: string) => void;
 	/** Run while the wallet is holding a `personal_sign`, the only moment worth looking at. */
 	set whileSigning(hook: (() => void) | undefined);
 	requestAccountsCalls: () => number;
@@ -55,7 +70,11 @@ export function installLockableWallet(options?: {
 		rdns: options?.rdns ?? 'com.example.lockable',
 	};
 	let accounts = options?.accounts ?? ['0x1111111111111111111111111111111111111111'];
-	const chainId = options?.chainId ?? '0x1';
+	let chainId = options?.chainId ?? '0x1';
+	const switchChainCalls: {chainId: string}[] = [];
+	const addChainCalls: any[] = [];
+	let switchChainHandler: ((chainId: string) => unknown) | undefined;
+	let addChainHandler: ((params: any) => unknown) | undefined;
 
 	let locked = false;
 	let requestAccountsError: unknown | undefined;
@@ -98,6 +117,28 @@ export function installLockableWallet(options?: {
 					return '0x100';
 				case 'eth_call':
 					return '0x';
+				case 'wallet_switchEthereumChain': {
+					const requested = (params?.[0] as {chainId: string})?.chainId;
+					switchChainCalls.push({chainId: requested});
+					// null is SUCCESS for this method. A wallet that accepts also announces the new
+					// chain, which is what actually updates the connection.
+					if (!switchChainHandler) {
+						chainId = requested;
+						emit('chainChanged', requested);
+						return null;
+					}
+					return switchChainHandler(requested);
+				}
+				case 'wallet_addEthereumChain': {
+					const added = params?.[0];
+					addChainCalls.push(added);
+					if (!addChainHandler) {
+						chainId = added?.chainId ?? chainId;
+						emit('chainChanged', chainId);
+						return null;
+					}
+					return addChainHandler(added);
+				}
 				default:
 					throw new Error(`unexpected method ${method}`);
 			}
@@ -134,6 +175,16 @@ export function installLockableWallet(options?: {
 		releaseTransaction: (hash = '0xhash') => releaseTransaction?.(hash),
 		rejectRequestAccounts: (error: unknown) => {
 			requestAccountsError = error;
+		},
+		setChainHandlers: (handlers) => {
+			switchChainHandler = handlers.switchChain;
+			addChainHandler = handlers.addChain;
+		},
+		switchChainCalls: () => switchChainCalls,
+		addChainCalls: () => addChainCalls,
+		setChainId: (chainIdAsHex: string) => {
+			chainId = chainIdAsHex;
+			emit('chainChanged', chainIdAsHex);
 		},
 		requestAccountsCalls: () => requestAccountsCount,
 		set whileSigning(hook: (() => void) | undefined) {

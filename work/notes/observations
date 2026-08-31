@@ -189,3 +189,45 @@ Enforced rather than asserted because the failure directions are not symmetric: 
 Measured rather than felt, at the end of this pass: `connect` is ~400 lines, `index.ts` is at 80% statement and 71% BRANCH coverage. Roughly three branches in ten are unexercised, which is the number that decides whether the decomposition recommended at the top of this file (extract `connectWallet()`, centralise transitions) is a refactor or a gamble. Both invariants that produced this month's bugs are now structural, which removes the urgency; the remaining problem is legibility, not correctness.
 
 Sequence for whoever picks it up: publish, then characterization tests for the uncovered branches, then the extraction, on a clean baseline so a regression bisects to the refactor rather than to a mixed commit. The trigger in the first section still stands: before adding another target step, permission path or wallet-selection behaviour.
+
+---
+
+# Test coverage as the precondition for refactoring `connect()`
+
+Started 2026-08-31, after the two invariants were made structural. The goal is not the percentage: it is that no branch of the function we intend to restructure is unexercised, so a decomposition can be judged by a green suite rather than by reading.
+
+## Convention for bugs found while writing coverage
+
+**A failing test must never land on `main`.** `release.yml` gates publishing on the same test command as CI ("Publishing is gated on the tests"), so a red suite does not merely look untidy, it blocks the release of everything else.
+
+So a bug found while writing tests is recorded EXECUTABLY instead:
+
+- **`it.fails('what it should do')`** for a genuine bug whose correct behaviour we know. It passes while the bug exists, and turns RED the moment somebody fixes it, which is what stops the marker being forgotten. Verified against this vitest version before adopting it.
+- **A characterization test** asserting what currently happens, named as a known limit, where the current behaviour is defensible or the right answer is not yet clear. Proven to work here: the reused-address one failed the moment the behaviour was fixed, forcing a deliberate change rather than a surprise.
+
+Both carry a comment saying what is wrong and what should happen instead. Neither is a substitute for fixing it.
+
+## On "100%"
+
+Aim for the flows, not the number. Evidence from the first file: after covering `switchWalletChain`, sixteen branches remain in it, and NINE are `if ($connection.wallet)` re-checks after an await, whose false side needs a disconnect racing an in-flight chain switch. Four more are `params?.chainName || 'chain with id = N'` message fallbacks. Chasing those produces tests that assert the shape of the code rather than anything a consumer can observe, and they then have to be rewritten by the very refactor they were meant to protect.
+
+A good stopping rule: cover every path a CONSUMER can reach deliberately, plus every path that ends in a state the app renders. Leave defensive guards to the type system and to the enforcement points.
+
+## Progress
+
+- `switchWalletChain`: was the largest hole in `index.ts` and had NO test at all, which is worth saying twice: a public method that prompts the user's wallet, with 46 uncovered spots. It is also the method whose `switchingChain` state is the justification for its ADR-0001 exemption from the wrapper, so that exemption rested on an untested promise. Now 12 tests. `index.ts` went 80.7 -> 87.7% statements, 70.9 -> 78.3% branches.
+
+### Found while covering it: a successful chain switch can leave a failure banner
+
+`switchWalletChain` sets `error: 'Failed to switch to <chain>'` BEFORE `throw result`, and that throw lands in its own `catch`, which then recovers by adding the chain. When the add succeeds, the recovery spreads `...$connection` on its way out and carries the stale error with it. The user ends up on the requested chain with a red banner saying it failed. Recorded as `it.fails('clears the failure message when the recovery succeeded')`.
+
+The fix is not a line: the error should be set where the flow gives up, not before a recovery it may survive. `switchWalletChain` has eight `set` calls doing the same two things in different orders, and is the next candidate for the same treatment `set` gave the teardown invariant.
+
+## Remaining, in priority order
+
+1. `connect` (14 stmts, 17 branches) - the function we intend to refactor, so its coverage is the precondition.
+2. `ensureConnected` (9, 8) - overload parsing, `skipChainCheck`, `forceConnect`, retry-after-failure.
+3. `connectViaPopup` (18, 25) - URL construction per mechanism, permissions, `signingOrigin`, the debug passthroughs. Cheap and mechanical: a wrong parameter is a broken sign-in.
+4. `getDelegation` / `getSignatureForPublicKeyPublication` (11, 13) - the hosted-account paths, where the remedy is "sign in again" and the message matters.
+5. `waitForWallet` (6, 2) - auto-connect restore, including the `WalletChosen` restore path.
+6. `storeIsTargetStepReached` (4, 9) - cheap, and it is what consumers branch on.
