@@ -289,12 +289,45 @@ describe('switchWalletChain', () => {
 		expect(snapshot().error).toBeUndefined();
 	});
 
-	it('refuses when there is no wallet to ask', async () => {
+	it('refuses when there is no wallet to ask, and says which state it is in', async () => {
 		wallet = installLockableWallet({uuid: 'uuid-chain', name: 'Chain Wallet', rdns: 'com.example.chain'});
 		const connection = createConnection({chainInfo, targetStep: 'WalletConnected', autoConnect: false});
 		await vi.advanceTimersByTimeAsync(200);
 
-		await expect(connection.switchWalletChain(OTHER_CHAIN)).rejects.toThrow();
+		await expect(connection.switchWalletChain(OTHER_CHAIN)).rejects.toThrow('no wallet to ask');
+	});
+
+	it('publishes the two prompts in order, so a consumer can word them differently', async () => {
+		// The sequence, not just the endpoints. A user is asked TWICE here, and the second question is
+		// "add this network" rather than "switch network": an app that renders one word for both asks
+		// the user to approve something other than what their wallet is showing them.
+		//
+		// This is also what ADR-0001 lets these two calls bypass the always-on wrapper FOR, so
+		// collapsing these values into a boolean is not a simplification, it is a decision to announce
+		// them through the wrapper instead. Pinned so that choice cannot be made by accident.
+		const {connection, snapshot, wallet} = await connected();
+
+		const published: (string | false)[] = [];
+		const unsubscribe = connection.subscribe((state) => {
+			const value = state.wallet?.switchingChain;
+			if (value !== undefined && published[published.length - 1] !== value) {
+				published.push(value);
+			}
+		});
+
+		wallet.setChainHandlers({
+			switchChain: () => {
+				throw UNKNOWN_CHAIN();
+			},
+		});
+
+		const switching = connection.switchWalletChain(OTHER_CHAIN);
+		await vi.advanceTimersByTimeAsync(200);
+		await switching;
+		unsubscribe();
+
+		expect(published).toEqual([false, 'switchingChain', 'addingChain', false]);
+		expect(snapshot().error).toBeUndefined();
 	});
 
 	it('follows the wallet onto the new chain, and back off it', async () => {

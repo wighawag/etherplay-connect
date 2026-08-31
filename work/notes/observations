@@ -264,3 +264,19 @@ Worth recording because both passed, and a passing test that asserts nothing is 
 The lesson that generalises: assert with something that CHANGES THE OUTCOME rather than something that leaves a trace, and check the name against the source rather than against memory. The (step, options) overload is now asserted through `skipChainCheck`, without which the call never resolves at all.
 
 Fixing the first of those also turned up a documented behaviour I had assumed backwards (`doNotStoreLocally` covers the origin account only, never the last wallet), which is now pinned by its own test.
+
+## Update (2026-08-31): `switchWalletChain` has one exit now
+
+The tail end of the note above ("eight `set` calls doing the same two things in different orders") is done, and it went the same way as the two invariants before it: the rule stops being something each site remembers and becomes something the shape says.
+
+Two named exits, `nowAsking(prompt)` and `doneAsking(error?)`, replace eight `set` calls, each of which used to repeat an `if ($connection.wallet)` guard and decide for itself whether to attach an error. That freedom IS the stale-banner bug: an error set on the way past a recovery that then succeeded. With one exit, "the error is set by whoever gives up, and by nobody on the way past" is legible in the function rather than asserted about it.
+
+Measured: uncovered branch sides inside the function went from 16 to 3, and `index.ts` branch coverage rose 92.3 -> 94.0% WITHOUT new tests for those branches, because most of them were the repeated guard. That is worth remembering as a rule of thumb: a repeated defensive guard is not just noise, it is coverage debt, and collapsing it pays down both at once.
+
+The 12 existing tests passed unchanged through the restructure, which is what the coverage pass was for. One was added afterwards, for the SEQUENCE of `switchingChain` -> `addingChain` -> `false` rather than its endpoints, because the doc comment now claims that distinction matters (two different questions to the user, and ADR-0001's justification for these calls bypassing the wrapper). Verified by collapsing the two prompts into one value: two tests fail.
+
+Also fixed in passing: the message was `invali state`, and now says `invalid state: no wallet to ask`.
+
+### What is left in this area
+
+`connect()` itself, which is the big one and still ~400 lines. Everything done since the coverage pass has been the cheap half: invariants that could be moved into a single point without restructuring control flow. `connect` needs the control flow itself changed (extract `connectWallet()`, centralise the transitions), which is a different kind of work and now has 98.5% statement / 94.0% branch coverage under it.

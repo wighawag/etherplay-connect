@@ -2648,153 +2648,116 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		}
 	}
 
+	/**
+	 * Ask the user's wallet to move to a chain, adding it first if the wallet has never seen it.
+	 *
+	 * TWO PROMPTS, not one, and which of them is up is published as `wallet.switchingChain`
+	 * (`'switchingChain'` then `'addingChain'`). That distinction is not cosmetic: "add this
+	 * network" is a different question from "switch network", and a consumer wording them the same
+	 * way asks the user to approve something other than what the wallet is showing.
+	 *
+	 * That state is also the whole justification for these two calls bypassing the always-on
+	 * wrapper, which is where every other request the user answers is announced. See
+	 * `docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md`: "each already publishes
+	 * a dedicated state the consumer renders... if any of those states is removed, that call moves
+	 * onto the wrapper." So collapsing these two values into a boolean, or dropping them, is not a
+	 * simplification: it is a decision to route these through the wrapper instead.
+	 */
 	async function switchWalletChain(chainInfo?: BasicChainInfo) {
 		if (!$connection.wallet) {
-			throw new Error(`invali state`);
+			throw new Error(`invalid state: no wallet to ask`);
 		}
 
+		const wallet = $connection.wallet;
 		const chainInfoToUse = chainInfo || settings.chainInfo;
-
 		const params = viemChainInfoToSwitchChainInfo(chainInfoToUse);
-
 		const chainId = '' + chainInfoToUse.id;
 		const chainIdAsHex = params.chainId;
+		/** How to name this chain to the user, whether or not the app gave it a name. */
+		const named = params?.chainName || `chain with id = ${chainId}`;
 
-		const wallet = $connection.wallet;
-		// if (!wallet) {
-		// 	throw new Error(`no wallet`);
-		// }
+		// A wallet prompt is up, and WHICH one. Guarded because the user is free to disconnect while
+		// they look at it, and a state with no wallet has nothing to say about a switch.
+		const nowAsking = (prompt: 'switchingChain' | 'addingChain') => {
+			if ($connection.wallet) {
+				set({...$connection, wallet: {...$connection.wallet, switchingChain: prompt}});
+			}
+		};
+
+		// THE SINGLE EXIT. Every path out of this function comes through here, which is what makes
+		// the rule legible rather than remembered: an error is set by whoever GIVES UP, and by
+		// nobody on the way past. Setting one before a recovery that then worked is exactly the bug
+		// this shape prevents, and it shipped: the user landed on the requested chain with a banner
+		// saying it had failed.
+		//
+		// `error` is omitted rather than set to `undefined` when there is none, so a successful
+		// switch does not silently clear an unrelated error the app has not shown yet.
+		const doneAsking = (error?: {message: string; cause?: unknown}) => {
+			if ($connection.wallet) {
+				set({
+					...$connection,
+					wallet: {...$connection.wallet, switchingChain: false},
+					...(error ? {error} : {}),
+				});
+			}
+		};
+
+		/** 4001 is the user saying no. A refusal is not a failure and has nothing to report. */
+		const isRefusal = (err: unknown) => (err as {code?: unknown} | undefined)?.code === 4001;
 
 		try {
-			// attempt to switch...
-			set({
-				...$connection,
-				wallet: {...$connection.wallet, switchingChain: 'switchingChain'},
-			});
+			nowAsking('switchingChain');
+			// These methods report success as `null`, so a non-null RESULT is an error reported
+			// without throwing. Turning it into a throw here is what puts both shapes on one road,
+			// including the road to the recovery below.
 			const result = await wallet.provider.switchChain(chainIdAsHex);
-			if (!result) {
-				if ($connection.wallet) {
-					set({
-						...$connection,
-						wallet: {...$connection.wallet, switchingChain: false},
-					});
-				}
-
-				// logger.info(`wallet_switchEthereumChain: complete`);
-				// this will be taken care with `chainChanged` (but maybe it should be done there ?)
-				// handleNetwork(chainId);
-			} else {
-				// A non-null RESULT is how these methods report an error without throwing, so this is a
-				// failure and not a value. It is reported by THROWING and nothing else, because this
-				// throw lands in the catch below, which may still recover by adding the chain.
-				//
-				// Setting an error here as well used to leave `Failed to switch to <chain>` on the state
-				// after a recovery that WORKED: the add path spreads `...$connection` on its way out and
-				// carried it along, so the user ended up on the requested chain being told it had failed.
-				// Whoever gives up sets the error; nobody sets one on the way past.
+			if (result) {
 				throw result;
 			}
+			// The chain itself is not recorded here: the wallet announces `chainChanged`, and that is
+			// what moves the connection, exactly as when the user switches chain in the wallet.
+			doneAsking();
+			return;
 		} catch (err) {
-			if ((err as any).code === 4001) {
-				// logger.info(`wallet_addEthereumChain: failed but error code === 4001, we ignore as user rejected it`, err);
-				if ($connection.wallet) {
-					set({
-						...$connection,
-						wallet: {...$connection.wallet, switchingChain: false},
-					});
-				}
+			if (isRefusal(err)) {
+				doneAsking();
 				return;
 			}
-			// if ((err as any).code === 4902) {
-			else if (params && params.rpcUrls && params.rpcUrls.length > 0) {
-				if ($connection.wallet) {
-					set({
-						...$connection,
-						wallet: {...$connection.wallet, switchingChain: 'addingChain'},
-					});
-				}
-				// logger.info(`wallet_switchEthereumChain: could not switch, try adding the chain via "wallet_addEthereumChain"`);
-				try {
-					const result = await wallet.provider.addChain({
-						chainId: chainIdAsHex,
-						rpcUrls: params.rpcUrls,
-						chainName: params.chainName,
-						blockExplorerUrls: params.blockExplorerUrls,
-						iconUrls: params.iconUrls,
-						nativeCurrency: params.nativeCurrency,
-					});
-					if (!result) {
-						if ($connection.wallet) {
-							set({
-								...$connection,
-								wallet: {...$connection.wallet, switchingChain: false},
-							});
-						}
-						// this will be taken care with `chainChanged` (but maybe it should be done there ?)
-						// handleNetwork(chainId);
-					} else {
-						if ($connection.wallet) {
-							set({
-								...$connection,
-								wallet: {...$connection.wallet, switchingChain: false},
-								error: {
-									message: `Failed to add new chain: ${params?.chainName || `chain with id = ${chainId}`}`,
-									cause: result,
-								},
-							});
-						}
-						// logger.info(`wallet_addEthereumChain: a non-undefinded result means an error`, result);
-						throw result;
-					}
-				} catch (err) {
-					if ((err as any).code !== 4001) {
-						if ($connection.wallet) {
-							set({
-								...$connection,
-								wallet: {...$connection.wallet, switchingChain: false},
-								error: {
-									message: `Failed to add new chain: ${params?.chainName || `chain with id = ${chainId}`}`,
-									cause: err,
-								},
-							});
-						}
-						// logger.info(`wallet_addEthereumChain: failed`, err);
-						// TODO ?
-						// set({
-						// 	error: {message: `Failed to add new chain`, cause: err},
-						// });
-						// for now:
-						throw err;
-					} else {
-						if ($connection.wallet) {
-							set({
-								...$connection,
-								wallet: {...$connection.wallet, switchingChain: false},
-							});
-						}
-						// logger.info(`wallet_addEthereumChain: failed but error code === 4001, we ignore as user rejected it`, err);
-						return;
-					}
-				}
-			} else {
-				// Nothing left to try: the wallet cannot switch to this chain and there is no rpcUrl to add
-				// it with. This is where the flow gives up, so this is where the error is set.
-				const errorMessage = `Chain "${params?.chainName || `with chainId = ${chainId}`} " is not available on your wallet`;
-				if ($connection.wallet) {
-					set({
-						...$connection,
-						wallet: {...$connection.wallet, switchingChain: false},
-						error: {
-							message: errorMessage,
-							// What the wallet actually said, which is otherwise lost: this branch is reached
-							// both from a refusal and from a wallet reporting an error as a result.
-							cause: err,
-						},
-					});
-				}
-
-				throw new Error(errorMessage);
+			if (!params?.rpcUrls || params.rpcUrls.length === 0) {
+				// Nothing left to try: the wallet cannot switch to this chain, and there is no rpcUrl to
+				// add it with. `cause` keeps what the wallet actually said, since the message below is
+				// this library's summary and the branch is reached both from a refusal to switch and
+				// from a wallet reporting its error as a result.
+				const message = `Chain "${named}" is not available on your wallet`;
+				doneAsking({message, cause: err});
+				throw new Error(message);
 			}
+		}
+
+		// The wallet does not know this chain. Asking it to ADD one is a second prompt, with the
+		// details the wallet needs to describe the chain to the user.
+		nowAsking('addingChain');
+		try {
+			const result = await wallet.provider.addChain({
+				chainId: chainIdAsHex,
+				rpcUrls: params.rpcUrls,
+				chainName: params.chainName,
+				blockExplorerUrls: params.blockExplorerUrls,
+				iconUrls: params.iconUrls,
+				nativeCurrency: params.nativeCurrency,
+			});
+			if (result) {
+				throw result;
+			}
+			doneAsking();
+		} catch (err) {
+			if (isRefusal(err)) {
+				doneAsking();
+				return;
+			}
+			const message = `Failed to add new chain: ${named}`;
+			doneAsking({message, cause: err});
+			throw err;
 		}
 	}
 
