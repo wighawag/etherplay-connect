@@ -110,6 +110,7 @@ function createMockWalletConnector(
 		setWalletStatus: vi.fn(),
 		onRequest: vi.fn(() => () => {}), // Returns unsubscribe function
 		getPendingRequests: vi.fn(() => []),
+		signMessage: vi.fn(async () => '0x' as `0x${string}`),
 	};
 
 	return {

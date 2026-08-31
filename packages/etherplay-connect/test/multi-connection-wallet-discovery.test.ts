@@ -210,6 +210,7 @@ describe('the connection deduplicates whatever the connector announces', () => {
 			setWalletStatus: vi.fn(),
 			onRequest: vi.fn(() => () => {}),
 			getPendingRequests: vi.fn(() => []),
+			signMessage: vi.fn(async () => '0x' as `0x${string}`),
 		};
 		return {
 			fetchWallets: (announced) => handles.forEach(announced),

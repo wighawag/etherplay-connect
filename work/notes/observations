@@ -58,3 +58,29 @@ Before adding another target step, permission path, or wallet-selection behavior
    - `SignedIn` → signed in
 
 Bottom line: fine to merge, increasingly expensive to extend. It has not become unmaintainable yet, but this is the point where the next feature should probably start with a small structural cleanup.
+
+---
+
+# Code observations: `pendingRequests` is reset to `[]` while a request is still outstanding
+
+Spotted 2026-08-30, while fixing the two signatures that bypassed the always-on wrapper (see `docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md`). Not fixed there, to keep that change scoped.
+
+This is the same split-invariant problem the section above describes, showing up as a user-visible bug rather than as maintenance cost.
+
+## What was seen
+
+Every wallet-state rebuild in `createConnection` hardcodes `pendingRequests: []` — nine sites in `packages/etherplay-connect/src/index.ts`, findable with `grep -n 'pendingRequests: \[\],'` and spread across `connect()`, `chooseWallet`, the account-change handler and `setWalletProvider`. (Deliberately not cited by line number: the first draft of this note listed nine, and the change it was written alongside moved every one of them.) The wrapper's own list is untouched by those rebuilds, so a rebuild that fires while the user is holding a wallet popup publishes an empty list for a request that is still outstanding. Nothing corrects it afterwards: the next event for that request is `requestEnd`, which also produces an empty list.
+
+## Why it matters
+
+It is the failure ADR-0001 is about, arriving by a different road. The modal explaining the popup disappears while the popup is still on screen, and anything asking "is the wallet busy" is told no.
+
+It is already costing a consumer real code. jolly-roger's `web/src/lib/core/connection/wallet-activity.ts` maintains a second, deliberately "more trustworthy" source beside `wallet.pendingRequests`, and its comment on `outstandingRequestKind` names this exact behaviour as the reason: the list "is the thing that goes missing: a wallet state rebuild resets `pendingRequests` to `[]` while the request is still outstanding". The comment records the bug it caused, where an escape hatch appeared, then read the empty list, concluded nothing was outstanding, and cancelled the connection, losing an in-flight transaction.
+
+So the cost is not just a vanishing modal. Consumers are carrying compensating bookkeeping, and that duplicate is its own source of drift.
+
+## Likely fix
+
+`alwaysOnProviderWrapper` owns the in-flight list, so a rebuild should ask it rather than assert an answer: `pendingRequests: alwaysOnProviderWrapper.getPendingRequests()`. It is never worse than the literal, because the wrapper's list is true at the moment it is read.
+
+This is item 4 of the recommendation above ("remove duplicated `WalletConnected` state construction") with a concrete symptom attached: the literal `[]` is copied at every rebuild site, so the bug is reintroduced by anyone writing the next one. A single state-construction helper that reads the wrapper would close it for good.

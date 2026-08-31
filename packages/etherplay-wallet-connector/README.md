@@ -109,7 +109,8 @@ interface WalletProvider<UnderlyingProvider> extends BasicWalletProvider<Underly
 
 ### AlwaysOnProviderWrapper
 
-Wrapper for providers that should always be available:
+Wrapper for providers that should always be available, and the single place every wallet-reaching
+request is announced from:
 
 ```typescript
 interface AlwaysOnProviderWrapper<WalletProviderType> {
@@ -117,8 +118,32 @@ interface AlwaysOnProviderWrapper<WalletProviderType> {
 	setWalletStatus: (newStatus: 'connected' | 'locked' | 'disconnected') => void;
 	chainId: string;
 	provider: WalletProviderType;
+
+	// Ask the wallet to sign text, ANNOUNCED. A separate surface from `provider.request` because
+	// that path speaks for one chain and refuses signing methods when the wallet is elsewhere,
+	// while a text signature is chain-independent.
+	signMessage: (
+		message: string,
+		account: `0x${string}`,
+		options?: {purpose?: RequestPurpose},
+	) => Promise<`0x${string}`>;
+
+	// Request tracking. `onRequest` returns an unsubscribe function.
+	onRequest: (handler: RequestEventHandler) => () => void;
+	getPendingRequests: () => PendingRequest[];
 }
 ```
+
+A request the user must answer and the app cannot see is a request nothing can explain, cancel or
+recover from, and the failure is silent: the request still works and returns the right bytes, while
+the only symptom is an unexplained wallet popup. So an implementation must announce everything that
+reaches the user's wallet, and `signMessage` exists so that a signature the library itself needs is
+reported like any other request. See
+[ADR-0001](../../docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md).
+
+`PendingRequest.purpose` says WHY, for requests this library originates (`'delegation' |
+'public-key-publication'`). It is absent when the app asked directly through `provider`, where the
+app already knows what it sent.
 
 ## Usage
 

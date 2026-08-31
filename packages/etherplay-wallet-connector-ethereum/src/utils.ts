@@ -1,4 +1,6 @@
 import {bytesToHex} from '@noble/hashes/utils';
+import type {Methods} from 'eip-1193';
+import type {CurriedRPC} from 'remote-procedure-call';
 
 /**
  * Wraps any promise with a timeout
@@ -41,4 +43,25 @@ export function hashMessage(message: string): `0x${string}` {
 	const messageAsBytes = encoder.encode(message);
 	const msg = `0x${bytesToHex(messageAsBytes)}` as `0x${string}`;
 	return msg;
+}
+
+/**
+ * The ONE spelling of a text signature request.
+ *
+ * Two callers send this: `EthereumWalletProvider.signMessage`, which sign-in still uses, and
+ * `AlwaysOnEthereumProviderWrapper.signMessage`, which announces the signatures the library asks
+ * for (see ADR-0001). They hold different objects and neither can call the other, so without this
+ * they would each spell out the method name and the hex encoding and be free to drift. A signature
+ * produced over differently encoded bytes recovers to a different address, so the drift would show
+ * up as a credential that verifies against nobody rather than as an error.
+ */
+export function personalSign(
+	rpc: CurriedRPC<Methods>,
+	message: string,
+	account: `0x${string}`,
+): Promise<`0x${string}`> {
+	return rpc.request({
+		method: 'personal_sign',
+		params: [hashMessage(message), account],
+	}) as Promise<`0x${string}`>;
 }

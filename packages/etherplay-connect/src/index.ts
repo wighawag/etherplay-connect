@@ -3,7 +3,9 @@ import type {
 	WalletHandle,
 	WalletProvider,
 	PendingRequest,
+	RequestEvent,
 	RequestEventHandler,
+	RequestPurpose,
 } from '@etherplay/wallet-connector';
 import {EthereumWalletConnector, type UnderlyingEthereumProvider} from '@etherplay/wallet-connector-ethereum';
 import {writable} from 'sveltore';
@@ -42,6 +44,10 @@ export {
 };
 
 export type {OriginAccount, AuthMechanism, PermissionRequest, PermissionOutcome, SavedDelegation};
+
+// What `wallet.pendingRequests` and `onRequest` are made of. Re-exported so a consumer rendering
+// "your wallet is asking for something" can name WHICH thing without a second dependency.
+export type {PendingRequest, RequestEvent, RequestEventHandler, RequestPurpose};
 
 export type {UnderlyingEthereumProvider};
 
@@ -2339,7 +2345,21 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				chainId: target.chainId,
 				deadline,
 			});
-			const signature = await _wallet.provider.signMessage(message, account.address);
+			// Through the wrapper, NOT `_wallet.provider`, so the request is announced: see
+			// `docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md`. This one has no step
+			// of its own, so `pendingRequests` is the only thing standing between the user and an
+			// unexplained wallet popup asking them to hand a browser key authority over their account.
+			//
+			// The `_wallet` check above therefore guards a DIFFERENT object than the one that signs: the
+			// wrapper signs with whatever `setWalletProvider` last registered on it. The two are kept in
+			// lockstep (every site that assigns `_wallet` registers it, and the only window where they
+			// disagree is inside `connect()`, which `step !== 'SignedIn'` already excludes), so the check
+			// is still the right one to make. Said out loud because it is exactly the kind of unstated
+			// assumption the ADR exists to stop being inherited: if wallet registration ever stops being
+			// unconditional, this needs to ask the wrapper instead.
+			const signature = await alwaysOnProviderWrapper.signMessage(message, account.address, {
+				purpose: 'delegation',
+			});
 			return {chainId: target.chainId, contract, delegate: account.signer.address, deadline, signature};
 		}
 
@@ -2369,7 +2389,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				throw new Error(`no provider`);
 			}
 			const message = originPublicKeyPublicationMessage(originToSignWith(), account.signer.publicKey);
-			return _wallet.provider.signMessage(message, account.address);
+			// Announced, for the same reason as `getDelegation` above.
+			return alwaysOnProviderWrapper.signMessage(message, account.address, {
+				purpose: 'public-key-publication',
+			});
 		}
 
 		if (account.savedPublicKeyPublicationSignature) {

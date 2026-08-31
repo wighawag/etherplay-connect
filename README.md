@@ -46,8 +46,19 @@ etherplay-connect/
 │   └── sveltekit/                            # Demo application
 ├── web/
 │   └── login/                                # The sign-in host itself (two builds, see web/README.md)
+├── docs/
+│   └── adr/                                  # Decisions we made, and why (see below)
 └── package.json
 ```
+
+### Where the reasoning lives
+
+Three places, and they are not interchangeable:
+
+- **`docs/adr/`** — decisions that are made, with the trade-off that produced them. Read these first when something looks deliberately odd; they are the ones that stay true.
+  - [ADR-0001: wallet requests are announced through the wrapper](./docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md) — every request that reaches the user's wallet must be observable, because a wallet popup carries no provenance and an unexplained one is indistinguishable from a phishing prompt.
+- **`plans/`** — implementation plans, written *before* the work. Historical: a plan may have been superseded by an ADR, and says so where it has.
+- **`work/notes/observations`** — things spotted but not acted on, append-only.
 
 ## Installation
 

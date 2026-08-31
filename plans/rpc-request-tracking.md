@@ -27,7 +27,7 @@ After investigation and discussion, the following decisions were made:
 | Request metadata | No - just method name and type. Code should allow easy addition later. |
 | Performance opt-in | No - not needed since update frequency is low (2 updates per user action) |
 | `_requestSignature()` integration | Keep separate - it already works and has its own `WaitingForSignature` step |
-| Path 2 (EthereumWalletProvider.signMessage) | Not tracked - internal to Connection store, handled by existing UI |
+| Path 2 (EthereumWalletProvider.signMessage) | Not tracked - internal to Connection store, handled by existing UI. **SUPERSEDED for everything except sign-in** by [ADR-0001](../docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md). |
 
 ### Request Type Classification
 
@@ -88,6 +88,8 @@ flowchart TD
 **Path 1** is tracked by this feature - these are user-initiated transactions/signatures.
 
 **Path 2** is NOT tracked - this is internal to the Connection store for origin key signing and already has its own `WaitingForSignature` step in the connection state machine.
+
+> **SUPERSEDED, except for sign-in.** See [ADR-0001](../docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md). The exemption above was true of `_requestSignature`, Path 2's only caller when this was written. It was attached to the MECHANISM (`signMessage`) rather than to that CALLER, so `getDelegation` and `getSignatureForPublicKeyPublication`, written later, inherited an exemption without inheriting the step and ended up announced by nothing at all. Library-originated signatures now go through `AlwaysOnProviderWrapper.signMessage`. Only sign-in still relies on `WaitingForSignature`.
 
 ### AlwaysOnEthereumProviderWrapper
 
@@ -495,6 +497,8 @@ export type ConnectionStore<...> = {
 Add event emission to `EthereumWalletProvider` for internal signature requests.
 
 **Why not chosen**: Path 2 is internal to Connection store and already has its own `WaitingForSignature` step. The existing UI handles this case.
+
+> **SUPERSEDED, except for sign-in**, by [ADR-0001](../docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md): only `_requestSignature` had that step, and the two Path 2 callers written afterwards had no signal at all. The chosen shape was not this one either: rather than emitting from `EthereumWalletProvider`, the wrapper grew a `signMessage` surface, so announcing stays in the one place that owns the pending-request list.
 
 ---
 

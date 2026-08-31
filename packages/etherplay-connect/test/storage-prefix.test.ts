@@ -85,6 +85,7 @@ function createMockWalletConnector(
 		setWalletStatus: vi.fn(),
 		onRequest: vi.fn(() => () => {}),
 		getPendingRequests: vi.fn(() => []),
+		signMessage: vi.fn(async () => '0x' as `0x${string}`),
 	};
 	return {
 		fetchWallets: vi.fn((callback) => {

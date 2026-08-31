@@ -8,7 +8,7 @@ import type {
 	PrivateKeyAccount,
 } from '@etherplay/wallet-connector';
 import type {EIP1193ChainId, EIP1193WindowWalletProvider, Methods} from 'eip-1193';
-import {hashMessage} from './utils.js';
+import {personalSign} from './utils.js';
 import {createProvider} from './provider.js';
 import {createCurriedJSONRPC, CurriedRPC} from 'remote-procedure-call';
 import {HDKey} from '@scure/bip32';
@@ -364,10 +364,7 @@ export class EthereumWalletProvider implements WalletProvider<CurriedRPC<Methods
 		this.underlyingProvider = createCurriedJSONRPC<Methods>(windowProvider as any);
 	}
 	async signMessage(message: string, account: `0x${string}`): Promise<`0x${string}`> {
-		return this.underlyingProvider.request({
-			method: 'personal_sign',
-			params: [hashMessage(message), account],
-		}) as Promise<`0x${string}`>;
+		return personalSign(this.underlyingProvider, message, account);
 	}
 
 	async getChainId(): Promise<`0x${string}`> {
