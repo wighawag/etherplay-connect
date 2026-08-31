@@ -570,7 +570,7 @@ One consequence worth stating plainly, because it used to be worse than it is: t
 
 The reasoning, including the version of this that made `connect()` reconnect too and why it was rejected, is in `docs/adr/0002-connect-ensure-connected-and-unlock-are-three-promises.md`.
 
-**Known limit.** `ensureConnected()`'s reconnect reuses the connected address, so if the user unlocks with a _different_ account selected the attempt fails with `could not find address 0x...` and the wallet is torn down (the announcement survives). `unlock()` handles that case correctly and is unaffected.
+**On accounts.** `ensureConnected()`'s reconnect replays the address the connection was on, so an ordinary unlock comes back to the same account rather than bouncing a multi-account user into `ChooseWalletAccount`. If the user unlocks on a _different_ account, the replayed address is treated as a preference and the reconnect lands on the account the wallet actually offers, with `mechanism.address` and `account` updated to say so. An address YOU name (`connectToAddress(a)`, `connect({type: 'wallet', address: a})`) is a demand, and still fails the attempt if the wallet cannot offer it.
 
 ### Connect Options
 

@@ -771,13 +771,7 @@ describe('WalletChosen target', () => {
 			const originalOpen = window.open;
 			(window as any).open = vi.fn(() => ({closed: false, close: () => {}}) as unknown as Window);
 			try {
-				// Deliberately not awaited. `PopupPromise.cancel()` is an empty TODO in `src/popup.ts`, so
-				// nothing settles this promise once the popup is open: `connection.cancel()` returns the
-				// STORE to Idle and leaves the promise pending for good. That is its own problem, recorded
-				// in `work/notes/observations`; this test is about the wallet, and awaiting here would only
-				// hang it on an unrelated bug.
 				const connecting = store.connect({type: 'email', email: 'user@example.com'});
-				connecting.catch(() => {});
 				await vi.advanceTimersByTimeAsync(50);
 				expect(currentState(store).step).toBe('PopupLaunched');
 
@@ -787,6 +781,7 @@ describe('WalletChosen target', () => {
 
 				store.cancel();
 				await vi.advanceTimersByTimeAsync(50);
+				await connecting;
 				expect(currentState(store).step).toBe('Idle');
 			} finally {
 				(window as any).open = originalOpen;

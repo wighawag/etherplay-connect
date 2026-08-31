@@ -229,10 +229,30 @@ export function createPopupLauncher<T>() {
 			}, 200);
 		}
 
+		// The window this launch opened, so `cancel` closes ITS popup rather than whichever is
+		// current: a second launch replaces `currentPopup` while an older promise may still be held.
+		let launchedWindow: Window | undefined;
+
 		const store = {
 			subscribe: _store.subscribe,
+			/**
+			 * Close the popup and SETTLE the promise.
+			 *
+			 * This used to be an empty `TODO`, which meant `connection.cancel()` returned the store to
+			 * `Idle` and left the promise `connect()` was awaiting pending for good: an app doing
+			 * `await connection.connect({type: 'email'})` and then offering a cancel button waited
+			 * forever, holding the popup window open behind it.
+			 *
+			 * Rejects with `type: 'cancelation'`, which is what `connect` already reads to tell a
+			 * cancellation (nothing to report) from a refusal (a reason the app must surface).
+			 */
 			cancel() {
-				// TODO
+				try {
+					launchedWindow?.close();
+				} catch (err) {
+					console.error(err);
+				}
+				rejectRecovery({message: 'popup cancelled', type: 'cancelation'});
 			},
 		};
 
@@ -253,6 +273,7 @@ export function createPopupLauncher<T>() {
 				if (!popup) {
 					throw new Error(`could not open the login popup`);
 				}
+				launchedWindow = popup;
 				currentPopup = {popup, onMessage, rejectRecovery: _rejectRecovery};
 				console.log(`listening to message... ${id}`);
 				window.addEventListener('message', currentPopup.onMessage);

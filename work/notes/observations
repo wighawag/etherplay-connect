@@ -150,9 +150,9 @@ General lesson worth keeping: when two entry points differ and one looks destruc
 
 ## Found while in there, NOT fixed
 
-- **`PopupPromise.cancel()` is an empty `TODO`** (`src/popup.ts`). `connection.cancel()` returns the STORE to `Idle` but never settles the promise `connect()` is awaiting on the popup path, so that promise stays pending for good. A caller doing `await connection.connect({type: 'email'})` and then cancelling waits forever. Not touched here because it is a different subsystem from the one under repair; it made a test hang, which is how it surfaced.
-- **A reconnect reuses the connected ADDRESS, not just the wallet name.** `mechanismToReconnect()` returns `$connection.mechanism`, address included (`ensureConnected` always did this; `connect` now does too). If the user unlocks with a DIFFERENT account selected, `connect` throws `could not find address 0x...`, which lands in the catch and tears the wallet down: the reconnect turns into the very teardown it exists to avoid. The fix is to treat a reused address as a preference rather than a demand, while an address the CALLER passed stays a demand. Not done here because the distinction needs a way to tell the two apart, and inventing one quietly inside `connect` is how the last set of unstated assumptions got in. Dropping the address instead is NOT the answer: it would bounce every multi-account user into `ChooseWalletAccount` on an ordinary unlock. Recorded as a characterization test (`test/locked-wallet-reconnect.test.ts`, "known limit: a reconnect fails, and tears down, if the user unlocks on another account") so that fixing it shows up as a change to that test rather than as a surprise. `unlock()` handles the account-changed case correctly and is unaffected.
-- **The repo is one release behind npm.** `@etherplay/connect@0.10.0` is published, `packages/etherplay-connect/package.json` says `0.9.1`, `CHANGELOG.md` has no 0.10.0 entry, and the two changesets 0.10.0 was cut from are still pending in `.changeset/`. `changeset version` here would therefore produce 0.10.0 a second time, from three changesets instead of two. Reconciling that is a release-state decision, not a code one.
+- ~~**`PopupPromise.cancel()` is an empty `TODO`**~~ (`src/popup.ts`). Fixed in a follow-up commit; see the update at the end.
+- ~~**A reconnect reuses the connected ADDRESS, not just the wallet name.**~~ Fixed in a follow-up commit; see the update at the end.
+- ~~**The repo is one release behind npm.**~~ The `Version Packages` commit for 0.10.0 existed on `origin/main` and had not been pulled. Resolved by pulling: the tree is at 0.10.0, its changelog entry is in place, the two changesets it was cut from are consumed, and the pending changesets now cut 0.11.0.
 
 ## Update (2026-08-31, after review)
 
@@ -161,3 +161,15 @@ Review findings acted on: the `disconnect()` unsubscribe fix and the `set` ident
 The `connect()` behaviour change was then reverted on the owner's argument, and the asymmetry documented instead: see "the asymmetry is the design" above. Net effect on the public API is smaller than the first attempt: one new field, one deprecation, no change to what any method does.
 
 Still open after this pass, in priority order: the release-state mismatch below (blocks shipping), the reused-address demand in `ensureConnected`'s reconnect (has a characterization test), and `PopupPromise.cancel()`.
+
+## Update (2026-08-31, follow-up commits)
+
+Both remaining items from "found, not fixed" are now fixed, each in its own commit with tests that fail first.
+
+**The replayed address is a preference.** The distinction the note above said needed "a way to tell those apart" is an internal third argument to `connect`, invisible on the public surface: `ensureConnected`'s reconnect passes `addressIsPreference`, and only that path degrades to an ordinary connect when the address has gone. An address a CALLER named still fails the attempt. Resolving it once, before the step is chosen, also removed the duplicated address-then-nextStep logic in the two account branches, which had them in opposite orders.
+
+The characterization test did exactly what it was written for: fixing the behaviour broke it, so the change had to be made deliberately rather than noticed later. It is now a pair of tests, one per kind of address.
+
+**`PopupPromise.cancel()` closes the window and settles the promise.** The interesting part was not the cancelling but the consequence: settling the promise wakes `connect`'s own failure handler, which rests on `Idle`, so a naive fix would have sent `back('MechanismToChoose')` during a popup to `Idle` a microtask later. The handler now only acts while it still owns the flow, which also fixes a latent bug where launching a second popup rejected the first and the first's handler landed on `Idle` on top of the second. Pinned by three tests, verified by reverting the cancel and the guard separately.
+
+Nothing is left on the "found, not fixed" list from this pass. Still open from earlier passes: the `connect()` size and split-invariant problem described at the top of this file, which every change here has made more visible rather than less.
