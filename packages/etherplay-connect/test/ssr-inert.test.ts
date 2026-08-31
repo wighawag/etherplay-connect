@@ -184,8 +184,13 @@ describe('SSR / construction inertness (no DOM globals)', () => {
 		// store rests at Idle with loading:true, identical to the browser's very
 		// first render, so a server-rendered app hydrates without a mismatch.
 		// (See README: changing this value is a hydration-visible breaking change.)
+		//
+		// `pendingRequests` is part of the shape and is empty on BOTH sides: a server
+		// has no user wallet to hold anything, and a browser's first render is before
+		// anything could have been asked. So it is in the value without being a
+		// hydration difference.
 		const value = snapshot(store);
-		expect(value).toEqual({step: 'Idle', loading: true, wallets: []});
+		expect(value).toEqual({step: 'Idle', loading: true, wallets: [], pendingRequests: []});
 		expect(value.step).toBe('Idle');
 		expect(value.loading).toBe(true);
 		expect(value.wallets).toEqual([]);
@@ -219,7 +224,7 @@ describe('SSR / construction inertness (no DOM globals)', () => {
 		});
 
 		const value = snapshot(store);
-		expect(value).toEqual({step: 'Idle', loading: true, wallets: []});
+		expect(value).toEqual({step: 'Idle', loading: true, wallets: [], pendingRequests: []});
 		expect(value.step).toBe('Idle');
 		expect(value.loading).toBe(true);
 		expect(value.wallets).toEqual([]);

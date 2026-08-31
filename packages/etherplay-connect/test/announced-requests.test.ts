@@ -7,9 +7,16 @@
 // only symptom is a wallet popup with no dialog behind it, which is indistinguishable from a
 // phishing prompt and which a careful user is right to refuse. So the assertions here are all about
 // what the store said DURING the request, not about its result.
+//
+// These assertions read `wallet.pendingRequests`, the DEPRECATED mirror, on purpose: they are what
+// keeps it working for consumers who have not moved yet. The list now lives on the connection
+// state (`connection.pendingRequests`), which is where new code should read it and where
+// `test/locked-wallet-reconnect.test.ts` asserts it — including the cases this file cannot reach,
+// where there is no `wallet` object to hang a list on.
 
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {createConnection, type PendingRequest} from '../src/index.js';
+import {installLockableWallet, type LockableWallet} from './fixtures/lockable-wallet.js';
 
 const chainInfo = {
 	id: 1,
@@ -26,50 +33,21 @@ const PAGE_ORIGIN = 'http://localhost:3000';
 /**
  * A wallet that lets the test look at the store WHILE it is holding a signature.
  *
- * The hook runs inside the `personal_sign` handler, which is the only moment that matters: before
- * it the request has not started, after it the request is over, and a check at either end would
- * pass against the very bug this file exists to catch.
+ * `whileSigning` runs inside the `personal_sign` handler, which is the only moment that matters:
+ * before it the request has not started, after it the request is over, and a check at either end
+ * would pass against the very bug this file exists to catch.
+ *
+ * This is the shared fixture, which also has a real listener registry and can be locked. This file
+ * used to carry its own copy whose `on`/`removeListener` were no-ops, and that copy could not
+ * reach the bugs in `locked-wallet-reconnect.test.ts` at all: with no listeners, a wallet never
+ * goes `locked`, so every test written against it silently exercised the happy path.
  */
 function installWallet() {
-	const info = {uuid: 'uuid-wallet', name: 'Injected Wallet', icon: '', rdns: 'com.example.injected'};
-	let whileSigning: (() => void) | undefined;
-	let releaseTransaction: ((hash: string) => void) | undefined;
-	const provider = {
-		request: async ({method, params}: {method: string; params?: any[]}) => {
-			switch (method) {
-				case 'eth_chainId':
-					return '0x1';
-				case 'eth_accounts':
-				case 'eth_requestAccounts':
-					return [ACCOUNT];
-				case 'personal_sign':
-					whileSigning?.();
-					return SIGNATURE;
-				case 'eth_sendTransaction':
-					// Held until the test releases it, which is what a wallet waiting on a human is.
-					return new Promise<string>((resolve) => {
-						releaseTransaction = resolve;
-					});
-				default:
-					throw new Error(`unexpected method ${method}`);
-			}
-		},
-		on: () => {},
-		removeListener: () => {},
-	};
-	const onRequest = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', {detail: {info, provider}}));
-	window.addEventListener('eip6963:requestProvider', onRequest);
-	return {
-		uninstall: () => window.removeEventListener('eip6963:requestProvider', onRequest),
-		releaseTransaction: () => releaseTransaction?.('0xhash'),
-		set whileSigning(hook: (() => void) | undefined) {
-			whileSigning = hook;
-		},
-	};
+	return installLockableWallet({uuid: 'uuid-wallet', name: 'Injected Wallet', rdns: 'com.example.injected'});
 }
 
 describe('what the app can see while the wallet is being asked', () => {
-	let wallet: ReturnType<typeof installWallet> | undefined;
+	let wallet: LockableWallet | undefined;
 
 	beforeEach(() => {
 		localStorage.clear();
@@ -298,13 +276,13 @@ describe('what the app can see while the wallet is being asked', () => {
 		await vi.advanceTimersByTimeAsync(200);
 		await connecting;
 
-		let during: {step: string; pending: PendingRequest[] | undefined} | undefined;
+		let during: {step: string; pending: PendingRequest[] | undefined; announced: PendingRequest[]} | undefined;
 		wallet.whileSigning = () => {
 			let state!: any;
 			connection.subscribe((v) => {
 				state = v;
 			})();
-			during = {step: state.step, pending: state.wallet?.pendingRequests};
+			during = {step: state.step, pending: state.wallet?.pendingRequests, announced: state.pendingRequests};
 		};
 
 		const signing = connection.requestSignature();
@@ -313,5 +291,8 @@ describe('what the app can see while the wallet is being asked', () => {
 
 		expect(during!.step).toBe('WaitingForSignature');
 		expect(during!.pending).toEqual([]);
+		// And the exception has to hold at the NEW read location too, or moving to
+		// `connection.pendingRequests` would hand consumers the second modal this exists to avoid.
+		expect(during!.announced).toEqual([]);
 	});
 });

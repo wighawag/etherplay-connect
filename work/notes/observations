@@ -105,3 +105,59 @@ Fixed: all nine sites now read `getPendingRequests()`, pinned by `test/announced
 Still open, and still item 4 above: the rule now lives in nine identical call sites rather than in one state-construction helper, so a hand-written tenth rebuild can reintroduce it. The test pins the behaviour, not the shape.
 
 Worth telling jolly-roger: their `$inFlight.dispatching` ledger had to outrank `pendingRequests` because of this, and that reason is now gone. The ledger itself still earns its place (local-signer sends that no wallet is asked about, and it starts a beat earlier), so this simplifies their reconciliation rather than removing it.
+
+---
+
+# Code observations: a wallet object that is REMOVED, not rebuilt
+
+Spotted 2026-08-31, reported by jolly-roger while building the e2e test that confirms the 0.10.0 fix ("survives the reconnect that used to erase the request", `web/e2e/tests/escape-hatch.e2e.ts`). Both findings below are the previous section's bug reached through a different door, and both were invisible from inside this package until a test fixture could LOCK a wallet that was still holding a request.
+
+## What was seen
+
+1. `connect()` on a `WalletConnected` wallet with `status: 'locked'` did not reconnect: it fell through to the wallet picker, which tears the wallet down. `ensureConnected()` from the same state DID reconnect. Observed with a transaction genuinely parked in the wallet the whole time: `{step: WalletConnected, walletStatus: locked, pending: 1}` became `{step: WalletToChoose, wallet: undefined}` with no `error` set. Reported as one bug; it turned out to be two questions with different answers (see "the asymmetry is the design" below).
+2. The 0.10.0 rule ("copy the list at every `wallet: {...}` construction") covered every path that BUILDS a wallet and none that removes one. After a failed reconnect the flow rests on `wallet: undefined` with the request still in the wallet, unannounced, indefinitely.
+
+## Why it matters
+
+(1) is a destructive difference between two public entry points with nothing announcing it. (2) is the same "the app believes the popup does not exist" failure as before, on the resting state rather than the transient one, which is worse: nothing ends it but the user.
+
+## Fixed
+
+Both, with tests that fail before and pass after (`test/locked-wallet-reconnect.test.ts`, on a fixture that can lock a wallet mid-request: `test/fixtures/lockable-wallet.ts`).
+
+- `pendingRequests` moved off `wallet` onto the connection state and is stamped in `set`, the single place a published state is built. This closes item 4 of the first section and the "nine call sites, not one builder" weakness the ADR left open: the rule is now a property of the store rather than a habit of whoever writes the next rebuild. `set` takes a `ConnectionInput` that does not carry the field at all, so it is the TYPE that enforces it, and the ten copies the previous change added are gone.
+
+## The asymmetry is the design, and only the erasure was the bug
+
+First attempt at (1) made `connect()` reconnect a locked wallet, sharing one helper with `ensureConnected` so the two could not drift. Reverted after review by the owner, on an argument that is better than the one it replaced:
+
+- `connect` drives the flow from the USER'S CHOICE. Bare, with nothing naming a wallet, that is the picker, from any state. Consumers depend on it for switch-wallet, and a method whose meaning depends on `wallet.status` is a lot of hidden behaviour behind one name.
+- `ensureConnected` promises a TARGET, so it must repair a locked wallet: it cannot deliver a usable connection otherwise. That is why the reconnect belongs to it and to nothing else.
+- `unlock()` already exists, is the narrowest remedy, and keeps the step, the account, the mechanism and the wallet where re-running the flow rebuilds all four. `wallet.status` is on the published state precisely so a consumer can route on it.
+
+The evidence that settled it: with only the announcement fix in place, a bare `connect()` on a locked wallet holding a transaction lands on the picker AND still reports `pendingRequests: [{kind: 'transaction', account: 0x11...}]`, the request still ends when answered, and picking the wallet again costs one password prompt. So the difference between the two entry points costs a click, not data. **What made it look destructive was the erasure, not the routing.** Fix the erasure and the asymmetry becomes an API-design choice, which is the owner's to make.
+
+The three behaviours are now pinned side by side, each with a transaction parked throughout, so that collapsing any one into another fails: `test/locked-wallet-reconnect.test.ts`. Verified by reverting each in turn.
+
+Recorded as `docs/adr/0002-connect-ensure-connected-and-unlock-are-three-promises.md`, because a decision that was questioned once will be questioned again, and the next reader deserves the argument rather than the outcome.
+
+General lesson worth keeping: when two entry points differ and one looks destructive, separate "the difference is wrong" from "the damage is wrong". Here only the second was true, and fixing it made the first a matter of documentation.
+
+## Found while in there, fixed
+
+- Two `wallet: undefined` transitions inside `connect` did not call `teardownWallet()`: the bare `connect()` that lands on `MechanismToChoose`, and the sign-in popup launch by a user who was already wallet-connected. Both left the wrapper holding the wallet with its status still `connected`, so it would keep SIGNING for a state showing no wallet. That is the hazard `teardownWallet`'s own comment describes. Pinned in `test/wallet-chosen.test.ts`, "teardown when the wallet leaves the state".
+- `disconnect()` called `unsubscribeRequestEvents()`, and nothing re-subscribes: a disconnect silenced request announcements for the rest of the connection's life, so a disconnect-then-reconnect left the app blind to every subsequent wallet prompt.
+
+## Found while in there, NOT fixed
+
+- **`PopupPromise.cancel()` is an empty `TODO`** (`src/popup.ts`). `connection.cancel()` returns the STORE to `Idle` but never settles the promise `connect()` is awaiting on the popup path, so that promise stays pending for good. A caller doing `await connection.connect({type: 'email'})` and then cancelling waits forever. Not touched here because it is a different subsystem from the one under repair; it made a test hang, which is how it surfaced.
+- **A reconnect reuses the connected ADDRESS, not just the wallet name.** `mechanismToReconnect()` returns `$connection.mechanism`, address included (`ensureConnected` always did this; `connect` now does too). If the user unlocks with a DIFFERENT account selected, `connect` throws `could not find address 0x...`, which lands in the catch and tears the wallet down: the reconnect turns into the very teardown it exists to avoid. The fix is to treat a reused address as a preference rather than a demand, while an address the CALLER passed stays a demand. Not done here because the distinction needs a way to tell the two apart, and inventing one quietly inside `connect` is how the last set of unstated assumptions got in. Dropping the address instead is NOT the answer: it would bounce every multi-account user into `ChooseWalletAccount` on an ordinary unlock. Recorded as a characterization test (`test/locked-wallet-reconnect.test.ts`, "known limit: a reconnect fails, and tears down, if the user unlocks on another account") so that fixing it shows up as a change to that test rather than as a surprise. `unlock()` handles the account-changed case correctly and is unaffected.
+- **The repo is one release behind npm.** `@etherplay/connect@0.10.0` is published, `packages/etherplay-connect/package.json` says `0.9.1`, `CHANGELOG.md` has no 0.10.0 entry, and the two changesets 0.10.0 was cut from are still pending in `.changeset/`. `changeset version` here would therefore produce 0.10.0 a second time, from three changesets instead of two. Reconciling that is a release-state decision, not a code one.
+
+## Update (2026-08-31, after review)
+
+Review findings acted on: the `disconnect()` unsubscribe fix and the `set` identity preservation are now pinned by tests that fail without them (verified by reverting each fix in turn); the redundant construction sites are gone via `ConnectionInput`; the `onRequest` registration moved below the `$connection` initialiser it closes over; `announced-requests.test.ts` folded onto the shared lockable fixture, retiring the last no-op-listener wallet in the suite.
+
+The `connect()` behaviour change was then reverted on the owner's argument, and the asymmetry documented instead: see "the asymmetry is the design" above. Net effect on the public API is smaller than the first attempt: one new field, one deprecation, no change to what any method does.
+
+Still open after this pass, in priority order: the release-state mismatch below (blocks shipping), the reused-address demand in `ensureConnected`'s reconnect (has a characterization test), and `PopupPromise.cancel()`.

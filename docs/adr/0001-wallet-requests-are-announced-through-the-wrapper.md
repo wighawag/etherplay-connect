@@ -4,11 +4,11 @@ Status: accepted
 
 ## The rule
 
-**Every request this library sends to the user's wallet goes through `alwaysOnProviderWrapper`, so that it is observable.** `onRequest` fires, `getPendingRequests()` lists it, and the store publishes it as `wallet.pendingRequests` for the whole time the wallet is holding it.
+**Every request this library sends to the user's wallet goes through `alwaysOnProviderWrapper`, so that it is observable.** `onRequest` fires, `getPendingRequests()` lists it, and the store publishes it as `connection.pendingRequests` for the whole time the wallet is holding it.
 
 There is exactly one exception, sign-in, and it is written down below so that it stays the only one.
 
-The rule has a second half, because announcing a request is worthless if the announcement is then thrown away: **the wrapper owns the list, and the store only mirrors it.** Any code building a `wallet` state object copies the current list from `getPendingRequests()`; nothing asserts an empty one. See "the announcement has to survive" below.
+The rule has a second half, because announcing a request is worthless if the announcement is then thrown away: **the wrapper owns the list, and the store only mirrors it.** The mirror is stamped in `set`, the single place a published state is built, so no state can be published that contradicts the wrapper and no caller can assert an empty list. See "the announcement has to survive" below, and "the list is not a property of the wallet state" after it, which is where the list moved and why.
 
 ## Why
 
@@ -71,6 +71,31 @@ Notably the wallet EVENT handlers were never the problem: `onChainChanged` and `
 
 The cost downstream was not just a missing modal. jolly-roger built a parallel ledger (`$inFlight.dispatching`) that the wallet-action modal, the escape hatch AND the unload guard all consult, because all three went silent when the list was emptied, and its `wallet-activity.ts` exists to reconcile the two sources. That ledger is not purely redundant (it also covers sends signed by a local signer, which no wallet is asked about, and it starts a beat earlier), but the reason it had to OUTRANK `pendingRequests` is this bug.
 
+## The list is not a property of the wallet state
+
+`pendingRequests` started on the `wallet` object and no longer lives there. It is published as `connection.pendingRequests`, beside `wallet` rather than inside it. `wallet.pendingRequests` is still populated, always with the same list, and is deprecated.
+
+The reason is the one the section above ends on. Teaching every rebuild to copy the list from the wrapper fixed the rebuilds, and did nothing for the paths that build **no wallet at all**, which are on the same road:
+
+- `connect` sets `wallet: undefined` on entry, and again before `requestAccounts()` when `getAccounts()` came back empty;
+- `setConnectionFailure` tears the wallet down entirely, deliberately, so that a failed attempt cannot keep routing requests (including read-only `eth_call`) through the failed wallet.
+
+That reasoning is right for READS and wrong for the announcement. The user's wallet is still holding the prompt; the wrapper still has it; there was simply nowhere left to read it from. On the success path the gap is transient, for the duration of a reconnect. After a FAILED reconnect it is not transient at all: the flow rests on a step with `wallet: undefined` and the request sits in the wallet, unannounced, for as long as the user leaves it there. That is the erasure bug's user-visible symptom reached by a different route, which is what makes this a design error rather than a missed call site.
+
+So: **a field whose value must be copied at every construction of its container is a field in the wrong container.** The list describes what the WRAPPER is holding, and the wrapper outlives any particular wallet state. Nine correct copies were nine chances to write a tenth wrong one, and the tenth turned out not to be a copy site at all.
+
+It is stamped in `set`, which is now the only place a published state is built. That is the durable fix this ADR previously recorded as still open ("extracting a single builder"), and it is what makes the rule a property of the store rather than a habit of whoever writes the next rebuild. The deprecated `wallet.pendingRequests` mirror is stamped from the same read in the same statement, so the two cannot drift while consumers migrate.
+
+The rule is carried by the TYPE rather than by discipline: `set` takes a `ConnectionInput`, which is the published shape minus `pendingRequests` at both levels, so a construction site cannot supply the field at all. "Remember to copy the list" held at nine sites and was never going to hold at the tenth; "you cannot write it" holds at every site that will ever exist. The ten copies the previous change added are gone with it.
+
+`set` also preserves object identity when the list has not changed: the wrapper returns a fresh array on every call, and rebuilding `wallet` on every unrelated publish would invalidate consumers' `derived` stores, `{#key}` blocks and effect dependencies on request churn. Requests are compared by identity, since a `PendingRequest` is created once and never mutated.
+
+**Considered and rejected: leaving it on `wallet` and teaching the `wallet: undefined` paths to keep a wallet.** That inverts the teardown rule, which exists because a state showing no wallet must not keep signing through one. The announcement and the routing have different lifetimes, and this is the change that stops pretending otherwise.
+
+**Considered and rejected: a breaking removal of `wallet.pendingRequests` in the same version.** The migration is one property access, but there is no reason a consumer should have to make it in the same release that fixes the bug they are being asked to upgrade for. It is deprecated, published as a minor, and removed later.
+
+This is not the "emit a second signal beside `pendingRequests`" option rejected further up. That one would have added a parallel channel with its own contents, needing two things kept in agreement forever. This moves the one channel and leaves the old name as a copy made in the same breath, from the same read, in the same statement.
+
 ### Known limit
 
 The list is not per-wallet. A request outstanding against a wallet the user has since switched away from is still reported, now under the new wallet's state. `account` makes that detectable by a consumer, which is why it is part of this change, but the wrapper does not itself mark or drop a request when `setWalletProvider` swaps underneath one. Whether it should is a real question and deliberately not answered here: dropping it would resurrect the erasure bug in a narrower form, so if anything is done it should be marking rather than dropping.
@@ -80,5 +105,6 @@ The list is not per-wallet. A request outstanding against a wallet the user has 
 - A new function that needs a wallet signature calls `alwaysOnProviderWrapper.signMessage` and gives it a `purpose`. Reaching for `_wallet.provider.signMessage` is the bug this ADR describes.
 - `_wallet.provider` remains correct for everything that does not ask the user anything: `watchForChainIdChange`, `watchForAccountChange`, their stop counterparts, identity comparisons, and `setWalletProvider(_wallet.provider.underlyingProvider)`.
 - `requestAccounts`, `switchChain` and `addChain` also reach the user and also bypass the wrapper. They are not covered here because each already publishes a dedicated state the consumer renders (`connecting`, `unlocking`, `switchingChain`), which is the same justification sign-in gets. If any of those states is removed, that call moves onto the wrapper.
-- Wallet-state rebuilds read `alwaysOnProviderWrapper.getPendingRequests()`. Writing the literal `[]` into a `wallet` object is the erasure bug above.
-- The structural weakness behind that remains: the rule is enforced by nine identical call sites rather than by one state-construction helper, so the next rebuild written by hand can still reintroduce it. The test pins the behaviour, not the shape. Extracting a single builder is the durable fix and is recorded in `work/notes/observations`.
+- Consumers read `connection.pendingRequests`. `wallet.pendingRequests` is the same list, deprecated, and kept only until the next major.
+- `set` stamps the list on every publish, and its `ConnectionInput` parameter does not carry the field, so no state-construction site can supply one. Adding a new step or a new rebuild costs nothing and cannot reintroduce the bug.
+- Nothing unsubscribes from `onRequest`. It used to be torn down by `disconnect()`, which silenced announcements for the rest of the connection's life, since nothing re-subscribes. The wrapper and the subscription have the same lifetime as the connection, so there is nothing to release.

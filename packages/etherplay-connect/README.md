@@ -370,8 +370,35 @@ interface WalletState {
 	invalidChainId: boolean; // True if on wrong chain
 	switchingChain: 'addingChain' | 'switchingChain' | false;
 	status: 'connected' | 'locked' | 'disconnected';
+	/** @deprecated read `connection.pendingRequests` instead; see below */
+	pendingRequests: PendingRequest[];
 }
 ```
+
+### What the user's wallet is holding: `connection.pendingRequests`
+
+Every request this library sends to the user's wallet is announced on `connection.pendingRequests` for the whole time the wallet is holding it, so your app can explain the popup it raised, offer to cancel, and warn before an unload. A wallet popup carries no provenance of its own: it does not say which app asked or what for, which is exactly the shape a phishing prompt takes.
+
+```typescript
+connection.subscribe(($connection) => {
+	for (const request of $connection.pendingRequests) {
+		// request.kind: 'transaction' | 'signature'
+		// request.purpose: 'delegation' | 'public-key-publication' | undefined (absent = your own request)
+		// request.account: who is expected to answer it
+	}
+});
+```
+
+**It sits beside `wallet`, not inside it, and that is the point.** The list describes what the always-on wrapper is holding, and the wrapper outlives any particular wallet state. A request is outstanding until the user answers it, and in the meantime the connection is free to rebuild its wallet state, or to have no wallet state at all:
+
+- a send against a **locked** wallet raises the connection flow while the wallet is still holding the transaction that raised it;
+- a reconnect that then **fails** comes to rest on a step with `wallet: undefined`, and stays there for as long as the user leaves it.
+
+The prompt is on the user's screen throughout. Reading the list off `wallet` meant losing it in exactly those moments, which is the bug this replaces: see `docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md`.
+
+`wallet.pendingRequests` is still populated, is always the same list, and is **deprecated**. Move to `connection.pendingRequests`; the wallet-level copy will go in a later major version.
+
+One request is deliberately NOT announced here: the sign-in signature, which has its own `step: 'WaitingForSignature'`. Consumers open a "please sign" dialog from that step and a separate modal from this list, so announcing it in both would stack two. The ADR records that exception and why it is the only one.
 
 ## Authentication Mechanisms
 
@@ -463,7 +490,7 @@ reproduce it and then drift from it.
 | Method                                         | Description                                                                                             |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `subscribe(callback)`                          | Subscribe to state changes                                                                              |
-| `connect(mechanism?, options?)`                | Initiate connection                                                                                     |
+| `connect(mechanism?, options?)`                | Initiate connection from the user's choice; bare, with no wallet named, opens the picker                |
 | `cancel()`                                     | Cancel ongoing connection and drop the wallet                                                           |
 | `back(step)`                                   | Navigate back to previous step (drops the wallet)                                                       |
 | `disconnect()`                                 | Disconnect and clear stored data                                                                        |
@@ -471,8 +498,8 @@ reproduce it and then drift from it.
 | `requestSignature()`                           | Request signature for session account                                                                   |
 | `connectToAddress(address, options?)`          | Connect to specific wallet address                                                                      |
 | `switchWalletChain(chainInfo?)`                | Switch wallet to different chain                                                                        |
-| `unlock()`                                     | Unlock locked wallet                                                                                    |
-| `ensureConnected(step?, mechanism?, options?)` | Promise-based connection                                                                                |
+| `unlock()`                                     | Prompt a locked wallet, keeping step, account and wallet (see "What to call on a locked wallet")        |
+| `ensureConnected(step?, mechanism?, options?)` | Promise-based connection; reconnects a locked wallet, since it promises a usable one                    |
 | `isTargetStepReached(connection)`              | Check if target step is reached                                                                         |
 | `getSignatureForPublicKeyPublication()`        | Get signature for public key                                                                            |
 | `getDelegation(target)`                        | Get a delegation credential                                                                             |
@@ -522,6 +549,28 @@ Credentials are minted at sign-in on popup mechanisms (email / OAuth / mnemonic)
 **Every field is a cache of what is inside the signature**, not metadata beside it. A stored copy that disagrees with the signed copy cannot be detected locally, the signature simply fails to recover, so treat a failure on the signature path as "discard this record and sign in again" rather than as a contract error. That makes any disagreement self-healing.
 
 **The wording is consensus, not style.** The message lives in [`@etherplay/delegation`](../etherplay-delegation/README.md) next to the Solidity that verifies it, and both are pinned against a shared `vectors.json` from both languages. Changing either side without the other and the vectors, in the same commit, silently invalidates every signature ever generated.
+
+### What to call on a locked wallet, and why `connect()` is not it
+
+`connect()` and `ensureConnected()` behave **differently** on a wallet that has gone locked, and that is deliberate. It is the most surprising thing in this API from the outside, so it is worth reading once:
+
+| Call                | What it promises                               | On a `WalletConnected` wallet that is `locked`                                |
+| ------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------- |
+| `unlock()`          | Make this wallet usable again                  | Prompts the wallet. Keeps the step, the account, the mechanism and the wallet |
+| `ensureConnected()` | Reach a target step, doing whatever that takes | Reconnects that wallet: it cannot deliver a usable connection otherwise       |
+| `connect()` (bare)  | Start the flow from the user's choice          | Opens the wallet picker, which drops the current wallet                       |
+
+**On a locked wallet, call `unlock()`.** It is the narrowest of the three and the only one that rebuilds nothing. `wallet.status` is published exactly so your UI can route on it: render an "Unlock" button when it says `locked`, rather than your "Connect" one. For `status: 'disconnected'` (the user moved to an account this connection is not on), the equivalent is `connectToAddress(wallet.accountChanged)`.
+
+**`connect()` is not a repair tool and does not try to be.** A bare `connect()` means "the user wants to connect something": with nothing naming a wallet it opens the picker, from any state, including one that already has a wallet. That is what makes a switch-wallet button work, and it does not change meaning based on `wallet.status`. To connect a specific wallet without the picker, name it: `connect({type: 'wallet', name})`.
+
+**`ensureConnected()` is the one that may reconnect**, because it promises a usable connection at a target step and cannot keep that promise on a locked wallet. If what you want is "make sure I can send", that is the call, and it handles the locked case for you.
+
+One consequence worth stating plainly, because it used to be worse than it is: the picker drops the current wallet, so a bare `connect()` on a locked wallet loses the wallet binding (and, from `SignedIn`, the session with it). **What it does not lose is the announcement.** Anything the wallet is still holding stays on `connection.pendingRequests` throughout, with the account it is waiting on, so your app can still explain the popup, offer to cancel, and warn before unload. Erasing that is the bug that made this asymmetry look destructive, and it is fixed: see "What the user's wallet is holding" above.
+
+The reasoning, including the version of this that made `connect()` reconnect too and why it was rejected, is in `docs/adr/0002-connect-ensure-connected-and-unlock-are-three-promises.md`.
+
+**Known limit.** `ensureConnected()`'s reconnect reuses the connected address, so if the user unlocks with a _different_ account selected the attempt fails with `could not find address 0x...` and the wallet is torn down (the announcement survives). `unlock()` handles that case correctly and is unaffected.
 
 ### Connect Options
 
@@ -613,7 +662,7 @@ In a Svelte app the `$` auto-subscription and helpers such as `get`/`derived` fr
 
 - **Construction never throws and does no I/O.** No `window`, `document`, `localStorage`, `sessionStorage`, `navigator`, `crypto`, timers, intervals, or network requests are touched during `createConnection(...)`. The only thing it builds is in-memory state.
 - **Nothing auto-connects without a `window`.** The entire auto-connect block (which reads saved accounts / last wallet from `localStorage` and polls installed wallets) is behind a `typeof window !== 'undefined'` guard, as is `fetchWallets()` in the Ethereum connector. Off-browser both are no-ops.
-- **The store rests at `{step: 'Idle', loading: true, wallets: []}`.** This is the exact same value a browser renders on its very first paint (before the auto-connect promise has resolved), so a server-rendered app hydrates with no store mismatch.
+- **The store rests at `{step: 'Idle', loading: true, wallets: [], pendingRequests: []}`.** This is the exact same value a browser renders on its very first paint (before the auto-connect promise has resolved), so a server-rendered app hydrates with no store mismatch.
 
 ### Why `loading` stays `true` off-browser
 

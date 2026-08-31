@@ -718,6 +718,81 @@ describe('WalletChosen target', () => {
 			expect(endpoint.blockNumberCalls()).toBe(1);
 		});
 
+		// The same rule, on the two paths inside `connect` that drop the wallet from the state
+		// without going through a failure or a `back()`. Both were missed: they set `wallet: undefined`
+		// and left the wrapper holding the wallet with its status still `connected`, so the wrapper
+		// would keep SIGNING through a wallet the state no longer showed. The rule is the one written
+		// on `teardownWallet` and in the README: every transition to a state whose `wallet` is
+		// `undefined` tears the live wallet down.
+		function createConnectionWithHost() {
+			const endpoint = createEndpoint();
+			const store = createConnection({
+				walletHost: 'https://wallet.example.com',
+				chainInfo: {...chainInfo, provider: endpoint.provider},
+				autoConnect: false,
+				prioritizeWalletProvider: true,
+			});
+			return {store, endpoint};
+		}
+
+		async function connectedWithHost() {
+			const {store} = createConnectionWithHost();
+			vi.advanceTimersByTime(200);
+			const connectPromise = store.connect({type: 'wallet', name: 'Injected Wallet'});
+			await vi.advanceTimersByTimeAsync(200);
+			await connectPromise;
+			expect(currentState(store).step).toBe('WalletConnected');
+			// Signing works while connected, so the assertions below are about the transition and not
+			// about a wallet that never worked.
+			await store.provider.request({method: 'personal_sign', params: ['0xdeadbeef', ACCOUNT]});
+			return store;
+		}
+
+		it('connect() with no mechanism, landing on the mechanism picker, refuses signing afterwards', async () => {
+			const store = await connectedWithHost();
+
+			// Not wallet-only and no mechanism given, so this re-enters the mechanism picker. (A LOCKED
+			// wallet is the other case and is deliberately different: there `connect()` reconnects
+			// instead, see `test/locked-wallet-reconnect.test.ts`.)
+			await store.connect();
+			expect(currentState(store).step).toBe('MechanismToChoose');
+
+			await expect(store.provider.request({method: 'personal_sign', params: ['0xdeadbeef', ACCOUNT]})).rejects.toThrow(
+				'wallet provider is not connected',
+			);
+		});
+
+		it('launching a sign-in popup refuses signing through the wallet it replaced', async () => {
+			// A user connected with a wallet who then picks email sign-in. The popup step carries no
+			// wallet, so the wallet must stop being able to sign the moment the popup opens, not
+			// whenever the popup happens to finish.
+			const store = await connectedWithHost();
+
+			const originalOpen = window.open;
+			(window as any).open = vi.fn(() => ({closed: false, close: () => {}}) as unknown as Window);
+			try {
+				// Deliberately not awaited. `PopupPromise.cancel()` is an empty TODO in `src/popup.ts`, so
+				// nothing settles this promise once the popup is open: `connection.cancel()` returns the
+				// STORE to Idle and leaves the promise pending for good. That is its own problem, recorded
+				// in `work/notes/observations`; this test is about the wallet, and awaiting here would only
+				// hang it on an unrelated bug.
+				const connecting = store.connect({type: 'email', email: 'user@example.com'});
+				connecting.catch(() => {});
+				await vi.advanceTimersByTimeAsync(50);
+				expect(currentState(store).step).toBe('PopupLaunched');
+
+				await expect(
+					store.provider.request({method: 'personal_sign', params: ['0xdeadbeef', ACCOUNT]}),
+				).rejects.toThrow('wallet provider is not connected');
+
+				store.cancel();
+				await vi.advanceTimersByTimeAsync(50);
+				expect(currentState(store).step).toBe('Idle');
+			} finally {
+				(window as any).open = originalOpen;
+			}
+		});
+
 		it('cancel() from WalletConnected refuses signing afterwards', async () => {
 			const {store} = createConnectionWithEndpoint();
 			vi.advanceTimersByTime(200);

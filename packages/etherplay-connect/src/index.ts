@@ -150,37 +150,66 @@ export type FullfilledMechanism = AuthMechanism | WalletMechanism<string, `0x${s
 
 export type TargetStep = 'WalletChosen' | 'WalletConnected' | 'SignedIn';
 
-export type WalletState<WalletProviderType> = {
+type WalletStateCommon<WalletProviderType> = {
 	provider: WalletProvider<WalletProviderType>;
 	accounts: `0x${string}`[];
 	accountChanged?: `0x${string}`;
 	chainId: string;
 	invalidChainId: boolean;
 	switchingChain: 'addingChain' | 'switchingChain' | false;
+	/**
+	 * @deprecated read `connection.pendingRequests` instead. This mirror is kept in step with it
+	 * (both are stamped from the wrapper at the same moment, so they cannot disagree) and it will be
+	 * removed in a later major version.
+	 *
+	 * It describes what the WRAPPER is holding, not what this wallet state is, and the wrapper
+	 * outlives any particular wallet state. That is why every rebuild had to be taught to copy it,
+	 * and why the paths that build no wallet at all — a failed reconnect resting on
+	 * `wallet: undefined` — could still lose it while the user's wallet was genuinely holding a
+	 * prompt. A field whose value must be copied at every construction of its container is a field
+	 * in the wrong container.
+	 */
 	pendingRequests: PendingRequest[];
-} & ({status: 'connected'} | {status: 'locked'; unlocking: boolean} | {status: 'disconnected'; connecting: boolean});
+};
 
-type WaitingForSignature<WalletProviderType> = {
+type WalletStatus =
+	| {status: 'connected'}
+	| {status: 'locked'; unlocking: boolean}
+	| {status: 'disconnected'; connecting: boolean};
+
+export type WalletState<WalletProviderType> = WalletStateCommon<WalletProviderType> & WalletStatus;
+
+// The same wallet state MINUS the deprecated list, which `set` stamps. Nothing inside this file
+// supplies `pendingRequests` when it builds a wallet: that is the whole point of having one
+// construction site, and this type is what stops a hand-written eleventh rebuild from supplying a
+// wrong one instead.
+type WalletStateInput<WalletProviderType> = Omit<WalletStateCommon<WalletProviderType>, 'pendingRequests'> &
+	WalletStatus;
+
+// The step types below take the wallet state as a parameter so that the same union can describe
+// both what the store PUBLISHES (`WalletState`, list included) and what `set` ACCEPTS
+// (`WalletStateInput`, list stamped for you). The default keeps every existing use unchanged.
+type WaitingForSignature<WalletProviderType, WS = WalletState<WalletProviderType>> = {
 	step: 'WaitingForSignature';
 	mechanism: WalletMechanism<string, `0x${string}`>;
-	wallet: WalletState<WalletProviderType>;
+	wallet: WS;
 	account: {address: `0x${string}`};
 };
 
-type WalletChosen<WalletProviderType> = {
+type WalletChosen<WalletProviderType, WS = WalletState<WalletProviderType>> = {
 	step: 'WalletChosen';
 	mechanism: WalletMechanism<string, undefined>;
-	wallet: WalletState<WalletProviderType>;
+	wallet: WS;
 };
 
-type WalletConnected<WalletProviderType> = {
+type WalletConnected<WalletProviderType, WS = WalletState<WalletProviderType>> = {
 	step: 'WalletConnected';
 	mechanism: WalletMechanism<string, `0x${string}`>;
-	wallet: WalletState<WalletProviderType>;
+	wallet: WS;
 	account: {address: `0x${string}`};
 };
 
-type SignedIn<WalletProviderType> =
+type SignedIn<WalletProviderType, WS = WalletState<WalletProviderType>> =
 	| {
 			step: 'SignedIn';
 			mechanism: AuthMechanism;
@@ -191,17 +220,40 @@ type SignedIn<WalletProviderType> =
 			step: 'SignedIn';
 			mechanism: WalletMechanism<string, `0x${string}`>;
 			account: OriginAccount;
-			wallet: WalletState<WalletProviderType>;
+			wallet: WS;
 	  };
 
-export type Connection<WalletProviderType> = {
+// What the connection is, independently of which step it is at.
+//
+// Named rather than written inline below so that `set` can be given the same thing MINUS
+// `pendingRequests`, which it stamps itself from the wrapper: see `ConnectionInput`.
+type ConnectionCommon<WalletProviderType> = {
 	// The connection can have an error in every state.
 	// a banner or other mechanism to show error should be used.
 	// error should be dismissable
 	error?: {message: string; cause?: any};
 	// wallets represent the web3 wallet installed on the user browser
 	wallets: WalletHandle<WalletProviderType>[];
-} & ( // loading can be true initially as the system will try to auto-login and fetch installed web3 wallet // Start in Idle
+	/**
+	 * Requests the user's wallet is holding right now, whatever the connection is doing.
+	 *
+	 * It lives HERE, beside `wallet` rather than inside it, because it describes what the always-on
+	 * wrapper is holding and the wrapper outlives any particular wallet state. A request is
+	 * outstanding for as long as the user has not answered it, and the connection is free to rebuild
+	 * its wallet state, or to have no wallet state at all, in the meantime: a locked wallet raises
+	 * the connection flow while it is still holding the transaction that raised it, and a reconnect
+	 * that then FAILS comes to rest with no wallet at all. The prompt is still on the user's screen
+	 * throughout, so the app must still be able to say so.
+	 *
+	 * This is the list to read. `wallet.pendingRequests` is the same list and is deprecated.
+	 *
+	 * See `docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md`: a request the user
+	 * must answer and the app cannot see is a request nothing can explain, cancel or recover from.
+	 */
+	pendingRequests: PendingRequest[];
+};
+
+type ConnectionSteps<WalletProviderType, WS = WalletState<WalletProviderType>> =  // loading can be true initially as the system will try to auto-login and fetch installed web3 wallet // Start in Idle
 	| {
 			step: 'Idle';
 			loading: boolean;
@@ -237,26 +289,39 @@ export type Connection<WalletProviderType> = {
 	// reads route through it (when `prioritizeWalletProvider` is true), but no
 	// accounts have been requested and signing is refused (status: 'disconnected').
 	// This is the resting step for `targetStep: 'WalletChosen'`.
-	| WalletChosen<WalletProviderType>
+	| WalletChosen<WalletProviderType, WS>
 	// Once the wallet is connected, if multiple account are connected to the site
 	// the user can choose which one to connect to
 	| {
 			step: 'ChooseWalletAccount';
 			mechanism: WalletMechanism<string, undefined>;
-			wallet: WalletState<WalletProviderType>;
+			wallet: WS;
 	  }
 	// Once the wallet is connected, the system will need a signature
 	// this state represent the fact and require another user interaction to request the signature
-	| WalletConnected<WalletProviderType>
+	| WalletConnected<WalletProviderType, WS>
 	// This state is triggered once the signature is requested, the user will have to confirm with its wallet
-	| WaitingForSignature<WalletProviderType>
+	| WaitingForSignature<WalletProviderType, WS>
 	// Finally the user is fully signed in
 	// wallet?.accountChanged if set, represent the fact that the user has changed its web3-wallet accounnt.
 	// wallet?.invalidChainId if set, represent the fact that the wallet is connected to a different chain.
 	// wallet?.switchingChain if set, represent the fact that the user is currently switching chain.
 	// a notification could be shown to the user so that he can switch the app to use that other account.
-	| SignedIn<WalletProviderType>
-);
+	| SignedIn<WalletProviderType, WS>;
+
+export type Connection<WalletProviderType> = ConnectionCommon<WalletProviderType> & ConnectionSteps<WalletProviderType>;
+
+// What the store's internal `set` accepts: a connection WITHOUT `pendingRequests`, at either level,
+// because `set` is the one place that fills them in from the wrapper on every publish. Every state
+// the store publishes therefore reports the requests the user's wallet is actually holding,
+// including the states that carry no wallet at all.
+//
+// Expressed as a TYPE rather than as a convention on purpose. The rule used to be "remember to copy
+// the list at every construction", which held at nine sites and was never going to hold at the
+// tenth. Here a construction site cannot supply the field at all, so there is nothing to remember
+// and nothing to get wrong.
+type ConnectionInput<WalletProviderType> = Omit<ConnectionCommon<WalletProviderType>, 'pendingRequests'> &
+	ConnectionSteps<WalletProviderType, WalletStateInput<WalletProviderType>>;
 
 // Type for SignedIn state that was reached via wallet authentication (not popup-based auth)
 // This variant always has wallet and WalletMechanism
@@ -757,36 +822,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		requestsPerSecond: settings.requestsPerSecond,
 	});
 
-	// HOW `wallet.pendingRequests` IS MAINTAINED, and the rule every wallet-state rebuild follows.
-	//
-	// The wrapper owns the list; the store only mirrors it. That mirror is written HERE, on request
-	// events, and nowhere else — so any other code that builds a `wallet` object must copy the
-	// current list rather than assert an empty one.
-	//
-	// Asserting `[]` is not a harmless guess, it ERASES an outstanding request, and permanently: the
-	// next event for that request is the one that ends it, which writes an empty list too, so nothing
-	// ever puts it back. The user is left holding a wallet popup that the app believes does not
-	// exist. That was a real bug, and the flow that caused it is the ordinary one: a send against a
-	// LOCKED wallet raises the connection flow, so `connect()` runs while the wallet is holding the
-	// transaction and rebuilt the state under it. See
-	// `docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md`.
-	//
-	// Hence `alwaysOnProviderWrapper.getPendingRequests()` at every `wallet: {...}` construction
-	// below, rather than the literal.
-	const unsubscribeRequestEvents = alwaysOnProviderWrapper.onRequest(() => {
-		// Only update if we have a wallet connected
-		if ($connection.wallet) {
-			const currentPending = alwaysOnProviderWrapper.getPendingRequests();
-			set({
-				...$connection,
-				wallet: {
-					...$connection.wallet,
-					pendingRequests: currentPending,
-				},
-			});
-		}
-	});
-
 	// Determine target step (defaults to 'SignedIn')
 	const targetStep: TargetStep = settings.targetStep || 'SignedIn';
 
@@ -803,13 +838,95 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	const requestSignatureAutomaticallyIfPossible =
 		targetStep === 'SignedIn' ? settings.requestSignatureAutomaticallyIfPossible || false : false;
 
-	let $connection: Connection<WalletProviderType> = {step: 'Idle', loading: true, wallet: undefined, wallets: []};
+	// The list as last published. Kept so that an UNCHANGED list keeps its identity across publishes:
+	// the wrapper hands back a fresh array every call, and publishing a new array (and so a new
+	// `wallet` object) on every unrelated `set` would invalidate `derived` stores, `{#key}` blocks and
+	// effect dependencies in consumers for no reason. Requests are compared by identity because a
+	// `PendingRequest` is created once and never mutated.
+	let publishedPendingRequests: PendingRequest[] = [];
+	function currentPendingRequests(): PendingRequest[] {
+		const latest = alwaysOnProviderWrapper.getPendingRequests();
+		if (
+			latest.length === publishedPendingRequests.length &&
+			latest.every((request, i) => request === publishedPendingRequests[i])
+		) {
+			return publishedPendingRequests;
+		}
+		publishedPendingRequests = latest;
+		return latest;
+	}
+
+	let $connection: Connection<WalletProviderType> = {
+		step: 'Idle',
+		loading: true,
+		wallet: undefined,
+		wallets: [],
+		pendingRequests: currentPendingRequests(),
+	};
 	const _store = writable<Connection<WalletProviderType>>($connection);
-	function set(connection: Connection<WalletProviderType>) {
-		$connection = connection;
+	// THE ONE PLACE A PUBLISHED STATE IS BUILT, which is what makes the announcement rule a
+	// property of the store rather than a habit of whoever wrote the last rebuild.
+	//
+	// `pendingRequests` is stamped here from the wrapper, so no caller can assert an empty list and
+	// none has to remember to copy one. `ConnectionInput` does not even carry the field, so the rule
+	// is now enforced by the type rather than by nine identical call sites — and by the tenth kind of
+	// site, the paths that build NO wallet, which was not a call site at all and so lost the list
+	// silently.
+	//
+	// The deprecated `wallet.pendingRequests` mirror is stamped from the same read, so the two cannot
+	// drift while consumers migrate.
+	function set(connection: ConnectionInput<WalletProviderType>) {
+		const pendingRequests = currentPendingRequests();
+		if (!connection.wallet) {
+			$connection = {...connection, pendingRequests};
+			_store.set($connection);
+			return $connection;
+		}
+		// Callers hand back a wallet they spread from the published state, so it usually already
+		// carries the mirror. Read through a widened view rather than rebuilding blindly: when the
+		// list has not changed, the wallet object keeps its identity and consumers' `derived` stores,
+		// `{#key}` blocks and effect dependencies do not re-run on an unrelated publish.
+		const incomingWallet = connection.wallet as WalletStateInput<WalletProviderType> & {
+			pendingRequests?: PendingRequest[];
+		};
+		$connection = {
+			...connection,
+			pendingRequests,
+			wallet:
+				incomingWallet.pendingRequests === pendingRequests
+					? (incomingWallet as WalletState<WalletProviderType>)
+					: {...connection.wallet, pendingRequests},
+		};
 		_store.set($connection);
 		return $connection;
 	}
+
+	// HOW `pendingRequests` IS MAINTAINED.
+	//
+	// The wrapper owns the list; the store only mirrors it. The mirror is stamped in `set` above, on
+	// EVERY publish, so a state cannot be built that contradicts the wrapper — including one that
+	// carries no wallet. This subscription's job is only to make the store publish again when the
+	// list changes, since a request starting or ending is not otherwise a state transition.
+	//
+	// The rule exists because asserting `[]` is not a harmless guess: it ERASES an outstanding
+	// request, and permanently, since the next event for that request is the one that ends it, which
+	// writes an empty list too, so nothing ever puts it back. The user is left holding a wallet popup
+	// that the app believes does not exist. That was a real bug, and the flow that caused it is the
+	// ordinary one: a send against a LOCKED wallet raises the connection flow, so `connect()` runs
+	// while the wallet is holding the transaction and rebuilds the state under it. See
+	// `docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md`.
+	//
+	// Never unsubscribed, deliberately. It used to be torn down by `disconnect()`, which silenced
+	// request announcements for the REST OF THE CONNECTION'S LIFE, since nothing re-subscribes: a
+	// disconnect followed by a reconnect left the app blind to every subsequent wallet prompt. The
+	// wrapper is created here and lives exactly as long as this connection, so there is nothing to
+	// release.
+	alwaysOnProviderWrapper.onRequest(() => {
+		// Republish. `set` re-reads the wrapper, so this needs to say nothing about the list itself,
+		// and it must run whether or not a wallet is currently in the state: a request outstanding
+		// while the flow rests on `wallet: undefined` is exactly the case that used to go unreported.
+		set($connection);
+	});
 	// Where the flow comes to rest when a connection attempt fails.
 	//
 	// The rule: rest on the step that offers the user a real next decision, and never on a step this app has
@@ -974,7 +1091,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 											chainId,
 											invalidChainId: alwaysOnChainId != chainId,
 											switchingChain: false,
-											pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 										},
 									});
 									alwaysOnProviderWrapper.setWalletStatus('connected');
@@ -1030,7 +1146,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										chainId,
 										invalidChainId: alwaysOnChainId != chainId,
 										switchingChain: false,
-										pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 									},
 								});
 							})
@@ -1077,7 +1192,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										chainId,
 										invalidChainId: alwaysOnChainId != chainId,
 										switchingChain: false,
-										pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 									},
 									account: {address: lastWallet.address},
 								});
@@ -1503,11 +1617,48 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				chainId,
 				invalidChainId: alwaysOnChainId != chainId,
 				switchingChain: false,
-				pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 			},
 			error: {message: errorMessage, cause},
 		});
 		return true;
+	}
+
+	// WHAT `connect` MEANS, AND WHY IT IS NOT WHAT `ensureConnected` MEANS.
+	//
+	// `connect` drives the flow from the USER'S CHOICE. A bare `connect()` means "the user wants to
+	// connect something", so with nothing naming a wallet it opens the picker — including from a
+	// state that already has a wallet, which is how a consumer's switch-wallet button works. It does
+	// not inspect the wallet's status, and it does not acquire a second meaning on a locked one.
+	//
+	// `ensureConnected` promises a TARGET instead, so it must do whatever reaching that target takes.
+	// That is why it, and only it, reconnects a `WalletConnected` wallet that has gone locked or
+	// disconnected: it cannot hand back a connection the caller can use otherwise. Hence this helper
+	// having exactly one caller, which is not an oversight.
+	//
+	// `unlock()` is the narrow remedy in between, and is the one to reach for on a locked wallet: it
+	// prompts the wallet and KEEPS the step, the account and the wallet, where re-running the flow
+	// rebuilds all three. `wallet.status` is published precisely so a consumer can route on it and
+	// offer "Unlock" rather than "Connect" when it says `locked`.
+	//
+	// The asymmetry is DELIBERATE, and used to be only implicit, which is how it came to be read as a
+	// bug: a bare `connect()` on a locked wallet lands on the picker, and the picker tears the live
+	// wallet down. What made that look destructive was a SEPARATE defect, now fixed — the teardown
+	// also erased the announcement of whatever the wallet was still holding. It no longer does, since
+	// `pendingRequests` lives on the connection and survives a state with no wallet, so the picker
+	// costs a click and nothing else.
+	//
+	// Reasoned through in `docs/adr/0002-connect-ensure-connected-and-unlock-are-three-promises.md`,
+	// including the version of this that made `connect` reconnect too, and why it was rejected. The
+	// three behaviours are pinned side by side in `test/locked-wallet-reconnect.test.ts`, so that
+	// collapsing any one of them into another fails.
+	function mechanismToReconnect(): WalletMechanism<string, `0x${string}`> | undefined {
+		if (
+			$connection.step === 'WalletConnected' &&
+			($connection.wallet.status === 'locked' || $connection.wallet.status === 'disconnected')
+		) {
+			return $connection.mechanism;
+		}
+		return undefined;
 	}
 
 	let remember: boolean = false;
@@ -1587,7 +1738,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										}
 									}
 
-									const newState: Connection<WalletProviderType> =
+									const newState: ConnectionInput<WalletProviderType> =
 										nextStep === 'ChooseWalletAccount'
 											? {
 													step: nextStep,
@@ -1602,7 +1753,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 														chainId,
 														invalidChainId: alwaysOnChainId != chainId,
 														switchingChain: false,
-														pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 													},
 												}
 											: {
@@ -1620,7 +1770,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 														chainId,
 														invalidChainId: alwaysOnChainId != chainId,
 														switchingChain: false,
-														pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 													},
 													account: {address: account},
 												};
@@ -1673,7 +1822,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									!settings?.useCurrentAccount && !specificAddress && accounts.length > 1
 										? 'ChooseWalletAccount'
 										: 'WalletConnected';
-								const newState: Connection<WalletProviderType> =
+								const newState: ConnectionInput<WalletProviderType> =
 									nextStep === 'ChooseWalletAccount'
 										? {
 												step: nextStep,
@@ -1687,7 +1836,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 													chainId,
 													invalidChainId: alwaysOnChainId != chainId,
 													switchingChain: false,
-													pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 												},
 											}
 										: {
@@ -1705,7 +1853,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 													chainId,
 													invalidChainId: alwaysOnChainId != chainId,
 													switchingChain: false,
-													pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 												},
 												account: {address: account},
 											};
@@ -1775,6 +1922,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 					// The picker state drops the wallet, so any live one must be torn down here or
 					// the wrapper would keep routing through a wallet the state no longer shows.
+					//
+					// Reached from a state that HAS a wallet whenever nothing names one: a bare
+					// `connect()` with several wallets announced, including on a locked wallet. That is
+					// this function's contract, not an oversight — see the note on `mechanismToReconnect`
+					// above for why `connect`, `ensureConnected` and `unlock` mean three different things
+					// here, and why a consumer facing a locked wallet wants `unlock()`. Whatever the
+					// wallet is still holding stays announced through this, on `pendingRequests`.
 					teardownWallet();
 					set({
 						step: 'WalletToChoose',
@@ -1814,6 +1968,17 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					decryptKeyPair,
 					domainRedirectPublicKeyB64,
 				});
+				// `PopupLaunched` carries no wallet: a user who was wallet-connected and then chose email
+				// sign-in must stop being able to sign through that wallet from the moment the popup
+				// opens, not whenever the popup happens to finish. Without this the wrapper kept the
+				// wallet AND its `connected` status, so it would still sign for a state showing no wallet.
+				//
+				// Under `prioritizeWalletProvider` this also stops READS routing through that wallet for
+				// the popup's duration; they fall back to the configured endpoint, which still answers. That
+				// is the same trade `back()` and `cancel()` already make, and it is the right way round: a
+				// read served by the endpoint is correct, whereas a signature served by a wallet the state
+				// does not show is the hazard.
+				teardownWallet();
 				set({
 					step: 'PopupLaunched',
 					popupClosed: false,
@@ -1877,6 +2042,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				}
 			}
 		} else {
+			// Same rule as the wallet picker above and as `back()`/`cancel()`: the picker state drops
+			// the wallet, so the live one goes with it. Leaving it registered let the wrapper keep
+			// routing — and, with its status still `connected`, SIGNING — through a wallet the state no
+			// longer showed.
+			teardownWallet();
 			set({
 				step: 'MechanismToChoose',
 				wallets: $connection.wallets,
@@ -1988,12 +2158,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				return true;
 			};
 
-			if (
-				$connection.step == 'WalletConnected' &&
-				($connection.wallet.status == 'locked' || $connection.wallet.status === 'disconnected')
-			) {
+			const reconnect = mechanismToReconnect();
+			if (reconnect) {
+				// Reuse the existing mechanism, as we just want to reconnect. `connect` derives the same
+				// answer for itself from the same helper; it is passed explicitly here because this branch
+				// also has to decide to INITIATE at all, from a step that is not otherwise a starting point.
 				forceConnect = true;
-				mechanism = $connection.mechanism; // we reuse existing mechanism as we just want to reconnect
+				mechanism = reconnect;
 			} else if (canResolve($connection)) {
 				// Only resolve if step matches AND chain is valid (or skipChainCheck)
 				resolve($connection as any);
@@ -2087,7 +2258,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		deleteOriginAccount();
 		deleteLastWallet();
 		teardownWallet();
-		unsubscribeRequestEvents();
+		// Request announcements are NOT torn down here. Disconnecting drops this app's wallet state;
+		// it does not reach into the user's wallet and withdraw a prompt already on their screen, and
+		// nothing re-subscribes, so unsubscribing here left the connection permanently unable to
+		// report any wallet request for the rest of its life.
 		set({
 			step: 'Idle',
 			loading: false,
@@ -2166,7 +2340,6 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					chainId,
 					invalidChainId: alwaysOnChainId != chainId,
 					switchingChain: false,
-					pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 				},
 			});
 		} catch (err) {
