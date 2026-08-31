@@ -27,6 +27,17 @@ export type LockableWallet = {
 	uninstall: () => void;
 	/** Answer no accounts and announce it, exactly as a wallet does when the user locks it. */
 	lock: () => void;
+	/**
+	 * Lock WITHOUT announcing it, which is what MetaMask actually does.
+	 *
+	 * It emits no `accountsChanged` on lock, so the only way to find out is to ask. That is why the
+	 * connection polls `eth_accounts`, and this is how a test reaches that path.
+	 */
+	lockSilently: () => void;
+	/** How many handlers the connection currently has attached, to catch watchers left behind. */
+	listenerCount: (event: string) => number;
+	/** Make `eth_chainId` fail, which is how an unusable wallet presents itself. */
+	setChainIdFailure: (fail: boolean) => void;
 	/** Give the accounts back and announce it, as the user unlocking the extension themselves does. */
 	unlock: () => void;
 	/** The user picks a different account in the wallet, and the wallet says so. */
@@ -51,7 +62,7 @@ export type LockableWallet = {
 	/** The chain the wallet reports, as a wallet does after the user approves a switch. */
 	setChainId: (chainIdAsHex: string) => void;
 	/** Run while the wallet is holding a `personal_sign`, the only moment worth looking at. */
-	set whileSigning(hook: (() => void) | undefined);
+	set whileSigning(hook: (() => void | Promise<void>) | undefined);
 	requestAccountsCalls: () => number;
 	info: {uuid: string; name: string; icon: string; rdns: string};
 };
@@ -77,9 +88,10 @@ export function installLockableWallet(options?: {
 	let addChainHandler: ((params: any) => unknown) | undefined;
 
 	let locked = false;
+	let failChainId = false;
 	let requestAccountsError: unknown | undefined;
 	let requestAccountsCount = 0;
-	let whileSigning: (() => void) | undefined;
+	let whileSigning: (() => void | Promise<void>) | undefined;
 	let releaseTransaction: ((hash: string) => void) | undefined;
 
 	const listeners = new Map<string, Set<Handler>>();
@@ -93,6 +105,9 @@ export function installLockableWallet(options?: {
 		request: async ({method, params}: {method: string; params?: any[]}) => {
 			switch (method) {
 				case 'eth_chainId':
+					if (failChainId) {
+						throw new Error('chain id unavailable');
+					}
 					return chainId;
 				case 'eth_accounts':
 					return locked ? [] : accounts;
@@ -104,9 +119,15 @@ export function installLockableWallet(options?: {
 					// The extension's own password prompt: answering it unlocks the wallet.
 					locked = false;
 					return accounts;
-				case 'personal_sign':
-					whileSigning?.();
+				case 'personal_sign': {
+					// A hook may return a promise to HOLD the wallet inside the request, which is how a
+					// test gets two signature requests outstanding at the same time.
+					const held = whileSigning?.();
+					if (held) {
+						await held;
+					}
 					return `0x${'ab'.repeat(65)}`;
+				}
 				case 'eth_sendTransaction':
 					// Held until the test releases it. Nothing about locking touches this promise,
 					// because nothing about locking touches a real wallet's parked prompt.
@@ -163,6 +184,13 @@ export function installLockableWallet(options?: {
 			locked = true;
 			emit('accountsChanged', []);
 		},
+		lockSilently: () => {
+			locked = true;
+		},
+		listenerCount: (event: string) => listeners.get(event)?.size ?? 0,
+		setChainIdFailure: (fail: boolean) => {
+			failChainId = fail;
+		},
 		unlock: () => {
 			locked = false;
 			emit('accountsChanged', accounts);
@@ -187,7 +215,7 @@ export function installLockableWallet(options?: {
 			emit('chainChanged', chainIdAsHex);
 		},
 		requestAccountsCalls: () => requestAccountsCount,
-		set whileSigning(hook: (() => void) | undefined) {
+		set whileSigning(hook: (() => void | Promise<void>) | undefined) {
 			whileSigning = hook;
 		},
 	};
