@@ -241,6 +241,10 @@ describe('switchWalletChain', () => {
 
 		expect(snapshot().wallet.switchingChain).toBe(false);
 		expect(snapshot().error?.message).toContain('Arbitrum One');
+		// What the wallet actually said is kept as the cause. This branch is reached both from a
+		// refusal and from a wallet reporting its error as a result, and "not available on your
+		// wallet" is our summary of it rather than anything the wallet said.
+		expect(snapshot().error?.cause).toMatchObject({code: 4902});
 		expect(wallet.addChainCalls()).toEqual([]);
 	});
 
@@ -265,18 +269,15 @@ describe('switchWalletChain', () => {
 		expect(snapshot().wallet.switchingChain).toBe(false);
 	});
 
-	// KNOWN BUG, recorded rather than fixed, and executable: `it.fails` keeps the suite (and so the
-	// release, which is gated on it) green while the bug exists, and turns RED the moment somebody
-	// fixes it, which is what stops the marker being forgotten.
+	// WAS a known bug, recorded as `it.fails` and now fixed, so this is an ordinary test.
 	//
-	// The switch above SUCCEEDED through the add fallback, and the state still carries
-	// `error: 'Failed to switch to Arbitrum One'`. The error is set before `throw result`, and the
-	// recovery path spreads `...$connection` on its way out, carrying it along. A consumer renders
-	// `error` as a banner, so the user lands on the right chain and is told it failed.
+	// The switch above succeeds through the add fallback, and the state used to keep
+	// `error: 'Failed to switch to Arbitrum One'` anyway: the error was set before `throw result`,
+	// and the recovery path spreads `...$connection` on its way out, carrying it along. A consumer
+	// renders `error` as a banner, so the user landed on the right chain and was told it failed.
 	//
-	// The fix is to set the error only where the flow gives up, not before a recovery it might
-	// survive, which is a change to `switchWalletChain`'s shape rather than a line.
-	it.fails('clears the failure message when the recovery succeeded', async () => {
+	// Now only the branch that GIVES UP sets an error, and nothing sets one on the way past.
+	it('sets no error when the recovery succeeded', async () => {
 		const {connection, snapshot, wallet} = await connected();
 		wallet.setChainHandlers({switchChain: () => ({code: -32000, message: 'nope'})});
 

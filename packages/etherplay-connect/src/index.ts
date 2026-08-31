@@ -2678,16 +2678,14 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// this will be taken care with `chainChanged` (but maybe it should be done there ?)
 				// handleNetwork(chainId);
 			} else {
-				if ($connection.wallet) {
-					set({
-						...$connection,
-						wallet: {...$connection.wallet, switchingChain: false},
-						error: {
-							message: `Failed to switch to ${params?.chainName || `chain with id = ${chainId}`}`,
-							cause: result,
-						},
-					});
-				}
+				// A non-null RESULT is how these methods report an error without throwing, so this is a
+				// failure and not a value. It is reported by THROWING and nothing else, because this
+				// throw lands in the catch below, which may still recover by adding the chain.
+				//
+				// Setting an error here as well used to leave `Failed to switch to <chain>` on the state
+				// after a recovery that WORKED: the add path spreads `...$connection` on its way out and
+				// carried it along, so the user ended up on the requested chain being told it had failed.
+				// Whoever gives up sets the error; nobody sets one on the way past.
 				throw result;
 			}
 		} catch (err) {
@@ -2773,6 +2771,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					}
 				}
 			} else {
+				// Nothing left to try: the wallet cannot switch to this chain and there is no rpcUrl to add
+				// it with. This is where the flow gives up, so this is where the error is set.
 				const errorMessage = `Chain "${params?.chainName || `with chainId = ${chainId}`} " is not available on your wallet`;
 				if ($connection.wallet) {
 					set({
@@ -2780,6 +2780,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 						wallet: {...$connection.wallet, switchingChain: false},
 						error: {
 							message: errorMessage,
+							// What the wallet actually said, which is otherwise lost: this branch is reached
+							// both from a refusal and from a wallet reporting an error as a result.
+							cause: err,
 						},
 					});
 				}
