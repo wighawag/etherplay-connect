@@ -1,5 +1,25 @@
 # @etherplay/connect
 
+## 0.11.1
+
+### Patch Changes
+
+- 76aed67: Stop reporting a failure after a chain switch that succeeded.
+
+  `switchWalletChain` set `error: 'Failed to switch to <chain>'` on the connection before throwing, and that throw lands in the function's own `catch`, which recovers by adding the chain through `wallet_addEthereumChain`. When the add succeeded, the recovery path spread `...$connection` on its way out and carried the stale error with it, so the user ended up on the requested chain with a banner saying it had failed. Consumers render `error` as exactly that.
+
+  The rule now: whoever gives up sets the error, and nothing sets one on the way past. A non-null result from `wallet_switchEthereumChain` is still a failure rather than a value, and is still reported by throwing, which is what triggers the recovery.
+
+  The give-up branch also keeps what the wallet actually said as `error.cause`. `Chain "X" is not available on your wallet` is this library's summary, reached both from a refusal and from a wallet reporting its error as a result, and the underlying reason used to be dropped.
+
+- 6cacc43: `getSignatureForPublicKeyPublication` now reports its failures as a rejection, like `getDelegation` does.
+
+  It was declared `(): Promise<`0x${string}`>` but was not `async`, so its two failure paths (`Not signed in`, and a hosted account with no stored signature) left the function **synchronously**. `getDelegation` beside it is async, so its identical-looking `throw` became a rejection: two siblings on the same object, both typed as returning a promise, failing in two different ways, with nothing in either signature to warn a caller.
+
+  The cost was silent for the usual `try { await ... } catch`, which catches both, and real for `getSignatureForPublicKeyPublication().catch(showTheReason)`, which never ran its handler and let the exception escape instead.
+
+  If you are one of the rare callers that wrapped the CALL rather than the await in `try`/`catch`, that `catch` no longer fires; move it to the promise. Both methods now behave the same way, which is the point.
+
 ## 0.11.0
 
 ### Minor Changes
