@@ -1662,7 +1662,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	}
 
 	let remember: boolean = false;
-	async function connect(mechanism?: Mechanism, options?: ConnectOptions) {
+	/**
+	 * @param internal not part of the public `connect` surface. `addressIsPreference` marks a
+	 * mechanism this library REUSED from the current state rather than one the caller asked for, so
+	 * that a vanished address degrades to an ordinary connect instead of failing the attempt. See
+	 * `resolveRequestedAddress` below.
+	 */
+	async function connect(mechanism?: Mechanism, options?: ConnectOptions, internal?: {addressIsPreference?: boolean}) {
 		if (!mechanism && (targetStep === 'WalletConnected' || walletOnly)) {
 			mechanism = {type: 'wallet'};
 		}
@@ -1677,6 +1683,29 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				const chosenMechanismBeforeConnect = $connection.step === 'WalletChosen' ? $connection.mechanism : undefined;
 				const chosenWalletBeforeConnect = $connection.step === 'WalletChosen' ? _wallet : undefined;
 				const specificAddress = mechanism.address;
+				// WHICH ACCOUNT THE ATTEMPT IS FOR, once the wallet has said what it has.
+				//
+				// An address the CALLER named is a demand: `connectToAddress(a)` and
+				// `connect({type: 'wallet', address: a})` mean that account and no other, so a wallet that
+				// cannot offer it fails the attempt rather than connecting to something else.
+				//
+				// An address this library REUSED is only a preference. `ensureConnected` reconnects a
+				// locked wallet by replaying the mechanism the connection already had, which keeps the
+				// ordinary case (unlock, come back to the same account) from bouncing a multi-account user
+				// into the account picker. But the user is free to unlock on a DIFFERENT account, and then
+				// the replayed address names something the wallet no longer has. Treating that as a demand
+				// threw, which landed in the catch and tore the wallet down: the reconnect performed the
+				// very teardown it exists to prevent, one step later. Degrading to an ordinary connect is
+				// what the caller asked for anyway, since it asked to be connected and named nothing.
+				const resolveRequestedAddress = (available: `0x${string}`[]): `0x${string}` | undefined => {
+					if (!specificAddress || available.includes(specificAddress)) {
+						return specificAddress;
+					}
+					if (internal?.addressIsPreference) {
+						return undefined;
+					}
+					throw new Error(`could not find address ${specificAddress}`);
+				};
 				const walletName =
 					mechanism.name ||
 					($connection.step === 'WalletChosen' ? $connection.mechanism.name : undefined) ||
@@ -1724,19 +1753,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								accounts = await provider.requestAccounts();
 								accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 								if (accounts.length > 0) {
+									const requestedAddress = resolveRequestedAddress(accounts);
 									const nextStep =
-										!settings?.useCurrentAccount && !specificAddress && accounts.length > 1
+										!settings?.useCurrentAccount && !requestedAddress && accounts.length > 1
 											? 'ChooseWalletAccount'
 											: 'WalletConnected';
-									let account = accounts[0];
-									if (specificAddress) {
-										if (accounts.find((v) => v === specificAddress)) {
-											account = specificAddress;
-										} else {
-											// TODO error
-											throw new Error(`could not find address ${specificAddress}`);
-										}
-									}
+									const account = requestedAddress || accounts[0];
 
 									const newState: ConnectionInput<WalletProviderType> =
 										nextStep === 'ChooseWalletAccount'
@@ -1809,17 +1831,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									}
 								}
 							} else {
-								let account = accounts[0];
-								if (specificAddress) {
-									if (accounts.find((v) => v === specificAddress)) {
-										account = specificAddress;
-									} else {
-										// TODO error
-										throw new Error(`could not find address ${specificAddress}`);
-									}
-								}
+								const requestedAddress = resolveRequestedAddress(accounts);
+								const account = requestedAddress || accounts[0];
 								const nextStep =
-									!settings?.useCurrentAccount && !specificAddress && accounts.length > 1
+									!settings?.useCurrentAccount && !requestedAddress && accounts.length > 1
 										? 'ChooseWalletAccount'
 										: 'WalletConnected';
 								const newState: ConnectionInput<WalletProviderType> =
@@ -1968,6 +1983,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					decryptKeyPair,
 					domainRedirectPublicKeyB64,
 				});
+				// This attempt's popup, kept so the handlers below can tell "my popup finished" from "a
+				// later launch replaced me". Launching a second popup rejects the first, and without this
+				// the first attempt's failure handler would land on `Idle` on top of the second attempt.
+				const launchedPopup = popup;
 				// `PopupLaunched` carries no wallet: a user who was wallet-connected and then chose email
 				// sign-in must stop being able to sign through that wallet from the moment the popup
 				// opens, not whenever the popup happens to finish. Without this the wrapper kept the
@@ -1988,7 +2007,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				});
 
 				const unsubscribe = popup.subscribe(($popup) => {
-					if ($connection?.step === 'PopupLaunched') {
+					if (popup === launchedPopup && $connection?.step === 'PopupLaunched') {
 						if ($popup.closed) {
 							set({
 								...$connection,
@@ -2030,6 +2049,15 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					// reason is added, which is what `ensureConnected` reports instead of "Connection cancelled".
 					const refusal = err as {type?: string; message?: string} | undefined;
 					const canceled = !refusal || refusal.type === 'cancelation';
+					// Only this attempt's failure, and only while this attempt still owns the flow.
+					//
+					// `cancel()` and `back(step)` settle this promise on purpose (that is what makes an
+					// awaited `connect()` return at all), and they have ALREADY chosen where the flow comes
+					// to rest. Landing on `Idle` here as well would overrule them, so `back('MechanismToChoose')`
+					// during a popup would bounce the user to `Idle` a microtask later.
+					if (popup !== launchedPopup || $connection.step !== 'PopupLaunched') {
+						return;
+					}
 					set({
 						step: 'Idle',
 						loading: false,
@@ -2129,6 +2157,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			WalletChosen<WalletProviderType> | WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>
 		>((resolve, reject) => {
 			let forceConnect = false;
+			// Whether the mechanism below was REPLAYED from the current state rather than asked for.
+			let reconnecting = false;
 
 			// The error (if any) already sitting in the store before we start.
 			// Only an error that appears after this point tells us that *our* attempt failed.
@@ -2160,11 +2190,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 			const reconnect = mechanismToReconnect();
 			if (reconnect) {
-				// Reuse the existing mechanism, as we just want to reconnect. `connect` derives the same
-				// answer for itself from the same helper; it is passed explicitly here because this branch
-				// also has to decide to INITIATE at all, from a step that is not otherwise a starting point.
+				// we reuse existing mechanism as we just want to reconnect
 				forceConnect = true;
 				mechanism = reconnect;
+				// ...but its ADDRESS is only a preference, because the user may unlock on another
+				// account, and a replayed address is not something the caller asked for.
+				reconnecting = true;
 			} else if (canResolve($connection)) {
 				// Only resolve if step matches AND chain is valid (or skipChainCheck)
 				resolve($connection as any);
@@ -2186,7 +2217,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 							: undefined;
 					selectWallet(walletName, opts);
 				} else {
-					connect(mechanism, opts);
+					connect(mechanism, opts, {addressIsPreference: reconnecting});
 				}
 			}
 

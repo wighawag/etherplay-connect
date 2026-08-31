@@ -343,33 +343,57 @@ describe('a locked wallet that is still holding a request', () => {
 		await sending;
 	});
 
-	// KNOWN LIMIT, recorded rather than fixed, so that fixing it shows up as a change to this test.
+	// A REPLAYED ADDRESS IS A PREFERENCE; A CALLER'S ADDRESS IS A DEMAND. The two tests below are a
+	// pair and only make sense together.
 	//
-	// `ensureConnected`'s reconnect reuses the whole mechanism, address included, and that address is
-	// a DEMAND: if the user unlocks with a different account selected, `connect` throws
-	// `could not find address`,
-	// which lands in the catch and tears the wallet down. The reconnect then performs exactly the
-	// teardown it exists to prevent, one step later. Reusing the address is what keeps the ordinary
-	// case (several accounts, unlock, come back to the same one) from bouncing the user into the
-	// account picker, so the fix is to make a REUSED address a preference while a CALLER-SUPPLIED
-	// one stays a demand, which needs a way to tell those apart that does not exist yet.
-	//
-	// The announcement survives regardless, which is the part that matters most here.
-	it('known limit: ensureConnected() fails, and tears down, if the user unlocks on another account', async () => {
+	// `ensureConnected`'s reconnect replays the whole mechanism, address included, which is what
+	// keeps the ordinary case (several accounts, unlock, come back to the same one) from bouncing
+	// the user into the account picker. But the user is free to unlock on a DIFFERENT account, and
+	// treating the replayed address as a demand then failed the attempt, which landed in the catch
+	// and tore the wallet down: the reconnect performed the very teardown it exists to prevent, one
+	// step later.
+	it('reconnects on the account the user actually unlocked, rather than failing on the old one', async () => {
 		const {connection, snapshot, wallet, sending} = await lockedWhileHoldingATransaction();
 		const OTHER = '0xb0b0000000000000000000000000000000000b0b' as `0x${string}`;
 
 		wallet.switchAccount(OTHER);
 		await vi.advanceTimersByTimeAsync(50);
 
-		const reconnecting = expect(connection.ensureConnected()).rejects.toBeDefined();
+		const ensuring = connection.ensureConnected();
 		await vi.advanceTimersByTimeAsync(200);
-		await reconnecting;
+		await ensuring;
 
-		expect(snapshot().error?.message).toContain('failed to connect to wallet');
-		expect(snapshot().wallet).toBeUndefined();
-		// The transaction is still in the wallet, and still announced, which is what makes this a
-		// limit rather than a repeat of the erasure bug.
+		// Degraded to an ordinary connect, which is what the caller asked for: it asked to be
+		// connected and named no account. The wallet is kept, and the state says who it is now.
+		expect(snapshot().step).toBe('WalletConnected');
+		expect(snapshot().wallet).toBeDefined();
+		expect(snapshot().mechanism).toMatchObject({type: 'wallet', name: 'Stalling Test Wallet', address: OTHER});
+		expect(snapshot().account.address).toBe(OTHER);
+		expect(snapshot().error).toBeUndefined();
+		// The transaction the OLD account is still holding stays announced, and still says whose it
+		// is, which is what `PendingRequest.account` exists for: a consumer must not tell the user
+		// to approve it in the account they have just switched to.
+		expect(snapshot().pendingRequests).toHaveLength(1);
+		expect(snapshot().pendingRequests[0].account).toBe(ACCOUNT);
+
+		wallet.releaseTransaction();
+		await sending;
+	});
+
+	it('still fails when the CALLER named an address the wallet does not have', async () => {
+		// The other half of the pair. `connectToAddress(a)` and `connect({type: 'wallet', address:
+		// a})` mean that account and no other, so connecting to a different one would be answering
+		// a question nobody asked. Only a REPLAYED address degrades.
+		const {connection, snapshot, wallet, sending} = await lockedWhileHoldingATransaction();
+		const ABSENT = '0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead' as `0x${string}`;
+
+		const connecting = connection.connect({type: 'wallet', name: 'Stalling Test Wallet', address: ABSENT});
+		await vi.advanceTimersByTimeAsync(200);
+		await connecting;
+
+		expect(snapshot().error).toBeDefined();
+		expect(snapshot().step).not.toBe('WalletConnected');
+		// And even a failed attempt keeps announcing what the wallet is holding.
 		expect(snapshot().pendingRequests).toHaveLength(1);
 
 		wallet.releaseTransaction();
