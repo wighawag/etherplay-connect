@@ -84,3 +84,24 @@ So the cost is not just a vanishing modal. Consumers are carrying compensating b
 `alwaysOnProviderWrapper` owns the in-flight list, so a rebuild should ask it rather than assert an answer: `pendingRequests: alwaysOnProviderWrapper.getPendingRequests()`. It is never worse than the literal, because the wrapper's list is true at the moment it is read.
 
 This is item 4 of the recommendation above ("remove duplicated `WalletConnected` state construction") with a concrete symptom attached: the literal `[]` is copied at every rebuild site, so the bug is reintroduced by anyone writing the next one. A single state-construction helper that reads the wrapper would close it for good.
+
+## Update (2026-08-31): reproduced, mechanism corrected, fixed
+
+**The note above was right that it happens and wrong about where to look.** It implied the wallet EVENT handlers were the risk. They are not: `onChainChanged` and `onAccountChanged` both spread `...$connection.wallet`, so they preserve the list. jolly-roger had already tested exactly that from the other side and found the same, by emitting `accountsChanged` and `chainChanged` during a pending request without breaking it.
+
+The culprit is `connect()`, plus `restoreWalletChosenAfterFailedConnect` and `selectWallet`: the paths that build a `wallet` object from scratch rather than spreading the existing one. The three auto-connect sites are harmless, since nothing is pending at construction.
+
+The triggering flow is ordinary: **a send against a LOCKED wallet raises the connection flow**, so `connect()` runs while the wallet is holding the transaction and rebuilds the state underneath it. Reproduced with a stalled `eth_sendTransaction`:
+
+```
+AFTER DISPATCH   step= WalletConnected pending= 1
+AFTER RECONNECT  step= WalletConnected pending= 0    <- still outstanding
+```
+
+That matches, field for field, the console log from a real locked-Rabby session recorded in jolly-roger's `wallet-action-required-modal-not-seen.md`, whose open question was which transition empties the list. This is it.
+
+Fixed: all nine sites now read `getPendingRequests()`, pinned by `test/announced-requests.test.ts` ("keeps announcing a request that a reconnect happens on top of"), and reasoned through in `docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md`.
+
+Still open, and still item 4 above: the rule now lives in nine identical call sites rather than in one state-construction helper, so a hand-written tenth rebuild can reintroduce it. The test pins the behaviour, not the shape.
+
+Worth telling jolly-roger: their `$inFlight.dispatching` ledger had to outrank `pendingRequests` because of this, and that reason is now gone. The ledger itself still earns its place (local-signer sends that no wallet is asked about, and it starts a beat earlier), so this simplifies their reconciliation rather than removing it.

@@ -87,6 +87,8 @@ export type PendingRequest =
 			kind: 'transaction';
 			startedAt: number;
 			purpose?: RequestPurpose;
+			/** See the `account` note below. The `from` of the transaction. */
+			account?: `0x${string}`;
 	  }
 	| {
 			id: string;
@@ -94,6 +96,22 @@ export type PendingRequest =
 			kind: 'signature';
 			startedAt: number;
 			purpose?: RequestPurpose;
+			/**
+			 * WHO is expected to answer this: the signer of a signature, the `from` of a transaction.
+			 *
+			 * A pending request can OUTLIVE the wallet state it started under, because the user is free
+			 * to switch wallet or account while one is outstanding, and the request stays with the wallet
+			 * that is actually holding it. Without this, a consumer rendering "approve this in your
+			 * wallet" would point the user at whichever wallet is current, which after a swap is the wrong
+			 * one and cannot answer it.
+			 *
+			 * Compare it against the connected account to tell "your wallet is asking" from "something is
+			 * still outstanding on an account you have moved away from", which need different words.
+			 *
+			 * Optional because it is read out of the request, and a caller is not obliged to make one this
+			 * layer can read.
+			 */
+			account?: `0x${string}`;
 	  };
 
 export type RequestEventType = 'requestStart' | 'requestEnd';
@@ -135,15 +153,22 @@ export interface AlwaysOnProviderWrapper<WalletProviderType> {
 		options?: {purpose?: RequestPurpose},
 	) => Promise<`0x${string}`>;
 
+	/**
+	 * Requests currently with the user's wallet.
+	 *
+	 * AUTHORITATIVE, and the reason it is exposed rather than left to `onRequest` alone: a consumer
+	 * rebuilding wallet state mid-request must ask for the current list rather than assume an empty
+	 * one. Assuming empty erases a request that is still outstanding, and nothing repopulates it,
+	 * because the next event for that request is the one that ends it.
+	 */
+	getPendingRequests: () => PendingRequest[];
+
 	// TODO replace with a ChainConnection type that expose the chainId and provider but also the full chainInfo ?
 	chainId: string;
 	provider: WalletProviderType;
 
 	// Event subscription for request tracking
 	onRequest: (handler: RequestEventHandler) => () => void; // Returns unsubscribe function
-
-	// Current state accessor (for initial state on subscription)
-	getPendingRequests: () => PendingRequest[];
 }
 
 export interface ChainConnection<WalletProviderType> {

@@ -143,7 +143,14 @@ reported like any other request. See
 
 `PendingRequest.purpose` says WHY, for requests this library originates (`'delegation' |
 'public-key-publication'`). It is absent when the app asked directly through `provider`, where the
-app already knows what it sent.
+app already knows what it sent. `PendingRequest.account` says WHO must answer it: the signer of a
+signature, the `from` of a transaction. A request can outlive the wallet state it started under,
+because the user may switch wallet or account while one is outstanding, so a consumer needs it to
+avoid pointing them at a wallet that cannot answer.
+
+`getPendingRequests()` is authoritative. A consumer that rebuilds wallet state while a request is
+outstanding must copy the current list from it rather than assume an empty one: assuming empty
+erases the request permanently, because the next event for it is the one that ends it.
 
 ## Usage
 

@@ -20,23 +20,69 @@ function isTransactionMethod(method: TrackedRequestMethod): method is Transactio
 	return (TRANSACTION_METHODS as readonly string[]).includes(method);
 }
 
+/** What this layer knows about a request beyond its method. */
+type RequestAbout = {purpose?: RequestPurpose; account?: `0x${string}`};
+
 // Helper to create a properly typed PendingRequest
 function createPendingRequest(
 	id: string,
 	method: TrackedRequestMethod,
 	startedAt: number,
-	purpose?: RequestPurpose,
+	about: RequestAbout = {},
 ): PendingRequest {
-	// Spread rather than `purpose` directly, so a request without one has NO `purpose` key instead of
-	// one set to `undefined`. The two are the same to `toEqual` and to `JSON.stringify`, and different
-	// to `toStrictEqual` and to `'purpose' in request`, and this shape is handed to consumers whose
-	// assertions we do not control.
-	const withPurpose = purpose === undefined ? {} : {purpose};
+	// Spread rather than assigning directly, so a request without a purpose or a readable account has
+	// NO such key instead of one set to `undefined`. The two are the same to `toEqual` and to
+	// `JSON.stringify`, and different to `toStrictEqual` and to `'account' in request`, and this shape
+	// is handed to consumers whose assertions we do not control.
+	const extra = {
+		...(about.purpose === undefined ? {} : {purpose: about.purpose}),
+		...(about.account === undefined ? {} : {account: about.account}),
+	};
 	if (isTransactionMethod(method)) {
-		return {id, method, kind: 'transaction', startedAt, ...withPurpose};
+		return {id, method, kind: 'transaction', startedAt, ...extra};
 	}
 	// TypeScript knows method is SignatureMethod here
-	return {id, method: method as SignatureMethod, kind: 'signature', startedAt, ...withPurpose};
+	return {id, method: method as SignatureMethod, kind: 'signature', startedAt, ...extra};
+}
+
+function asAddress(value: unknown): `0x${string}` | undefined {
+	return typeof value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(value) ? (value as `0x${string}`) : undefined;
+}
+
+/**
+ * WHO the wallet is being asked to answer as, read out of the request itself.
+ *
+ * Every one of these methods carries the address, and NO TWO OF THEM AGREE ON WHERE. In particular
+ * `personal_sign` and `eth_sign` take the same two values in the OPPOSITE order, which is a
+ * long-standing wart of the JSON-RPC surface rather than anything this library chose:
+ *
+ *   personal_sign        [data, address]
+ *   eth_sign             [address, data]
+ *   eth_signTypedData*   [address, typedData]
+ *   eth_sendTransaction  [{from, ...}]
+ *   eth_signTransaction  [{from, ...}]
+ *
+ * Every branch is shape-checked rather than trusted, so a caller passing something unexpected loses
+ * the address and keeps the announcement, instead of announcing a confident wrong answer. Reporting
+ * the DATA of a `personal_sign` as the account is exactly the mistake the order above invites.
+ */
+function accountForRequest(method: TrackedRequestMethod, params?: any[]): `0x${string}` | undefined {
+	if (!params || params.length === 0) {
+		return undefined;
+	}
+	switch (method) {
+		case 'eth_sendTransaction':
+		case 'eth_signTransaction':
+			return asAddress(params[0]?.from);
+		case 'personal_sign':
+			return asAddress(params[1]);
+		case 'eth_sign':
+		case 'eth_signTypedData':
+		case 'eth_signTypedData_v4':
+			return asAddress(params[0]);
+		default:
+			return undefined;
+	}
 }
 
 // Helper to check if method should be tracked
@@ -128,7 +174,9 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 		req: {method: string; params?: any[]},
 		prioritizeWalletProvider?: boolean,
 	): Promise<any> {
-		return this.announce(req.method as TrackedRequestMethod, undefined, () =>
+		const method = req.method as TrackedRequestMethod;
+		// No `purpose`: this is the app asking through `provider`, and it knows what it sent.
+		return this.announce(method, {account: accountForRequest(method, req.params)}, () =>
 			this.executeRequest(req, prioritizeWalletProvider),
 		);
 	}
@@ -140,13 +188,9 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 	 * jobs, and `signMessage` needs the first without the second: it must be visible like every other
 	 * wallet request, but it must not inherit the always-on provider's single-chain guard.
 	 */
-	private async announce<T>(
-		method: TrackedRequestMethod,
-		purpose: RequestPurpose | undefined,
-		deliver: () => Promise<T>,
-	): Promise<T> {
+	private async announce<T>(method: TrackedRequestMethod, about: RequestAbout, deliver: () => Promise<T>): Promise<T> {
 		const requestId = this.generateRequestId();
-		const pendingRequest = createPendingRequest(requestId, method, Date.now(), purpose);
+		const pendingRequest = createPendingRequest(requestId, method, Date.now(), about);
 
 		// Track and emit start event
 		this.pendingRequests.set(requestId, pendingRequest);
@@ -211,7 +255,9 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 		if (!walletProvider) {
 			return Promise.reject(new Error('wallet provider is not connected'));
 		}
-		return this.announce('personal_sign', options?.purpose, () => personalSign(walletProvider, message, account));
+		return this.announce('personal_sign', {purpose: options?.purpose, account}, () =>
+			personalSign(walletProvider, message, account),
+		);
 	}
 
 	// Execute request (original request routing logic)

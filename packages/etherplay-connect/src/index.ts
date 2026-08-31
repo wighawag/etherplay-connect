@@ -757,7 +757,22 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		requestsPerSecond: settings.requestsPerSecond,
 	});
 
-	// Subscribe to request events from the provider to update pendingRequests
+	// HOW `wallet.pendingRequests` IS MAINTAINED, and the rule every wallet-state rebuild follows.
+	//
+	// The wrapper owns the list; the store only mirrors it. That mirror is written HERE, on request
+	// events, and nowhere else — so any other code that builds a `wallet` object must copy the
+	// current list rather than assert an empty one.
+	//
+	// Asserting `[]` is not a harmless guess, it ERASES an outstanding request, and permanently: the
+	// next event for that request is the one that ends it, which writes an empty list too, so nothing
+	// ever puts it back. The user is left holding a wallet popup that the app believes does not
+	// exist. That was a real bug, and the flow that caused it is the ordinary one: a send against a
+	// LOCKED wallet raises the connection flow, so `connect()` runs while the wallet is holding the
+	// transaction and rebuilt the state under it. See
+	// `docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md`.
+	//
+	// Hence `alwaysOnProviderWrapper.getPendingRequests()` at every `wallet: {...}` construction
+	// below, rather than the literal.
 	const unsubscribeRequestEvents = alwaysOnProviderWrapper.onRequest(() => {
 		// Only update if we have a wallet connected
 		if ($connection.wallet) {
@@ -959,7 +974,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 											chainId,
 											invalidChainId: alwaysOnChainId != chainId,
 											switchingChain: false,
-											pendingRequests: [],
+											pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 										},
 									});
 									alwaysOnProviderWrapper.setWalletStatus('connected');
@@ -1015,7 +1030,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										chainId,
 										invalidChainId: alwaysOnChainId != chainId,
 										switchingChain: false,
-										pendingRequests: [],
+										pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 									},
 								});
 							})
@@ -1062,7 +1077,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										chainId,
 										invalidChainId: alwaysOnChainId != chainId,
 										switchingChain: false,
-										pendingRequests: [],
+										pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 									},
 									account: {address: lastWallet.address},
 								});
@@ -1488,7 +1503,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				chainId,
 				invalidChainId: alwaysOnChainId != chainId,
 				switchingChain: false,
-				pendingRequests: [],
+				pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 			},
 			error: {message: errorMessage, cause},
 		});
@@ -1587,7 +1602,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 														chainId,
 														invalidChainId: alwaysOnChainId != chainId,
 														switchingChain: false,
-														pendingRequests: [],
+														pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 													},
 												}
 											: {
@@ -1605,7 +1620,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 														chainId,
 														invalidChainId: alwaysOnChainId != chainId,
 														switchingChain: false,
-														pendingRequests: [],
+														pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 													},
 													account: {address: account},
 												};
@@ -1672,7 +1687,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 													chainId,
 													invalidChainId: alwaysOnChainId != chainId,
 													switchingChain: false,
-													pendingRequests: [],
+													pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 												},
 											}
 										: {
@@ -1690,7 +1705,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 													chainId,
 													invalidChainId: alwaysOnChainId != chainId,
 													switchingChain: false,
-													pendingRequests: [],
+													pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 												},
 												account: {address: account},
 											};
@@ -2151,7 +2166,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					chainId,
 					invalidChainId: alwaysOnChainId != chainId,
 					switchingChain: false,
-					pendingRequests: [],
+					pendingRequests: alwaysOnProviderWrapper.getPendingRequests(),
 				},
 			});
 		} catch (err) {

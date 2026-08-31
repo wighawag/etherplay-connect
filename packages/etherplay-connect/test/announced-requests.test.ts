@@ -33,6 +33,7 @@ const PAGE_ORIGIN = 'http://localhost:3000';
 function installWallet() {
 	const info = {uuid: 'uuid-wallet', name: 'Injected Wallet', icon: '', rdns: 'com.example.injected'};
 	let whileSigning: (() => void) | undefined;
+	let releaseTransaction: ((hash: string) => void) | undefined;
 	const provider = {
 		request: async ({method, params}: {method: string; params?: any[]}) => {
 			switch (method) {
@@ -44,6 +45,11 @@ function installWallet() {
 				case 'personal_sign':
 					whileSigning?.();
 					return SIGNATURE;
+				case 'eth_sendTransaction':
+					// Held until the test releases it, which is what a wallet waiting on a human is.
+					return new Promise<string>((resolve) => {
+						releaseTransaction = resolve;
+					});
 				default:
 					throw new Error(`unexpected method ${method}`);
 			}
@@ -55,6 +61,7 @@ function installWallet() {
 	window.addEventListener('eip6963:requestProvider', onRequest);
 	return {
 		uninstall: () => window.removeEventListener('eip6963:requestProvider', onRequest),
+		releaseTransaction: () => releaseTransaction?.('0xhash'),
 		set whileSigning(hook: (() => void) | undefined) {
 			whileSigning = hook;
 		},
@@ -201,7 +208,78 @@ describe('what the app can see while the wallet is being asked', () => {
 		expect(during).toHaveLength(1);
 		expect(during![0].kind).toBe('signature');
 		expect('purpose' in during![0]).toBe(false);
-		expect(Object.keys(during![0]).sort()).toStrictEqual(['id', 'kind', 'method', 'startedAt']);
+		// `account` IS present: who must answer is read off the request itself and is useful whoever
+		// asked. Only `purpose` is withheld, because the app already knows why it sent its own request.
+		expect(Object.keys(during![0]).sort()).toStrictEqual(['account', 'id', 'kind', 'method', 'startedAt']);
+	});
+
+	it('says who is expected to answer, so a swap cannot point the user at the wrong wallet', async () => {
+		// A pending request can outlive the wallet state it started under, so "something is pending"
+		// has to be answerable with "pending FOR WHOM". Otherwise a consumer tells the user to approve
+		// in whichever wallet is current, which after a switch is one that cannot answer it.
+		const {connection, snapshot, wallet} = await signedInWithWallet();
+
+		let during: PendingRequest[] | undefined;
+		wallet.whileSigning = () => {
+			during = snapshot().wallet?.pendingRequests;
+		};
+
+		const getting = connection.getDelegation({chainId: 1, contract: CONTRACT});
+		await vi.advanceTimersByTimeAsync(200);
+		await getting;
+
+		expect(during![0].account).toBe(ACCOUNT);
+	});
+
+	it('reads the sender out of a transaction the app sent itself', async () => {
+		// `personal_sign` is [data, address] and `eth_sign` is [address, data]; a transaction carries it
+		// as `from` on an object. Three spellings, so this is read per method rather than positionally.
+		const {connection, snapshot, wallet} = await signedInWithWallet();
+
+		const sending = connection.provider
+			.request({method: 'eth_sendTransaction', params: [{from: ACCOUNT, to: ACCOUNT}]} as any)
+			.catch(() => {});
+		await vi.advanceTimersByTimeAsync(50);
+
+		const pending = snapshot().wallet?.pendingRequests;
+		expect(pending).toHaveLength(1);
+		expect(pending![0].kind).toBe('transaction');
+		expect(pending![0].account).toBe(ACCOUNT);
+
+		wallet.releaseTransaction();
+		await sending;
+	});
+
+	it('keeps announcing a request that a reconnect happens on top of', async () => {
+		// THE REGRESSION THIS EXISTS FOR, reproduced from a real report: with a locked wallet, a send
+		// raises the connection flow, so `connect()` runs WHILE the wallet is holding the transaction.
+		// Every wallet-state rebuild used to assert `pendingRequests: []`, which erased it permanently:
+		// nothing repopulates the list, because the next event for that request is the one that ends it.
+		// The user was left holding a wallet popup the app believed did not exist, with no modal, no
+		// escape hatch and no unload warning.
+		const {connection, snapshot, wallet} = await signedInWithWallet();
+
+		const sending = connection.provider
+			.request({method: 'eth_sendTransaction', params: [{from: ACCOUNT, to: ACCOUNT}]} as any)
+			.catch(() => {});
+		await vi.advanceTimersByTimeAsync(50);
+		expect(snapshot().wallet?.pendingRequests).toHaveLength(1);
+
+		const reconnecting = connection.connect({type: 'wallet'});
+		await vi.advanceTimersByTimeAsync(200);
+		await reconnecting;
+
+		// Still outstanding, so still announced. The wallet has not answered anything.
+		expect(snapshot().wallet?.pendingRequests).toHaveLength(1);
+		expect(snapshot().wallet?.pendingRequests[0].kind).toBe('transaction');
+
+		wallet.releaseTransaction();
+		await sending;
+		await vi.advanceTimersByTimeAsync(50);
+
+		// And it still clears when answered: a request that never leaves the list is a modal that
+		// never closes, which is the failure this fix must not trade itself for.
+		expect(snapshot().wallet?.pendingRequests).toEqual([]);
 	});
 
 	it('leaves the sign-in signature to its own step, so consumers do not stack two modals', async () => {
