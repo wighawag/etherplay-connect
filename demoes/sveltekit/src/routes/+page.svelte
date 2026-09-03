@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { chainId, chainInfo, connection } from '$lib';
+	import { connection } from '$lib';
+	import NeedsTheUser from '$lib/NeedsTheUser.svelte';
 
 	let connectionAsAny = $derived($connection as any);
 
@@ -17,6 +18,9 @@
 		});
 	}
 </script>
+
+<!-- Rendered for every step, because a wallet can go locked, be revoked or move chain at any of them. -->
+<NeedsTheUser {connection} />
 
 {#if $connection.step === 'Idle'}
 	{#if $connection.loading}
@@ -138,21 +142,6 @@
 	you are signed-in: {$connection.account.address} / {$connection.account.signer.address} | {$connection
 		.wallet?.chainId}
 	<button onclick={() => connection.disconnect()}>disconnect</button>
-
-	{@const accountChanged = $connection.wallet?.accountChanged}
-	{#if accountChanged}
-		<button style="margin-right: 2rem;" onclick={() => connection.connectToAddress(accountChanged)}
-			>switch account</button
-		>
-	{/if}
-	{@const invalidChain = $connection.wallet?.invalidChainId}
-	{#if invalidChain}
-		<button
-			style="margin-right: 2rem;"
-			onclick={() => connection.switchWalletChain(chainInfo)}
-			disabled={!!$connection.wallet?.switchingChain}>switch chain</button
-		>
-	{/if}
 {:else}
 	{JSON.stringify({ step: connectionAsAny.step, error: connectionAsAny.error }, null, 2)}
 {/if}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { chainInfo } from '$lib';
+	import NeedsTheUser from '$lib/NeedsTheUser.svelte';
 	import { createConnection } from '@etherplay/connect';
 
 	// Using targetStep: 'SignedIn' with walletOnly: true - no walletHost needed for wallet-only auth!
@@ -25,6 +26,14 @@
 	}
 </script>
 
+<!--
+	The states that need the user, above the step switch because they are not about the step. This
+	page is SIGNED IN, and a signed-in app still has to render them: the session account keeps working
+	if the wallet locks, but anything sent FROM THE WALLET account cannot be signed until the user
+	unlocks, and `wallet.status` is the only field that says so.
+-->
+<NeedsTheUser {connection} />
+
 {#if $connection.step === 'Idle'}
 	{#if $connection.loading}
 		loading...
@@ -35,21 +44,6 @@
 	you are signed-in: {$connection.account.address} / {$connection.account.signer.address} | {$connection
 		.wallet?.chainId}
 	<button onclick={() => connection.disconnect()}>disconnect</button>
-
-	{@const accountChanged = $connection.wallet?.accountChanged}
-	{#if accountChanged}
-		<button style="margin-right: 2rem;" onclick={() => connection.connectToAddress(accountChanged)}
-			>switch account</button
-		>
-	{/if}
-	{@const invalidChain = $connection.wallet?.invalidChainId}
-	{#if invalidChain}
-		<button
-			style="margin-right: 2rem;"
-			onclick={() => connection.switchWalletChain(chainInfo)}
-			disabled={!!$connection.wallet?.switchingChain}>switch chain</button
-		>
-	{/if}
 {:else if $connection.step == 'WalletConnected'}
 	Wallet connected
 	<button onclick={() => connection.requestSignature()}>sign-in private account</button>
