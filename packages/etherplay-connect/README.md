@@ -90,11 +90,44 @@ const signedInState = await connection.ensureConnected('SignedIn');
 console.log('Session account:', signedInState.account.signer.address);
 ```
 
-`ensureConnected` always ends up doing one of three things: initiate a connection attempt, resolve at the target step, or reject with a `ConnectionFailure`. It never sits doing nothing.
+#### What the target is
 
-- It initiates from `Idle`, and from a picker step (`MechanismToChoose`, `WalletToChoose`) that still carries the `error` of a previous failed attempt, so retrying after a rejected wallet prompt prompts again.
+`ensureConnected` promises a **target**, not a step comparison, and does whatever reaching it takes. The target is reached when the connection is:
+
+- **at or beyond `step`.** The steps are ordered (`SignedIn` implies `WalletConnected` implies `WalletChosen`), so a signed-in connection satisfies `ensureConnected('WalletConnected')` and resolves as itself.
+- **on the wallet you named**, if you named one.
+- **able to act as the address you named**, if you named one: connected, not locked, and actually holding that account. A connection already at the requested step but on a _different_ account initiates an attempt rather than resolving with somebody else.
+- **on the right chain** — but only for a `WalletConnected` target, and unless you pass `{skipChainCheck: true}`. A `SignedIn` target does not check the chain (a session signer is chain-independent), so `skipChainCheck` does nothing there; read `wallet.invalidChainId` and offer `switchWalletChain()` if your signed-in app also sends through the wallet.
+
+Anything you did not name is not part of the target, so a bare `ensureConnected()` behaves exactly as before.
+
+An address or a wallet name **you** pass is a requirement. An address the library **replays** from the connection's own state (its locked-wallet reconnect does this) stays a preference and degrades to an ordinary connect, because nobody asked for it.
+
+#### It always answers
+
+There is no timeout, deliberately: a human is in the loop, so any timer is either long enough to be useless or short enough to cut a user off mid-decision, and it would report "timed out" about a wallet dialog that is open and healthy. The rule is narrower instead: **waiting is only legitimate while something is actually in progress.** It stays pending only while one of these is true, and every one of them is published on the connection so your app can render it and the user can answer it:
+
+| Still pending because                                          | What the state says                                      | What ends it                                     |
+| -------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------ |
+| an attempt is running                                          | `step` is `WaitingForWalletConnection` / `PopupLaunched` | the wallet or the host answers                   |
+| the wallet is holding a signature prompt                       | `step: 'WaitingForSignature'`                            | the user answers it                              |
+| the user is choosing                                           | `step` is `MechanismToChoose` / `WalletToChoose`         | they pick, or `cancel()`                         |
+| the user is picking an account                                 | `step: 'ChooseWalletAccount'`                            | `connectToAddress(...)`, or `cancel()`           |
+| the wallet is on another account                               | `connection.addressUnavailable` (see below)              | they switch in the wallet, or acknowledge it     |
+| the wallet is on another chain (`WalletConnected` target only) | `wallet.invalidChainId`                                  | `switchWalletChain()`, or they switch themselves |
+| the signature has not been asked for                           | `step: 'WalletConnected'` with a `SignedIn` target       | `requestSignature()`, or see the note below      |
+
+If the target is not satisfied, nothing is in progress and nothing can be initiated, that is an answer and it is delivered immediately rather than awaited. "In progress" includes an attempt this call has started that has not come back yet, even before that attempt has published anything. Every resting entry state is enumerated against this, crossed with every target and every kind of mechanism, in `test/ensure-connected-settles.test.ts`.
+
+The last row is the one worth knowing about: with the default `requestSignatureAutomaticallyIfPossible: false`, a `SignedIn` target rests at `WalletConnected` waiting for **your** "sign in" button, because prompting over the top of it would ask for a signature you deliberately deferred. Pass `{requestSignatureRightAway: true}` (or set the store option) and `ensureConnected` asks for it itself.
+
+#### How it initiates
+
+- It initiates from `Idle`, from `WalletChosen` (the wallet is chosen; upgrading it is what you asked for), and from any resting state that does not satisfy the target, including one holding the wrong account.
+- It initiates from a picker step (`MechanismToChoose`, `WalletToChoose`) that still carries the `error` of a previous failed attempt, so retrying after a rejected wallet prompt prompts again.
 - It does not initiate from a picker step without an `error`: that means the user is making a choice right now and connecting would hijack it. It waits for the user to pick (or cancel) and settles then. Pass `{forceConnect: true}` to connect anyway.
 - It rejects with a `ConnectionFailure` when the attempt fails. `cause` and the convenience `code` carry the underlying wallet error, so a user rejection is `code === 4001`.
+- It rejects with `ConnectionFailure('Connection cancelled')` when the user backs out, including by acknowledging an `addressUnavailable`.
 
 ```typescript
 import {ConnectionFailure} from '@etherplay/connect';
@@ -107,6 +140,97 @@ try {
 	}
 }
 ```
+
+### Asking for a specific account
+
+Some sends only mean anything for one account. Replacing or cancelling a stuck transaction reuses its **original nonce**, so it has to be signed by the same key, and a signature from any other account is not a lesser answer, it is a wrong one. Name the account, and the wallet if you recorded it:
+
+```typescript
+await connection.ensureConnected(
+	'WalletConnected',
+	{type: 'wallet', name: 'Rabby', address: payerOfTheStuckTransaction},
+	{doNotStoreLocally: true},
+);
+```
+
+Call it **unconditionally**. Do not put an "are we already there" check in front of it: `connection.account.address` is the address the connection _agreed on_, not the one that can sign right now, and it is deliberately left untouched when the wallet locks, is revoked, or the user switches account behind the connection's back (`wallet.status` and `wallet.accountChanged` record those). A hand-written check on it passes for a locked wallet, skips the call that would have prompted the unlock, and the send then comes back `{code: 4001}` from the always-on provider, which is easy to report as "rejected by user" about a prompt nobody was shown.
+
+To **render** readiness without initiating anything, ask `canActAs`:
+
+```typescript
+import {canActAs} from '@etherplay/connect';
+
+// in an event handler, against the store's current state
+const ready = connection.canActAs(address);
+// in markup or a reactive block, against a state you already hold: it takes `$connection`, so it
+// re-evaluates when the wallet locks. The method form would not, since a method call gives a
+// reactive block nothing to depend on.
+const readyToo = canActAs($connection, address);
+```
+
+It is false for a locked wallet, for a revoked one, and for a connection on another account, and it starts no flow. It reads `wallet.status` and the accounts the wallet is offering, so it is right about a wallet that has never been asked for accounts (a `WalletChosen` connection) as well as one that has been. Chain is not part of the answer: signing as an address is chain-independent, and `wallet.invalidChainId` is the separate question.
+
+#### When the wallet is not on that account: `connection.addressUnavailable`
+
+If the wallet cannot offer the address you named, the connection does **not** throw and does **not** tear the wallet down. It connects to what the wallet _does_ offer and comes to rest with a structured reason:
+
+```typescript
+type AddressUnavailable = {
+	requested: `0x${string}`; // the address you asked for
+	walletName?: string; // the wallet it went to
+	selected?: `0x${string}`; // the account that wallet is on instead; absent if it offers none
+	available: `0x${string}`[]; // the accounts it is exposing; empty if it has since locked
+	message: string; // a sentence you can render as an instruction
+};
+```
+
+The last three describe the wallet **as it is now**, not as it was when the attempt ran: they are re-derived whenever the wallet announces a change, because "switch to the account we need" is not advice anyone can follow if it names an account they have already left. If the wallet ends up offering `requested`, the state clears itself, since it has stopped being true.
+
+It sits beside `error` rather than in it, because nothing failed: the wallet works, it is on another account, and only the user can move it. Render it as an instruction, not as a red banner:
+
+```svelte
+{#if $connection.addressUnavailable}
+	<p>{$connection.addressUnavailable.message}</p>
+	<button onclick={() => connection.acknowledgeAddressUnavailable()}>Cancel</button>
+{/if}
+```
+
+Two ways out, and you have to offer both:
+
+- **The user switches account in their wallet.** The original request then proceeds on its own and the promise resolves: somebody who has just done what was asked should not have to press anything in your app.
+- **The user acknowledges it.** `acknowledgeAddressUnavailable()` clears the state and settles the pending `ensureConnected` as `ConnectionFailure('Connection cancelled')`, the same shape as any other "the user chose not to", so existing refusal handling covers it and nobody sees an error for a decision. The connection stays connected on the account the wallet is offering.
+
+Only an address **you** named produces this. A replayed one degrades to an ordinary connect as it always did.
+
+**One request at a time.** A connection has one wallet, one account and one such state, so two `ensureConnected` calls naming _different_ accounts cannot both stand: the newer supersedes, and the older is answered with a `ConnectionFailure` naming where the connection came to rest. It is **not** answered with `Connection cancelled`, because the user decided nothing — that message is reserved for `acknowledgeAddressUnavailable()`, and a dismissal answers only the request for the address it was showing. If you need two accounts ready at once, use two connections with different `storagePrefix`es (see "Running more than one connection in a page").
+
+##### Wallets that only expose one account
+
+`available` is **what the wallet is exposing right now, not what the user owns**, and the difference is not an edge case: MetaMask answers `eth_accounts` with every account the user has permitted, while Rabby (among others) answers with the one account it is currently on. So for a large share of users `available` has a single entry, the requested address is not in it, and the user is holding that address all along.
+
+Two consequences for your UI:
+
+- **Do not render `available` as an exhaustive account picker**, and do not read "the requested address is absent" as "the user does not have it". Show it as detail, and only when it has more than one entry. If you do offer its entries as a choice, say what choosing one MEANS: connecting to a different account abandons the request that produced this state, so the pending `ensureConnected` settles as a cancellation.
+- **The instruction is the remedy.** `message` asks the user to switch to that account in their wallet, which is the only thing that works when the wallet exposes one at a time. Nothing in the app can pick an account the wallet is not offering.
+
+That path is fully automatic on the library side: every wallet emits `accountsChanged` when the user switches, so the pending `ensureConnected` picks it up and proceeds to satisfy the original request. There is no "retry" button to wire, and pressing one would be redundant — at most one attempt is made per announcement the wallet makes, and an attempt never starts another off its own result.
+
+There is deliberately no call that asks the wallet to open its own account picker (EIP-2255 `wallet_requestPermissions`). It would be a better remedy where it works, and it is a candidate for a later release, but it needs a new optional capability on the wallet-provider interface and support that varies per wallet; a button that silently does nothing on the wallets that lack it is worse than the sentence that works everywhere.
+
+### What your UI has to render
+
+`ensureConnected` has no timeout, on purpose, so a state where it waits is a state your app must **show**. These are cross-cutting: they are about the wallet, not about the step, so render them above your step switch rather than inside one branch. The demo does this in one component (`demoes/sveltekit/src/lib/NeedsTheUser.svelte`), which is the shortest description of the whole list:
+
+| Read                                                 | Show                              | Remedy to offer                                        |
+| ---------------------------------------------------- | --------------------------------- | ------------------------------------------------------ |
+| `wallet.status === 'locked'`                         | "your wallet is locked"           | `unlock()` (not `connect()`, which drops the wallet)   |
+| `wallet.status === 'disconnected'`, `accountChanged` | "your wallet moved to 0x…"        | `connectToAddress(wallet.accountChanged)`              |
+| `wallet.invalidChainId`                              | "your wallet is on another chain" | `switchWalletChain()`, showing `wallet.switchingChain` |
+| `connection.addressUnavailable`                      | its `message`, as an instruction  | the user switches in the wallet, or acknowledge it     |
+| `connection.pendingRequests`                         | what the wallet is asking for     | the user answers it in the wallet                      |
+| `connection.error`                                   | the failure                       | `clearError()` and retry                               |
+
+**A locked wallet is the one most likely to be missed**, and it became more visible with the target semantics: `step` stays `WalletConnected`, `account.address` still names the account that was agreed on, and only `wallet.status` (and `canActAs`) knows it cannot sign. A signed-in app is not exempt: its session account keeps working, but anything sent from the **wallet** account cannot be signed until the user unlocks.
 
 ## Supported connection shapes
 
@@ -297,7 +421,17 @@ export const payment = createConnection({
 
 // At checkout:
 const payer = await payment.ensureConnected({doNotStoreLocally: true});
+
+// Later, to replace or cancel a stuck payment: it reuses the original nonce, so it must be signed
+// by the SAME key. Name the account (and the wallet, if you recorded which one paid).
+await payment.ensureConnected(
+	'WalletConnected',
+	{type: 'wallet', name: walletThatPaid, address: payerOfTheStuckTransaction},
+	{doNotStoreLocally: true},
+);
 ```
+
+A payment rail whose wallet is re-picked per payment is the case that most needs the named account, and the one where the user is most likely to be on a different one by the time it matters. See "Asking for a specific account" above, including `connection.addressUnavailable`, which is what the flow rests on when the wallet is not on the account the replacement needs.
 
 ### What `storagePrefix` does
 
@@ -499,7 +633,9 @@ reproduce it and then drift from it.
 | `connectToAddress(address, options?)`          | Connect to specific wallet address                                                                      |
 | `switchWalletChain(chainInfo?)`                | Switch wallet to different chain                                                                        |
 | `unlock()`                                     | Prompt a locked wallet, keeping step, account and wallet (see "What to call on a locked wallet")        |
-| `ensureConnected(step?, mechanism?, options?)` | Promise-based connection; reconnects a locked wallet, since it promises a usable one                    |
+| `ensureConnected(step?, mechanism?, options?)` | Promise-based connection to a TARGET: step, wallet, account, chain. Reconnects a locked wallet          |
+| `canActAs(address)`                            | Can this connection sign as that address right now? Reads state, initiates nothing                      |
+| `acknowledgeAddressUnavailable()`              | Dismiss `connection.addressUnavailable`; settles a waiting `ensureConnected` as cancelled               |
 | `isTargetStepReached(connection)`              | Check if target step is reached                                                                         |
 | `getSignatureForPublicKeyPublication()`        | Get signature for public key                                                                            |
 | `getDelegation(target)`                        | Get a delegation credential                                                                             |
@@ -570,7 +706,12 @@ One consequence worth stating plainly, because it used to be worse than it is: t
 
 The reasoning, including the version of this that made `connect()` reconnect too and why it was rejected, is in `docs/adr/0002-connect-ensure-connected-and-unlock-are-three-promises.md`.
 
-**On accounts.** `ensureConnected()`'s reconnect replays the address the connection was on, so an ordinary unlock comes back to the same account rather than bouncing a multi-account user into `ChooseWalletAccount`. If the user unlocks on a _different_ account, the replayed address is treated as a preference and the reconnect lands on the account the wallet actually offers, with `mechanism.address` and `account` updated to say so. An address YOU name (`connectToAddress(a)`, `connect({type: 'wallet', address: a})`) is a demand, and still fails the attempt if the wallet cannot offer it.
+**On accounts.** `ensureConnected()`'s reconnect replays the address the connection was on, so an ordinary unlock comes back to the same account rather than bouncing a multi-account user into `ChooseWalletAccount`. If the user unlocks on a _different_ account, the replayed address is treated as a preference and the reconnect lands on the account the wallet actually offers, with `mechanism.address` and `account` updated to say so.
+
+An address YOU name is a requirement, and the two entry points answer an impossible one differently, on purpose:
+
+- `connectToAddress(a)` and `connect({type: 'wallet', address: a})` **fail the attempt**, unchanged. `connect` drives the flow from the user's choice and has no promise to settle, so a demand it cannot meet is an error.
+- `ensureConnected(step, {type: 'wallet', address: a})` **rests on `connection.addressUnavailable`** instead: it connects to what the wallet does offer, keeps the wallet, and publishes what was asked for beside what the wallet is on, so the app can tell the user which account to switch to. Switching resolves the original call; acknowledging settles it as cancelled. See "Asking for a specific account" above.
 
 ### Connect Options
 
@@ -587,8 +728,13 @@ interface ConnectOptions {
 ```typescript
 interface EnsureConnectedOptions extends ConnectOptions {
 	skipChainCheck?: boolean; // Skip chain validation for WalletConnected step
+	forceConnect?: boolean; // Initiate even from a picker the user is mid-choice on
 }
 ```
+
+`ConnectOptions.requestSignatureRightAway` is worth knowing here too: with a `SignedIn` target on an
+already-connected wallet it is what lets `ensureConnected` ask for the signature itself, instead of
+resting at `WalletConnected` waiting for your own "sign in" button.
 
 ## Origin Account Structure
 

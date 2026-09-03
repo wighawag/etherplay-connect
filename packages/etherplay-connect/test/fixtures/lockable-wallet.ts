@@ -42,10 +42,28 @@ export type LockableWallet = {
 	unlock: () => void;
 	/** The user picks a different account in the wallet, and the wallet says so. */
 	switchAccount: (account: `0x${string}`) => void;
+	/**
+	 * ANNOUNCE an accounts list without changing what `eth_accounts` will answer.
+	 *
+	 * A wallet whose announcement and whose answer disagree, which is the only way to reach the
+	 * "asked, answered with something else, ask again" loop deliberately: every honest wallet makes
+	 * the two agree, so an attempt started because the announcement offered the account would find
+	 * it and finish. Here the attempt comes back denying what the announcement promised, which is
+	 * what the retry guard has to survive.
+	 */
+	announceAccounts: (accounts: `0x${string}`[]) => void;
 	/** Park an `eth_sendTransaction` until `releaseTransaction`, which is what waiting on a human is. */
 	releaseTransaction: (hash?: string) => void;
 	/** Make the password prompt fail, so a test can watch a FAILED reconnect. */
 	rejectRequestAccounts: (error: unknown) => void;
+	/**
+	 * Never answer `eth_requestAccounts`: the wallet popup is open and the user has not decided.
+	 *
+	 * The only honest way to hold a connection at `WaitingForWalletConnection`, which is a state a
+	 * test needs to ENTER from rather than merely pass through, and the state that makes "waiting is
+	 * fine while a human is deciding" true.
+	 */
+	stallRequestAccounts: () => void;
 	/**
 	 * How the wallet answers `wallet_switchEthereumChain` / `wallet_addEthereumChain`.
 	 *
@@ -92,6 +110,7 @@ export function installLockableWallet(options?: {
 	let locked = false;
 	let failChainId = false;
 	let requestAccountsError: unknown | undefined;
+	let stallAccounts = false;
 	let requestAccountsCount = 0;
 	let getAccountsCount = 0;
 	let whileSigning: (() => void | Promise<void>) | undefined;
@@ -117,6 +136,10 @@ export function installLockableWallet(options?: {
 					return locked ? [] : accounts;
 				case 'eth_requestAccounts':
 					requestAccountsCount++;
+					if (stallAccounts) {
+						// Held forever, as an unanswered wallet popup is.
+						return new Promise<never>(() => {});
+					}
 					if (requestAccountsError) {
 						throw requestAccountsError;
 					}
@@ -204,9 +227,15 @@ export function installLockableWallet(options?: {
 			locked = false;
 			emit('accountsChanged', accounts);
 		},
+		announceAccounts: (announced: `0x${string}`[]) => {
+			emit('accountsChanged', announced);
+		},
 		releaseTransaction: (hash = '0xhash') => releaseTransaction?.(hash),
 		rejectRequestAccounts: (error: unknown) => {
 			requestAccountsError = error;
+		},
+		stallRequestAccounts: () => {
+			stallAccounts = true;
 		},
 		setChainHandlers: (handlers) => {
 			switchChainHandler = handlers.switchChain;

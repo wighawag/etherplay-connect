@@ -150,6 +150,125 @@ export type FullfilledMechanism = AuthMechanism | WalletMechanism<string, `0x${s
 
 export type TargetStep = 'WalletChosen' | 'WalletConnected' | 'SignedIn';
 
+// THE TARGET STEPS ARE ORDERED, and this array is the only place that says so.
+//
+// `SignedIn` implies `WalletConnected` implies `WalletChosen`, so "has this connection reached the
+// target" is a comparison on this array rather than a hand-written comparison per step. It used to
+// be written out three times, and one of the three (`ensureConnected`'s own `canResolve`) got the
+// order right for `WalletChosen` and then compared the other two exactly, which did not answer
+// wrong so much as never answer at all: a connection resting at `SignedIn` and asked for
+// `WalletConnected` satisfied nothing, initiated nothing, and waited forever.
+//
+// A fourth step added to `TargetStep` lands here once, in order, and every satisfaction check
+// follows.
+const orderedTargetSteps: readonly TargetStep[] = ['WalletChosen', 'WalletConnected', 'SignedIn'];
+
+/**
+ * Is the connection AT OR BEYOND the target step?
+ *
+ * `requireWallet` is for the one case the order does not capture: `SignedIn` is the only target
+ * step reachable without a wallet (the hosted email/oauth/mnemonic mechanisms), so a wallet target
+ * is never satisfied by a state that has none, and a `SignedIn` target is only wallet-bound when
+ * the caller says so.
+ */
+function stepIsAtOrBeyond<WalletProviderType>(
+	connection: Connection<WalletProviderType>,
+	target: TargetStep,
+	options?: {requireWallet?: boolean},
+): boolean {
+	const reached = orderedTargetSteps.indexOf(connection.step as TargetStep);
+	if (reached === -1) {
+		// An in-progress or picker step is not a resting point at any target.
+		return false;
+	}
+	if (reached < orderedTargetSteps.indexOf(target)) {
+		return false;
+	}
+	if ((target !== 'SignedIn' || options?.requireWallet) && connection.wallet === undefined) {
+		return false;
+	}
+	return true;
+}
+
+/**
+ * The wallet is not on the account a caller asked this connection to act as.
+ *
+ * A RESTING STATE RATHER THAN AN ERROR, because it is not one: the user has a wallet, it works,
+ * and it is simply on a different account than the one this request needs (replacing a stuck
+ * transaction reuses its nonce, so it must be signed by the same key, and no other account will
+ * do). There is a remedy and the user is the only one who can apply it, so this is published as an
+ * instruction to render — "this was paid from 0xabc…, your wallet is on 0xdef…, switch or cancel" —
+ * next to a connection that is still usable.
+ *
+ * Only a CALLER-SUPPLIED address produces it. An address this library replayed from the connection's
+ * own state is a preference and keeps degrading to an ordinary connect, because the user never asked
+ * for it.
+ *
+ * Two ways out, and the app has to offer both:
+ * - the user switches account in their wallet, and the original request proceeds on its own (driven
+ *   by `accountsChanged`, which is what makes this work on wallets that expose one account at a
+ *   time and can therefore never offer the requested one in a list);
+ * - the user acknowledges it (`acknowledgeAddressUnavailable()`), which is a CANCELLATION: the
+ *   pending `ensureConnected` rejects with `ConnectionFailure('Connection cancelled')`, the same
+ *   shape as any other "the user chose not to".
+ */
+export type AddressUnavailable = {
+	/** The address the caller asked the connection to be able to act as. */
+	requested: `0x${string}`;
+	/** The wallet the request went to, by the name this connection knows it by, when known. */
+	walletName?: string;
+	// The three fields below describe the wallet AS IT IS NOW, not as it was when the attempt ran:
+	// they are re-derived when the wallet announces a change, because "switch to the account we need"
+	// is not advice a user can follow if it names an account they have already left. The state clears
+	// itself outright once the wallet does offer `requested`.
+	/**
+	 * The account that wallet is on instead. Absent only when the wallet is offering none at all,
+	 * which is what a wallet that has since been LOCKED reports: this state is kept up to date as
+	 * the wallet moves, so it can go from naming an account to naming none.
+	 */
+	selected?: `0x${string}`;
+	/**
+	 * What the wallet is EXPOSING right now. Not what the user owns, and not a picker.
+	 *
+	 * MetaMask answers `eth_accounts` with every account the user permitted; Rabby (among others)
+	 * answers with the one account it is currently on. So this list is frequently a single entry that
+	 * does not contain `requested`, while the user is holding `requested` all along. An app that
+	 * renders it as an exhaustive choice, or reads "absent" as "the user does not have it", is wrong
+	 * for those wallets. `message` is the remedy that works everywhere: switch in the wallet.
+	 *
+	 * Empty when the wallet is offering no account at all, which is what a locked wallet reports.
+	 */
+	available: `0x${string}`[];
+	/**
+	 * A sentence an app can render as an INSTRUCTION rather than an error. Addresses are not
+	 * shortened here: how to abbreviate an address is the app's decision, and every field the
+	 * sentence is built from is on this object.
+	 */
+	message: string;
+};
+
+/**
+ * The resting reason, built in ONE place.
+ *
+ * Two sites produce it: the attempt that discovers the address is not on offer, and the account
+ * handler that keeps it true afterwards. They must word it identically, and a sentence written
+ * twice is a sentence that will disagree once.
+ */
+function describeAddressUnavailable(details: {
+	requested: `0x${string}`;
+	walletName?: string;
+	selected?: `0x${string}`;
+	available: `0x${string}`[];
+}): AddressUnavailable {
+	const named = details.walletName ? `Wallet "${details.walletName}"` : 'The wallet';
+	return {
+		...details,
+		message: details.selected
+			? `${named} is on ${details.selected} and cannot act as ${details.requested}. Switch to that account in the wallet, or cancel.`
+			: `${named} is not offering ${details.requested}. Select that account in the wallet, or cancel.`,
+	};
+}
+
 type WalletStateCommon<WalletProviderType> = {
 	provider: WalletProvider<WalletProviderType>;
 	accounts: `0x${string}`[];
@@ -232,6 +351,17 @@ type ConnectionCommon<WalletProviderType> = {
 	// a banner or other mechanism to show error should be used.
 	// error should be dismissable
 	error?: {message: string; cause?: any};
+	/**
+	 * Set when a caller asked this connection to act as an address the wallet is not offering.
+	 *
+	 * It sits BESIDE `error` rather than in it, and for the same reason it is not a throw: nothing
+	 * failed. It is a resting reason with a remedy only the user can apply, so an app renders it as
+	 * an instruction (see `AddressUnavailable`), not as a red banner.
+	 *
+	 * Like `error`, it survives a state built by spreading the current one and is dropped by any
+	 * fresh transition, so a new attempt clears it without anybody remembering to.
+	 */
+	addressUnavailable?: AddressUnavailable;
 	// wallets represent the web3 wallet installed on the user browser
 	wallets: WalletHandle<WalletProviderType>[];
 	/**
@@ -342,6 +472,12 @@ export type WalletChosenState<WalletProviderType> = Extract<Connection<WalletPro
 // Type representing wallet-connected states (both WalletConnected and SignedIn-via-wallet)
 // This is what you get when targetStep is 'WalletConnected' and target is reached
 // Both variants have WalletMechanism and wallet
+//
+// It is also what `ensureConnected('WalletConnected')` RESOLVES to, and that is the honest type
+// rather than a widening for its own sake: the steps are ordered, so a signed-in connection
+// satisfies the target and is handed back as itself. Typing that result as `WalletConnected` said
+// `step: 'WalletConnected'` about a state whose step is `'SignedIn'`, and described its `account`
+// as `{address}` when it is a whole `OriginAccount`.
 export type ConnectedWithWallet<WalletProviderType> =
 	| WalletConnectedState<WalletProviderType>
 	| SignedInWithWallet<WalletProviderType>;
@@ -373,26 +509,55 @@ export function isTargetStepReached<WalletProviderType, Target extends TargetSte
 		: WalletOnly extends true
 			? SignedInWithWallet<WalletProviderType>
 			: SignedInState<WalletProviderType> {
-	if (targetStep === 'WalletChosen') {
-		// For WalletChosen target, accept WalletChosen OR any higher step (WalletConnected, SignedIn-with-wallet)
-		return (
-			connection.step === 'WalletChosen' ||
-			connection.step === 'WalletConnected' ||
-			(connection.step === 'SignedIn' && connection.wallet !== undefined)
-		);
+	// One ordered comparison, shared with the store's own `isTargetStepReached` and with
+	// `ensureConnected`. `walletOnly` narrows the RETURN TYPE and, for a `SignedIn` target, also the
+	// check: a hosted sign-in has no wallet to act through.
+	return stepIsAtOrBeyond(connection, targetStep, {requireWallet: !!walletOnly});
+}
+
+/**
+ * Can this connection sign as `address` RIGHT NOW, with no flow initiated and nothing prompted?
+ *
+ * The question `connection.account.address` does not answer. That field is the address the
+ * connection AGREED ON, which is the right thing for it to be: it survives the user locking their
+ * wallet, revoking the site, or switching account behind the connection's back, all of which keep
+ * `step: 'WalletConnected'` and change nothing about who was agreed on. What they change is whether
+ * anybody can sign, and that is what this reads (`wallet.status`, and the accounts the wallet is
+ * actually offering).
+ *
+ * It exists because a consumer needed it, wrote the comparison itself against `account.address`,
+ * and got a locked wallet wrong: it skipped its `ensureConnected` call, let the transaction out,
+ * and reported the provider's `{code: 4001}` as "transaction rejected by user" about a prompt
+ * nobody was ever shown. Use this to RENDER readiness (enable a button, show "unlock to pay"), and
+ * `ensureConnected(step, {type: 'wallet', address})` to actually reach it.
+ *
+ * Chain is deliberately not part of the answer: signing as an address is chain-independent, and
+ * `wallet.invalidChainId` is the separate question with its own separate remedy.
+ */
+export function canActAs<WalletProviderType>(
+	connection: Connection<WalletProviderType>,
+	address: `0x${string}`,
+): boolean {
+	const wanted = address.toLowerCase();
+	if (!connection.wallet || connection.wallet.status !== 'connected') {
+		return false;
 	}
-	if (targetStep === 'WalletConnected') {
-		// For WalletConnected target, accept WalletConnected OR SignedIn-with-wallet
-		return connection.step === 'WalletConnected' || (connection.step === 'SignedIn' && connection.wallet !== undefined);
+	const agreedOn = 'account' in connection ? connection.account?.address : undefined;
+	if (!agreedOn || agreedOn.toLowerCase() !== wanted) {
+		return false;
 	}
-	// For SignedIn target (regardless of walletOnly), only accept SignedIn
-	// walletOnly affects the return type narrowing, not the step check
-	if (walletOnly) {
-		// For SignedIn + walletOnly, only accept SignedIn-with-wallet
-		return connection.step === 'SignedIn' && connection.wallet !== undefined;
+	const offered = connection.wallet.accounts;
+	// An empty list is what a wallet that was never asked reports, not a denial; `status` is the
+	// authority there. A non-empty one that does not contain the address IS a denial.
+	//
+	// Defensive, and marked as such: no state this library builds reaches here with an empty list
+	// (the states that have one, like `WalletChosen`, carry no `account` and are answered above). It
+	// is kept for a custom connector that publishes `connected` before it has read any accounts, and
+	// it is deliberately not counted as covered by any test.
+	if (offered.length > 0 && !offered.some((account) => account.toLowerCase() === wanted)) {
+		return false;
 	}
-	// For SignedIn target, accept any SignedIn variant
-	return connection.step === 'SignedIn';
+	return true;
 }
 
 function viemChainInfoToSwitchChainInfo(chainInfo: BasicChainInfo): {
@@ -510,6 +675,14 @@ export type ConnectionStore<
 	cancel: () => void;
 	back: (step: 'MechanismToChoose' | 'Idle' | 'WalletToChoose') => void;
 	clearError: () => void;
+	// Dismiss a resting `connection.addressUnavailable`, which settles any `ensureConnected` waiting
+	// on it as a cancellation. The connection is left connected, on whatever account the wallet is
+	// offering. See `AddressUnavailable`.
+	acknowledgeAddressUnavailable: () => void;
+	// Can this connection sign as `address` right now? Reads the current state and initiates
+	// nothing, so it is safe to call while rendering. The standalone `canActAs(connection, address)`
+	// is the same answer against a state you already hold (a `$connection` in a reactive block).
+	canActAs: (address: `0x${string}`) => boolean;
 	requestSignature: () => Promise<void>;
 	connectToAddress: (
 		address: `0x${string}`,
@@ -548,12 +721,12 @@ export type ConnectionStore<
 			}
 		: Target extends 'WalletConnected'
 			? {
-					(options?: EnsureConnectedOptions): Promise<WalletConnected<WalletProviderType>>;
+					(options?: EnsureConnectedOptions): Promise<ConnectedWithWallet<WalletProviderType>>;
 					(
 						step: 'WalletConnected',
 						mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
 						options?: EnsureConnectedOptions,
-					): Promise<WalletConnected<WalletProviderType>>;
+					): Promise<ConnectedWithWallet<WalletProviderType>>;
 				}
 			: WalletOnly extends true
 				? {
@@ -563,7 +736,7 @@ export type ConnectionStore<
 							step: 'WalletConnected',
 							mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
 							options?: EnsureConnectedOptions,
-						): Promise<WalletConnected<WalletProviderType>>;
+						): Promise<ConnectedWithWallet<WalletProviderType>>;
 						(
 							step: 'SignedIn',
 							mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
@@ -576,7 +749,7 @@ export type ConnectionStore<
 							step: 'WalletConnected',
 							mechanism?: WalletMechanism<string | undefined, `0x${string}` | undefined>,
 							options?: EnsureConnectedOptions,
-						): Promise<WalletConnected<WalletProviderType>>;
+						): Promise<ConnectedWithWallet<WalletProviderType>>;
 						(
 							step: 'SignedIn',
 							mechanism?: Mechanism,
@@ -894,6 +1067,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		if (!connection.wallet && connection.step !== 'WaitingForWalletConnection') {
 			teardownWallet();
 		}
+		// The address a resting reason last named, kept so a dismissal can be attributed to the request
+		// the user was looking at even if an attempt clears the field a moment before they click.
+		if (connection.addressUnavailable) {
+			lastPublishedAddressUnavailable = connection.addressUnavailable.requested;
+		}
 		const pendingRequests = currentPendingRequests();
 		if (!connection.wallet) {
 			$connection = {...connection, pendingRequests};
@@ -988,6 +1166,72 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			});
 		}
 	}
+
+	/**
+	 * The user has read "your wallet is not on that account" and chosen not to switch.
+	 *
+	 * THAT IS A CANCELLATION, and it settles the pending `ensureConnected` as one: the same
+	 * `ConnectionFailure('Connection cancelled')` a `cancel()` or a `back()` produces, so an app that
+	 * already maps a refusal to "the user chose not to" needs no new branch and shows no red error
+	 * for a decision.
+	 *
+	 * The connection itself is left exactly as it is, deliberately. It is CONNECTED, on the account
+	 * the wallet is actually offering, and "connected as somebody else, and saying so" is a better
+	 * place to leave a user than "not connected at all" — which is what the alternative, failing the
+	 * attempt, produced: every failure state carries `wallet: undefined`.
+	 */
+	function acknowledgeAddressUnavailable() {
+		// WHICH request the user dismissed: the one on screen, or the one that was on screen a moment
+		// ago if an attempt has just cleared the field out from under them.
+		const dismissed = $connection.addressUnavailable?.requested ?? lastPublishedAddressUnavailable;
+		if (dismissed) {
+			const key = dismissed.toLowerCase();
+			addressUnavailableAcknowledgements.set(key, (addressUnavailableAcknowledgements.get(key) ?? 0) + 1);
+		}
+		// COUNTED, not inferred. A pending `ensureConnected` used to read the reason DISAPPEARING as
+		// the dismissal, which is true of this method and of nothing else — and plenty else clears it:
+		// the app calling `connect()` itself, a `useCurrentAccount` store following the wallet onto
+		// another account, the reason ceasing to be true. Each of those was reported to the caller as
+		// `Connection cancelled`, which consumers are told to treat as "the user chose not to", so an
+		// event the user never caused was invisible to them.
+		//
+		// Republished even when the field is already gone (an attempt may have cleared it a moment
+		// ago): the publish is what wakes a pending `ensureConnected` to notice the dismissal. Without
+		// it, a click landing in that window is counted and then never acted on, which is a wait that
+		// nothing ends.
+		set({
+			...$connection,
+			addressUnavailable: undefined,
+		});
+	}
+
+	// Dismissals of "your wallet is not on that account", COUNTED PER ADDRESS. See
+	// `acknowledgeAddressUnavailable`: a pending `ensureConnected` watches the count for the address
+	// IT asked about, so that a decision is told apart both from the several other things that clear
+	// the same field and from a decision about somebody else's request. A single global count made
+	// one dismissal cancel every address-bound call on the connection, including one whose wallet
+	// prompt was open at that moment.
+	const addressUnavailableAcknowledgements = new Map<string, number>();
+	function acknowledgementsFor(address: `0x${string}`): number {
+		return addressUnavailableAcknowledgements.get(address.toLowerCase()) ?? 0;
+	}
+	// The reason most recently PUBLISHED, so that a dismissal arriving in the brief window where an
+	// attempt has cleared the field still names the address the user was actually looking at.
+	let lastPublishedAddressUnavailable: `0x${string}` | undefined;
+
+	// How many times the user's WALLET has announced a DIFFERENT set of accounts. It is the unit
+	// `ensureConnected` retries on, and it is the honest one: a retry is a response to the user
+	// having done something in their wallet, so at most one attempt per announcement bounds the work
+	// while never refusing to act on a real gesture. Counting distinct STATES instead looks stricter
+	// and refuses the retry when the user returns to a state seen before, which is a normal thing for
+	// a person to do.
+	//
+	// Only a CHANGE counts, and only an account one. The lock poll re-announces an empty list every
+	// second, which is the absence of news rather than news, and would otherwise re-license an attempt
+	// per second on a locked wallet; a chain change is news, but not news about accounts, and
+	// re-prompting for an account because the user switched network answers a question they did not
+	// ask.
+	let walletAnnouncements = 0;
 
 	let _wallet: {provider: WalletProvider<WalletProviderType>; chainId: string} | undefined;
 
@@ -1452,6 +1696,26 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		// TODO lastAccount
 		// console.log('account changed', accounts);
 		const accountsFormated = accounts.map((a) => a.toLowerCase()) as `0x${string}`[];
+		// NEWS is an announcement that differs from what the connection currently believes — not one
+		// that differs from the previous announcement. The two come apart exactly where it matters: an
+		// attempt can go and find something else in between, so a wallet announcing the same list twice
+		// with a contradicting answer in the middle is telling us something the second time too.
+		if (accountsFormated.join(',') !== ($connection.wallet?.accounts ?? []).join(',')) {
+			walletAnnouncements++;
+		}
+
+		// A RESTING "your wallet is not on that account" MUST KEEP DESCRIBING THE WALLET AS IT IS.
+		//
+		// Every `set` below rebuilds the state by spreading the current one, so the reason would
+		// survive an account change untouched: right about the FACT (the wallet still cannot act as
+		// the requested account) and wrong about the DETAIL, since it would go on naming an account
+		// the user has already left, and the app renders that sentence as the instruction. Telling
+		// somebody to switch away from an account they are not on is worse than saying nothing.
+		//
+		// Computed here and published WITH the accounts rather than corrected afterwards, so that no
+		// intermediate state is ever published in which the two disagree — a correction one publish
+		// later is a frame of wrong instruction, which is exactly what an app renders.
+		const addressUnavailable = refreshedAddressUnavailable(accountsFormated);
 
 		if ($connection.wallet) {
 			const locked = accountsFormated.length == 0;
@@ -1460,6 +1724,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			if (locked) {
 				set({
 					...$connection,
+					addressUnavailable,
 					wallet: {
 						...$connection.wallet,
 						status: 'locked',
@@ -1473,6 +1738,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				if (disconnected) {
 					set({
 						...$connection,
+						addressUnavailable,
 						wallet: {
 							...$connection.wallet,
 							status: 'disconnected',
@@ -1483,6 +1749,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				} else {
 					set({
 						...$connection,
+						addressUnavailable,
 						wallet: {
 							...$connection.wallet,
 							status: 'connected',
@@ -1502,6 +1769,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				} else {
 					set({
 						...$connection,
+						addressUnavailable,
 						wallet: {
 							...$connection.wallet,
 							accountChanged: accountsFormated[0],
@@ -1512,6 +1780,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			} else {
 				set({
 					...$connection,
+					addressUnavailable,
 					wallet: {
 						...$connection.wallet,
 						accountChanged: undefined,
@@ -1520,6 +1789,33 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				});
 			}
 		}
+	}
+
+	/**
+	 * The resting reason, re-derived against what the wallet is offering now.
+	 *
+	 * `undefined` once the wallet DOES offer the requested account: the reason has simply stopped
+	 * being true. A pending `ensureConnected` loses nothing by that — it watches the accounts the
+	 * wallet offers rather than this field, precisely so that the state going away because the user
+	 * fixed it cannot be mistaken for the user dismissing it.
+	 */
+	function refreshedAddressUnavailable(offered: `0x${string}`[]): AddressUnavailable | undefined {
+		const unavailable = $connection.addressUnavailable;
+		if (!unavailable) {
+			return undefined;
+		}
+		if (offered.some((account) => account.toLowerCase() === unavailable.requested.toLowerCase())) {
+			return undefined;
+		}
+		if (offered.join(',') === unavailable.available.join(',')) {
+			return unavailable;
+		}
+		return describeAddressUnavailable({
+			requested: unavailable.requested,
+			walletName: unavailable.walletName,
+			selected: offered[0],
+			available: offered,
+		});
 	}
 
 	// TODO lastAccounts
@@ -1672,12 +1968,27 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 	let remember: boolean = false;
 	/**
-	 * @param internal not part of the public `connect` surface. `addressIsPreference` marks a
-	 * mechanism this library REUSED from the current state rather than one the caller asked for, so
-	 * that a vanished address degrades to an ordinary connect instead of failing the attempt. See
-	 * `resolveRequestedAddress` below.
+	 * @param internal not part of the public `connect` surface. THREE things an address can mean,
+	 * and they are told apart here rather than by inspecting the caller:
+	 *
+	 * - nothing set: a DEMAND. `connectToAddress(a)` and `connect({type: 'wallet', address: a})` mean
+	 *   that account and no other, so a wallet that cannot offer it fails the attempt.
+	 * - `addressIsPreference`: a mechanism this library REPLAYED from the current state rather than
+	 *   one anybody asked for, so a vanished address degrades to an ordinary connect.
+	 * - `reportUnavailableAddress`: a demand the caller wants REPORTED rather than thrown, which is
+	 *   what `ensureConnected` asks for. Failing the attempt tears the wallet down (every failure
+	 *   state carries `wallet: undefined`), which is the worst of the three endings: the user is left
+	 *   with no wallet at all over a wallet that is working and merely on another account. So the
+	 *   attempt completes on what the wallet does offer and comes to rest carrying
+	 *   `addressUnavailable`, which is a state the app can render and the user can answer.
+	 *
+	 * See `resolveRequestedAddress` below.
 	 */
-	async function connect(mechanism?: Mechanism, options?: ConnectOptions, internal?: {addressIsPreference?: boolean}) {
+	async function connect(
+		mechanism?: Mechanism,
+		options?: ConnectOptions,
+		internal?: {addressIsPreference?: boolean; reportUnavailableAddress?: boolean},
+	) {
 		if (!mechanism && (targetStep === 'WalletConnected' || walletOnly)) {
 			mechanism = {type: 'wallet'};
 		}
@@ -1691,7 +2002,14 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// different wallet.
 				const chosenMechanismBeforeConnect = $connection.step === 'WalletChosen' ? $connection.mechanism : undefined;
 				const chosenWalletBeforeConnect = $connection.step === 'WalletChosen' ? _wallet : undefined;
-				const specificAddress = mechanism.address;
+				// LOWERCASED HERE, at the boundary, because everything downstream compares against the
+				// wallet's accounts, which are lowercased on arrival. A checksummed address (what a viem
+				// local account hands back, so a perfectly ordinary thing for a caller to be holding) would
+				// otherwise fail to match a wallet that is holding that very account. It was a latent
+				// papercut while an unmatched address merely failed the attempt; now that a caller's address
+				// is a requirement, it would send the user an instruction to switch to the account they are
+				// already on.
+				const specificAddress = mechanism.address?.toLowerCase() as `0x${string}` | undefined;
 				// WHICH ACCOUNT THE ATTEMPT IS FOR, once the wallet has said what it has.
 				//
 				// An address the CALLER named is a demand: `connectToAddress(a)` and
@@ -1706,11 +2024,22 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// threw, which landed in the catch and tore the wallet down: the reconnect performed the
 				// very teardown it exists to prevent, one step later. Degrading to an ordinary connect is
 				// what the caller asked for anyway, since it asked to be connected and named nothing.
+				//
+				// The third possibility is `reportUnavailableAddress`: the demand stands, but the answer is
+				// a state rather than a failure. `unavailableAddress` is what records it, and it is read
+				// twice below — once to keep the flow off `ChooseWalletAccount` (the caller named an
+				// account; offering a picker instead of saying why they cannot have it is answering a
+				// different question), and once to stamp `addressUnavailable` on the resting state.
+				let unavailableAddress: `0x${string}` | undefined;
 				const resolveRequestedAddress = (available: `0x${string}`[]): `0x${string}` | undefined => {
 					if (!specificAddress || available.includes(specificAddress)) {
 						return specificAddress;
 					}
 					if (internal?.addressIsPreference) {
+						return undefined;
+					}
+					if (internal?.reportUnavailableAddress) {
+						unavailableAddress = specificAddress;
 						return undefined;
 					}
 					throw new Error(`could not find address ${specificAddress}`);
@@ -1719,6 +2048,20 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					mechanism.name ||
 					($connection.step === 'WalletChosen' ? $connection.mechanism.name : undefined) ||
 					($connection.wallets.length == 1 ? $connection.wallets[0].info.name : undefined);
+				/**
+				 * The resting reason to publish beside a connection that came back as somebody else.
+				 *
+				 * Everything the app needs to write the instruction is on it, including the accounts the
+				 * wallet IS offering: "switch account" is not actionable advice if the user cannot see
+				 * which account the wallet thinks it is on.
+				 */
+				const addressUnavailableFor = (
+					available: `0x${string}`[],
+					selected: `0x${string}` | undefined,
+				): AddressUnavailable | undefined =>
+					unavailableAddress
+						? describeAddressUnavailable({requested: unavailableAddress, walletName, selected, available})
+						: undefined;
 				if (walletName) {
 					const wallet = $connection.wallets.find((v) => v.info.name == walletName || v.info.uuid == walletName);
 					if (wallet) {
@@ -1763,8 +2106,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 								if (accounts.length > 0) {
 									const requestedAddress = resolveRequestedAddress(accounts);
+									// `!unavailableAddress`: the caller named an account and cannot have it. An account
+									// picker would answer a question they did not ask; they get the wallet's current
+									// account plus a resting reason naming every account it does offer.
 									const nextStep =
-										!settings?.useCurrentAccount && !requestedAddress && accounts.length > 1
+										!settings?.useCurrentAccount && !requestedAddress && !unavailableAddress && accounts.length > 1
 											? 'ChooseWalletAccount'
 											: 'WalletConnected';
 									const account = requestedAddress || accounts[0];
@@ -1803,9 +2149,14 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 														switchingChain: false,
 													},
 													account: {address: account},
+													addressUnavailable: addressUnavailableFor(accounts, account),
 												};
+									// `!unavailableAddress`: do not raise a SIGNATURE prompt for an account the caller
+									// did not ask to sign as. The instruction has to reach the user before anything
+									// else asks them for something.
 									if (
 										newState.step === 'WalletConnected' &&
+										!unavailableAddress &&
 										(requestSignatureAutomaticallyIfPossible || options?.requestSignatureRightAway) &&
 										!options?.requireUserConfirmationBeforeSignatureRequest
 									) {
@@ -1842,8 +2193,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 							} else {
 								const requestedAddress = resolveRequestedAddress(accounts);
 								const account = requestedAddress || accounts[0];
+								// See the same expression on the requestAccounts branch above: a caller who named an
+								// account gets a reason, not a picker.
 								const nextStep =
-									!settings?.useCurrentAccount && !requestedAddress && accounts.length > 1
+									!settings?.useCurrentAccount && !requestedAddress && !unavailableAddress && accounts.length > 1
 										? 'ChooseWalletAccount'
 										: 'WalletConnected';
 								const newState: ConnectionInput<WalletProviderType> =
@@ -1879,9 +2232,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 													switchingChain: false,
 												},
 												account: {address: account},
+												addressUnavailable: addressUnavailableFor(accounts, account),
 											};
 								if (
 									newState.step === 'WalletConnected' &&
+									!unavailableAddress &&
 									(requestSignatureAutomaticallyIfPossible || options?.requestSignatureRightAway) &&
 									!options?.requireUserConfirmationBeforeSignatureRequest
 								) {
@@ -2084,17 +2439,42 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	}
 
 	/**
-	 * Resolve once the flow reaches `step`, initiating a connection attempt when needed.
+	 * Reach `step`, as the mechanism describes it, doing whatever that takes.
 	 *
-	 * It never sits doing nothing: it either initiates an attempt, resolves, or rejects with
-	 * a `ConnectionFailure` (whose `cause`/`code` carry the underlying wallet error, so a user
-	 * rejection shows up as EIP-1193 code 4001).
+	 * A TARGET, NOT A STEP COMPARISON. The target is satisfied when the connection is at or beyond
+	 * `step` (they are ordered: `SignedIn` implies `WalletConnected` implies `WalletChosen`), AND is
+	 * on the wallet the caller named, AND can act as the address the caller named, AND is on the
+	 * right chain (unless `skipChainCheck`). Anything the caller did not name is not part of it, so a
+	 * bare `ensureConnected()` is unchanged.
 	 *
-	 * It initiates from `Idle`, and from a picker step (`MechanismToChoose`, `WalletToChoose`) that still
-	 * carries the error of a previous failed attempt, which is what makes a retry after a rejected wallet
-	 * prompt work. It deliberately does NOT initiate from a picker step without an error: that means the
-	 * user is mid-choice with the picker on screen, and connecting there would hijack their choice. In that
-	 * case it waits for the user to pick (or cancel). Pass `{forceConnect: true}` to connect anyway.
+	 * An address or a wallet name a CALLER passes is a REQUIREMENT rather than a hint: the whole
+	 * reason to pass one is that this request only means anything for that account (replacing a stuck
+	 * transaction reuses its nonce, so it must be signed by the same key). A connection already at
+	 * the requested step but holding a different account therefore initiates an attempt rather than
+	 * resolving instantly with somebody else. An address this library REPLAYED from the connection's
+	 * own state stays a preference, because nobody asked for it.
+	 *
+	 * IT ALWAYS ANSWERS. There is no timeout, deliberately: a human is in the loop, so any timer is
+	 * either long enough to be useless or short enough to cut a user off mid-decision, and it would
+	 * report "timed out" for a wallet dialog that is open and perfectly healthy. The rule is narrower
+	 * and checkable instead: WAITING IS ONLY LEGITIMATE WHILE SOMETHING IS ACTUALLY IN PROGRESS. See
+	 * `awaitingUserReason` below for the closed list of what counts, each of which is a state the app
+	 * renders and the user answers. If the target is not satisfied, nothing is in progress and
+	 * nothing can be initiated, that is an ANSWER and it is delivered rather than awaited.
+	 *
+	 * So it ends in one of four ways: it resolves at the target; it rejects with a `ConnectionFailure`
+	 * (`cause`/`code` carry the underlying wallet error, so a user rejection is EIP-1193 code 4001);
+	 * it rejects with `ConnectionFailure('Connection cancelled')` when the user backs out, including
+	 * by acknowledging an `addressUnavailable`; or it stays pending while one of the listed things is
+	 * in progress.
+	 *
+	 * It initiates from `Idle`, from `WalletChosen` (the wallet is chosen, upgrading it is exactly
+	 * what was asked), from a resting state that does not satisfy the target, and from a picker step
+	 * (`MechanismToChoose`, `WalletToChoose`) that still carries the error of a previous failed
+	 * attempt, which is what makes a retry after a rejected wallet prompt work. It deliberately does
+	 * NOT initiate from a picker step without an error: that means the user is mid-choice with the
+	 * picker on screen, and connecting there would hijack their choice. In that case it waits for the
+	 * user to pick (or cancel). Pass `{forceConnect: true}` to connect anyway.
 	 */
 	// ensureConnected overloads - the default step depends on targetStep
 	function ensureConnected(
@@ -2109,7 +2489,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		step: 'WalletConnected',
 		mechanismOrOptions?: WalletMechanism<string | undefined, `0x${string}` | undefined> | EnsureConnectedOptions,
 		options?: EnsureConnectedOptions,
-	): Promise<WalletConnected<WalletProviderType>>;
+	): Promise<ConnectedWithWallet<WalletProviderType>>;
 	function ensureConnected(
 		step: 'SignedIn',
 		mechanism?: Mechanism,
@@ -2134,7 +2514,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				opts = options;
 			} else {
 				mechanism = undefined;
-				opts = mechanismOrOptions as EnsureConnectedOptions | undefined;
+				// `?? options`: the second argument may be an EXPLICIT `undefined` mechanism, which is what
+				// a caller writes when it has options but nothing to name (`ensureConnected('SignedIn',
+				// undefined, {requestSignatureRightAway: true})`, and any call passing a mechanism variable
+				// that happens to be unset). Reading only the second argument silently dropped the third,
+				// so the options were ignored and the call waited for something the caller had asked it to
+				// do itself.
+				opts = (mechanismOrOptions as EnsureConnectedOptions | undefined) ?? options;
 			}
 		} else if (stepOrMechanismOrOptions && 'type' in (stepOrMechanismOrOptions as any)) {
 			// First arg is a mechanism
@@ -2156,6 +2542,17 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		const promise = new Promise<
 			WalletChosen<WalletProviderType> | WalletConnected<WalletProviderType> | SignedIn<WalletProviderType>
 		>((resolve, reject) => {
+			// WHAT THE CALLER ASKED FOR, captured before `mechanism` can be reassigned below. An address
+			// or a wallet name that arrives HERE came from the caller, so it is a requirement; anything
+			// this library replays from the current state is a preference and never lands in these.
+			const asked = mechanism && mechanism.type === 'wallet' ? mechanism : undefined;
+			const askedWalletName = asked?.name;
+			// Ignored for a `WalletChosen` target, and that is not an oversight: choosing a wallet never
+			// asks it for accounts, so no state that target can reach could ever satisfy an address.
+			// Requiring one there would guarantee the hang this rework exists to remove.
+			const askedAddress =
+				step === 'WalletChosen' ? undefined : (asked?.address?.toLowerCase() as `0x${string}` | undefined);
+
 			let forceConnect = false;
 			// Whether the mechanism below was REPLAYED from the current state rather than asked for.
 			let reconnecting = false;
@@ -2164,66 +2561,115 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			// Only an error that appears after this point tells us that *our* attempt failed.
 			const errorOnEntry = $connection.error;
 
-			// Helper to check if resolution conditions are met
-			const canResolve = (connection: Connection<WalletProviderType>): boolean => {
-				if (step === 'WalletChosen') {
-					// For WalletChosen, accept WalletChosen OR any higher step
-					return (
-						connection.step === 'WalletChosen' ||
-						connection.step === 'WalletConnected' ||
-						(connection.step === 'SignedIn' && connection.wallet !== undefined)
-					);
+			/** Is this connection on the wallet the caller named? Nothing named, nothing to check. */
+			const walletNameMatches = (connection: Connection<WalletProviderType>): boolean => {
+				if (!askedWalletName) {
+					return true;
 				}
-				// Must be at the target step
-				if (connection.step !== step) return false;
-
-				// For WalletConnected step, check chain validity unless skipped
-				if (step === 'WalletConnected' && !opts?.skipChainCheck) {
-					// connection.wallet should exist when step is WalletConnected
-					if (connection.wallet?.invalidChainId) {
-						return false; // Wrong chain, wait for chain change
-					}
+				const current =
+					'mechanism' in connection ? (connection.mechanism as {type?: string; name?: string}) : undefined;
+				if (current?.type !== 'wallet' || !current.name) {
+					return false;
 				}
-
-				return true;
+				if (current.name === askedWalletName) {
+					return true;
+				}
+				// A name may be an EIP-6963 uuid: that is what `connect` looks wallets up by too, so the
+				// two spellings of the same wallet must not read as two different wallets here.
+				const handle = connection.wallets.find(
+					(v) => v.info.name === askedWalletName || v.info.uuid === askedWalletName,
+				);
+				return !!handle && (handle.info.name === current.name || handle.info.uuid === current.name);
 			};
 
+			/**
+			 * The part of the target a connection ATTEMPT could fix: the step, the wallet, the account.
+			 *
+			 * Split from the chain check below because the two call for opposite responses. Reconnecting
+			 * moves the step and the account; it does not move the chain, so initiating an attempt over a
+			 * chain mismatch would prompt the user for nothing and rebuild a wallet that was fine.
+			 */
+			const targetReached = (connection: Connection<WalletProviderType>): boolean =>
+				stepIsAtOrBeyond(connection, step) &&
+				walletNameMatches(connection) &&
+				(!askedAddress || canActAs(connection, askedAddress)) &&
+				// A `WalletConnected` connection whose wallet has gone locked or revoked is AT the step and
+				// cannot act, so it does not satisfy a target that needs it to: that is the one and only
+				// reason `ensureConnected` reconnects such a wallet where `connect()` would not (ADR-0002).
+				// A `WalletChosen` target is exempt because it never needed accounts in the first place, and
+				// `SignedIn` because a signed-in app acts through its session account, which a locked wallet
+				// does not invalidate.
+				(step === 'WalletChosen' || connection.step !== 'WalletConnected' || connection.wallet.status === 'connected');
+
+			/** The part it could not: only the user, or their wallet, moves the chain. */
+			const chainIsRight = (connection: Connection<WalletProviderType>): boolean =>
+				step !== 'WalletConnected' || !!opts?.skipChainCheck || !connection.wallet?.invalidChainId;
+
+			const canResolve = (connection: Connection<WalletProviderType>): boolean =>
+				targetReached(connection) && chainIsRight(connection);
+
 			const reconnect = mechanismToReconnect();
-			if (reconnect) {
-				// we reuse existing mechanism as we just want to reconnect
-				forceConnect = true;
-				mechanism = reconnect;
-				// ...but its ADDRESS is only a preference, because the user may unlock on another
-				// account, and a replayed address is not something the caller asked for.
-				reconnecting = true;
-			} else if (canResolve($connection)) {
-				// Only resolve if step matches AND chain is valid (or skipChainCheck)
+			if (!reconnect && canResolve($connection)) {
 				resolve($connection as any);
 				return;
 			}
-			let idlePassed = $connection.step != 'Idle';
-
-			// Initiating from a picker step is only safe when we can tell it apart from "the user is choosing
-			// right now": a picker still carrying the error of a previous attempt means that attempt failed and
-			// nothing has driven the flow since, so re-initiating is exactly what the caller asked for. It cannot
-			// hijack a choice either: when a choice is genuinely needed, `connect` with a default mechanism just
-			// re-enters the same picker (and clears the stale error), and we keep waiting for the user.
-			const retryingAfterFailure = idlePassed && stepsAtRest.includes($connection.step) && !!errorOnEntry;
-			if (!idlePassed || forceConnect || opts?.forceConnect || retryingAfterFailure) {
-				if (step === 'WalletChosen') {
-					const walletName =
-						mechanism && typeof mechanism === 'object' && 'name' in mechanism
-							? (mechanism as {name?: string}).name
-							: undefined;
-					selectWallet(walletName, opts);
+			if (reconnect) {
+				// A locked or revoked wallet: reconnecting it is the only way to hand back something usable.
+				forceConnect = true;
+				if (askedAddress) {
+					// The replayed mechanism MUST NOT overrule what the caller named. Substituting the stored
+					// address here is precisely how a caller's requirement used to become somebody else's
+					// account: the reconnect would come back on the stored one and the caller's address was
+					// never looked at again. The wallet name is still worth reusing, since it is the wallet
+					// this connection is on and the caller usually did not name one.
+					mechanism = {type: 'wallet', name: askedWalletName || reconnect.name, address: askedAddress};
+				} else if (askedWalletName && askedWalletName !== reconnect.name) {
+					// A different wallet was named: replaying THIS wallet's account would demand an address
+					// from a wallet that has no reason to have it.
+					mechanism = {type: 'wallet', name: askedWalletName};
 				} else {
-					connect(mechanism, opts, {addressIsPreference: reconnecting});
+					mechanism = reconnect;
+					// ...and its ADDRESS is only a preference, because the user may unlock on another
+					// account, and a replayed address is not something the caller asked for.
+					reconnecting = true;
 				}
 			}
+			let idlePassed = $connection.step != 'Idle';
 
 			// An attempt is considered started once we observe a step where the connection is in progress.
 			// Falling back to a resting step from there means the attempt ended without reaching the target.
 			let attemptStarted = false;
+			// Dismissals of the address-unavailable state that happened BEFORE this call: only a later one
+			// is this call's answer.
+			const acknowledgementsOnEntry = askedAddress ? acknowledgementsFor(askedAddress) : 0;
+			// WHAT STOPS "try again" FROM BECOMING A LOOP: at most one attempt per wallet announcement.
+			//
+			// Our own attempts do not bump `walletAnnouncements`, so an attempt can never start another one
+			// off its own result, however the wallet answers. Anything past that requires the user to act
+			// in their wallet again, which is a person, not a loop.
+			//
+			// Two earlier versions of this rule are worth not repeating. "One attempt per distinct wallet
+			// ANSWER" read well and measured false (the reset that stopped it suppressing legitimate
+			// retries forgot the answer every time). "One attempt per distinct STATE" is provably
+			// terminating and refuses the retry when the user switches back to an account they were on
+			// before, which is an ordinary thing to do and leaves them following an instruction that no
+			// longer does anything.
+			//
+			// Load-bearing, and pinned the hard way: delete this guard and `test/ensure-connected-settles`
+			// does not fail, it HANGS, which is the honest signature of the bug it prevents.
+			let attemptedAtEvent: number | undefined;
+			// An attempt decided on but not started yet: see `scheduleAttempt`.
+			let attemptScheduled = false;
+			// How many attempts THIS call has started that have not finished yet.
+			//
+			// The store is not enough to know that. `connect` publishes `WaitingForWalletConnection`
+			// before its first await, but `selectWallet` awaits `getChainId` before publishing anything at
+			// all, and the popup path can await a key generation first. In that window the store still
+			// holds the entry state, nothing is "in progress" as far as any published state is concerned,
+			// and the answer branch below would report "nothing is in progress" about an attempt that is
+			// running and about to succeed. It did exactly that, for `ensureConnected('WalletChosen')`
+			// from any non-Idle state: rejected, and then reached the target anyway.
+			let attemptsInFlight = 0;
 			let settled = false;
 			let unsubscribe: (() => void) | undefined;
 			const settle = (perform: () => void) => {
@@ -2235,8 +2681,234 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				unsubscribe?.();
 				perform();
 			};
+			const cancelled = () => settle(() => reject(new ConnectionFailure('Connection cancelled')));
 
-			unsubscribe = _store.subscribe((connection) => {
+			/**
+			 * Start an attempt and stay honest about it while it runs.
+			 *
+			 * Everything these calls do, they normally do by moving the store, and the subscription below
+			 * reads the answer off it. Two things break that, and both are handled here rather than by
+			 * guessing from published states:
+			 *
+			 * - an attempt can be RUNNING while the store still shows the state it started from, because
+			 *   `selectWallet` (and the popup path) await before their first publish;
+			 * - an attempt can FAIL before its first publish (a hosted mechanism with no `walletHost`),
+			 *   after which nothing has changed and nothing will publish again.
+			 *
+			 * A late rejection, after the flow moved on, settles nothing: `settle` is idempotent and the
+			 * store has already answered.
+			 */
+			const runAttempt = (attempt: Promise<unknown>) => {
+				attemptsInFlight++;
+				attempt.then(
+					() => {
+						attemptsInFlight--;
+						// Decide again now that it is over. The store may have published its last state while
+						// this attempt still counted as in progress, and nothing else will publish again: an
+						// attempt that ends without reaching the target has to be answered here or nowhere.
+						evaluate($connection);
+					},
+					(err) => {
+						attemptsInFlight--;
+						settle(() => reject(new ConnectionFailure((err as Error)?.message || `could not reach ${step}`, err)));
+					},
+				);
+			};
+
+			/** Is the connection sitting on the account the caller asked for, ready to be asked to sign? */
+			const readyToSign = (connection: Connection<WalletProviderType>): boolean =>
+				connection.step === 'WalletConnected' &&
+				connection.wallet.status === 'connected' &&
+				walletNameMatches(connection) &&
+				(!askedAddress || canActAs(connection, askedAddress));
+
+			/**
+			 * Do whatever can be done from where the connection is right now.
+			 *
+			 * It may deliberately do NOTHING, in the one case where the pending thing is a click in the
+			 * app rather than anything this library can start: a `WalletConnected` connection asked for
+			 * `SignedIn` on a store that did not ask for the signature to be requested automatically. That
+			 * app renders its own "sign in" button, and prompting over the top of it would ask the user
+			 * for a signature the app deliberately deferred. `awaitingUserReason` names that state, so it
+			 * is a legitimate wait rather than a silent one.
+			 */
+			const initiate = (): boolean => {
+				if (step === 'WalletChosen') {
+					runAttempt(selectWallet(askedWalletName, opts));
+					return true;
+				}
+				if (step === 'SignedIn' && readyToSign($connection)) {
+					const mayRequestSignature =
+						(requestSignatureAutomaticallyIfPossible || opts?.requestSignatureRightAway) &&
+						!opts?.requireUserConfirmationBeforeSignatureRequest;
+					if (mayRequestSignature) {
+						// The narrow remedy: the wallet is already connected on the right account, so the only
+						// thing between here and `SignedIn` is the signature. Reconnecting would prompt twice.
+						// Failures land on the state as an error, which the subscription below reports.
+						runAttempt(requestSignature());
+						return true;
+					}
+					// Nothing started: the pending thing is a click in the app. Reported honestly, so the
+					// caller falls through to the wait reasons instead of being told an attempt is running.
+					return false;
+				}
+				runAttempt(
+					connect(mechanism, opts, {addressIsPreference: reconnecting, reportUnavailableAddress: !!askedAddress}),
+				);
+				return true;
+			};
+
+			// WHEN AN ATTEMPT MAY BE INITIATED.
+			//
+			// Not while one is already running (`stepsInProgress`), and not while the user is mid-choice
+			// with a picker on screen, since connecting there would hijack their choice. A picker still
+			// carrying the error of a previous attempt is the exception: that attempt failed and nothing
+			// has driven the flow since, so re-initiating is exactly what the caller asked for. It cannot
+			// hijack a choice either, because when a choice is genuinely needed `connect` re-enters the
+			// same picker (clearing the stale error) and we keep waiting.
+			//
+			// Everything else initiates, INCLUDING the resting steps that used to fall through every
+			// branch and wait forever: a `WalletChosen` connection asked to connect, and a connection at
+			// rest holding an account the caller did not ask for.
+			/**
+			 * Start an attempt from this state, if one is called for and would not be a repeat.
+			 *
+			 * Used at entry AND from `evaluate`, which is the fix for an answer that depended on timing:
+			 * initiating only at entry meant a call made while some OTHER flow was in progress (a picker
+			 * the user was mid-way through, say) got "nothing is in progress" the moment that flow ended
+			 * without satisfying it — while the identical call, made one tick later, initiated and
+			 * succeeded. Same store, same request, opposite answers.
+			 */
+			/**
+			 * Would attempting AGAINST THIS STATE be wrong, whatever the caller asked for?
+			 *
+			 * Pulled out because it has to be asked TWICE: once when the attempt is decided on, and again
+			 * when a deferred attempt actually runs. The deferral exists precisely because the state moves
+			 * in between, so re-checking less than was checked the first time is backwards — and it was:
+			 * the microtask used to re-check only the target, so a `useCurrentAccount` store that had
+			 * meanwhile started its own connect got a SECOND concurrent one, two `eth_requestAccounts` at
+			 * once, and a wallet answering the second with "already processing" would have rejected a call
+			 * whose real attempt was still running and about to succeed.
+			 */
+			const attemptWouldBeWrongNow = (connection: Connection<WalletProviderType>): boolean => {
+				if (targetReached(connection) || attemptsInFlight > 0) {
+					return true;
+				}
+				if (stepsInProgress.includes(connection.step)) {
+					return true;
+				}
+				// A picker the user is mid-choice on is theirs, not ours to hijack. One carrying the error
+				// of a previous attempt is different: that attempt failed and nothing has driven the flow
+				// since, so re-initiating is what the caller asked for.
+				const userIsChoosing =
+					(connection.step === 'MechanismToChoose' || connection.step === 'WalletToChoose') && !errorOnEntry;
+				return userIsChoosing && !opts?.forceConnect && !forceConnect;
+			};
+
+			const initiateIfWorthwhile = (
+				connection: Connection<WalletProviderType>,
+				start: () => boolean = initiate,
+			): boolean => {
+				if (attemptScheduled || attemptWouldBeWrongNow(connection)) {
+					return false;
+				}
+				if (attemptedAtEvent === walletAnnouncements) {
+					return false;
+				}
+				attemptedAtEvent = walletAnnouncements;
+				return start();
+			};
+
+			initiateIfWorthwhile($connection);
+
+			/**
+			 * WHY WAITING IS LEGITIMATE RIGHT NOW, or `undefined` if it is not.
+			 *
+			 * The closed list, and the whole of the settle guarantee: every entry is something IN
+			 * PROGRESS, and every one of them is published on the connection for the app to render and
+			 * for the user to answer. Anything not on this list is not a wait, it is an unanswered
+			 * question, and the caller gets an answer instead (see the end of the subscription).
+			 *
+			 * Deliberately NOT a timeout. A human is in the loop: a timer long enough not to cut someone
+			 * off mid-decision is too long to be useful, and it would report "timed out" about a wallet
+			 * dialog that is open and healthy.
+			 */
+			const awaitingUserReason = (connection: Connection<WalletProviderType>): string | undefined => {
+				if (attemptsInFlight > 0 || attemptScheduled) {
+					// Not inferred from the state: this call started something and it has not come back.
+					// Covers the window before an attempt's first publish, which the store cannot show, and
+					// the window between deciding to attempt and the microtask that runs it.
+					return 'an attempt this call started is still running';
+				}
+				if (stepsInProgress.includes(connection.step)) {
+					return 'an attempt is in progress';
+				}
+				if (connection.step === 'MechanismToChoose' || connection.step === 'WalletToChoose') {
+					return 'the user is choosing';
+				}
+				if (
+					askedAddress &&
+					connection.addressUnavailable?.requested.toLowerCase() === askedAddress &&
+					// ...and it is still TRUE. A reason that has gone stale (the wallet does offer the
+					// account now) licenses a wait that nothing can end: the user has already done the only
+					// thing it asks of them. The same freshness test guards the resting branch in `evaluate`,
+					// and the two must agree or the disagreement IS the hang.
+					!(connection.wallet?.accounts ?? []).some((account) => account.toLowerCase() === askedAddress)
+				) {
+					// Only OUR request licenses this wait. A reason left on the connection by a different
+					// call describes an account this call never asked about, and waiting on somebody else's
+					// unanswered question is how a wait becomes unending.
+					return 'the wallet is not on the account that was asked for';
+				}
+				if (targetReached(connection) && !chainIsRight(connection)) {
+					return 'the wallet is on another chain';
+				}
+				if (step === 'SignedIn' && readyToSign(connection)) {
+					// The app's own "sign in" button is the pending decision — but only while the connection
+					// could actually be asked to sign. On a wallet that has since locked or moved account,
+					// `requestSignature()` is not a remedy the user can take, so this is not a wait, and the
+					// caller gets an answer instead.
+					return 'the signature has not been requested yet';
+				}
+				return undefined;
+			};
+
+			/**
+			 * Start an attempt AFTER the current publish, never during it.
+			 *
+			 * `evaluate` runs inside `set`, and a wallet event does not produce one state: `onAccountChanged`
+			 * publishes the new status first and the new accounts second. Starting a connection attempt
+			 * from inside the first of those re-enters the store while the handler is still mid-way through
+			 * its own transitions, which then continue on top of a state the attempt has replaced — rebuilding
+			 * a wallet from one that is no longer there. So the decision is taken synchronously (which is
+			 * what keeps the accounting honest) and the work is done once the dust settles, against whatever
+			 * state the handler finally left behind.
+			 */
+			const scheduleAttempt = (): boolean => {
+				attemptScheduled = true;
+				queueMicrotask(() => {
+					attemptScheduled = false;
+					if (settled) {
+						return;
+					}
+					// EVERY guard re-applied against the state as it now is, not just the target: the rest of
+					// the handler that published may have satisfied the request, started its own attempt, or
+					// moved the connection somewhere attempting would be wrong (a popup, an account picker,
+					// another wallet). The event guard is NOT re-applied, because this attempt already
+					// consumed it when it was scheduled.
+					if (attemptWouldBeWrongNow($connection) || !initiate()) {
+						evaluate($connection);
+					}
+				});
+				return true;
+			};
+
+			/**
+			 * Decide, against one state. Called for every publish, AND once more whenever an attempt this
+			 * call started comes back, because the last publish may have happened while that attempt was
+			 * still running and nothing will publish again afterwards.
+			 */
+			const evaluate = (connection: Connection<WalletProviderType>) => {
 				if (settled) {
 					return;
 				}
@@ -2246,6 +2918,20 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// Check full resolution conditions including chain validity
 				if (canResolve(connection)) {
 					settle(() => resolve(connection as any));
+					return;
+				}
+
+				// THE USER DISMISSED the "your wallet is not on that account" state for the address THIS
+				// call asked about. Checked before anything else that can return: a decision is an answer
+				// whatever else is happening on the connection, and this call may be resting while a
+				// DIFFERENT one has the flow in progress — in which case the in-progress branch below would
+				// swallow the dismissal, and nothing would publish again to bring it back.
+				//
+				// Read from the acknowledgement count FOR THAT ADDRESS rather than from the reason
+				// disappearing. Several things clear that field and only one of them is a decision; and a
+				// decision about one address is not an answer to a request about another.
+				if (askedAddress && acknowledgementsFor(askedAddress) !== acknowledgementsOnEntry) {
+					cancelled();
 					return;
 				}
 
@@ -2267,16 +2953,73 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 				// Reject on disconnect/back to Idle
 				if (connection.step === 'Idle' && idlePassed) {
-					settle(() => reject(new ConnectionFailure('Connection cancelled')));
+					cancelled();
 					return;
 				}
 
 				// The attempt went back to a resting step without an error: it was aborted (back/cancel).
 				// This must never trigger on a resting step we merely started from, hence `attemptStarted`.
 				if (attemptStarted && stepsAtRest.includes(connection.step)) {
-					settle(() => reject(new ConnectionFailure('Connection cancelled')));
+					cancelled();
+					return;
 				}
-			});
+
+				// THE WALLET IS NOT ON THE ACCOUNT THIS CALL ASKED FOR, and the connection is resting on a
+				// state that says so. That is the app's to render and the user's to answer, so nothing is
+				// attempted while it stands: re-attempting would prompt them again for the account they are
+				// being asked to switch to.
+				//
+				// The moment the wallet DOES offer it, this stops applying and the ordinary rule below picks
+				// the request back up, which is what carries the user through without a click in the app.
+				const unavailable = connection.addressUnavailable;
+				if (
+					askedAddress &&
+					unavailable?.requested.toLowerCase() === askedAddress &&
+					!(connection.wallet?.accounts ?? []).some((account) => account.toLowerCase() === askedAddress)
+				) {
+					return;
+				}
+
+				// A REQUIREMENT THE CALLER NAMED IS UNMET, and no attempt has been made from this state.
+				//
+				// Re-initiating here, and only here, is the fix for an answer that depended on timing: a
+				// call made while some OTHER flow was in progress (an account picker the user was part-way
+				// through, say) used to get "nothing is in progress" the moment that flow ended on the wrong
+				// account, while the identical call one tick later initiated and succeeded.
+				//
+				// Deliberately NOT extended to an unmet STEP. A connection that comes to rest below the
+				// target has chosen to rest there and the app renders that (a `WalletConnected` state under
+				// a `SignedIn` target is waiting for the app's own sign-in button), and re-running `connect`
+				// from a state that names no wallet opens the picker — which is `connect`'s meaning, and
+				// nobody's idea of what a promise-shaped call should do behind their back.
+				if (!walletNameMatches(connection) || (askedAddress && !canActAs(connection, askedAddress))) {
+					if (initiateIfWorthwhile(connection, scheduleAttempt)) {
+						return;
+					}
+				}
+
+				// NOTHING IS IN PROGRESS AND NOTHING CAN BE INITIATED: that is an answer, and it is
+				// delivered rather than awaited. Silently waiting here is the failure this guard exists to
+				// make impossible, and it is stated as a POSITIVE list (`awaitingUserReason`) on purpose:
+				// a new step, or a new resting reason, is unreachable-by-default rather than a fresh way
+				// to hang.
+				const reason = awaitingUserReason(connection);
+				if (!reason) {
+					// The message names where the connection actually is, including the wallet's status,
+					// because the likeliest way to arrive here is a wallet that went locked or was revoked
+					// between the attempt finishing and this state being published.
+					const wallet = connection.wallet ? ` (wallet ${connection.wallet.status})` : '';
+					settle(() =>
+						reject(
+							new ConnectionFailure(
+								`could not reach ${step}: the connection is at ${connection.step}${wallet} and nothing is in progress`,
+							),
+						),
+					);
+				}
+			};
+
+			unsubscribe = _store.subscribe(evaluate);
 			if (settled) {
 				unsubscribe();
 			}
@@ -2763,27 +3506,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 	// Method on the store to check if target step is reached
 	function storeIsTargetStepReached(connection: Connection<WalletProviderType>): boolean {
-		if (targetStep === 'WalletChosen') {
-			// For WalletChosen target, accept WalletChosen OR any higher step
-			return (
-				connection.step === 'WalletChosen' ||
-				connection.step === 'WalletConnected' ||
-				(connection.step === 'SignedIn' && connection.wallet !== undefined)
-			);
-		}
-		if (targetStep === 'WalletConnected') {
-			// For WalletConnected target, accept WalletConnected OR SignedIn-with-wallet
-			return (
-				connection.step === 'WalletConnected' || (connection.step === 'SignedIn' && connection.wallet !== undefined)
-			);
-		}
-		// For SignedIn target
-		if (walletOnly) {
-			// With walletOnly, only accept SignedIn-with-wallet
-			return connection.step === 'SignedIn' && connection.wallet !== undefined;
-		}
-		// Accept any SignedIn variant
-		return connection.step === 'SignedIn';
+		// The same ordered comparison the exported `isTargetStepReached` makes, against this store's
+		// configured target. `walletOnly` only bites on a `SignedIn` target: the lower two are
+		// wallet-bound by definition.
+		return stepIsAtOrBeyond(connection, targetStep, {requireWallet: walletOnly});
 	}
 
 	const store = {
@@ -2801,6 +3527,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		switchWalletChain,
 		unlock,
 		ensureConnected: ensureConnected as any, // Cast to bypass complex conditional typing
+		acknowledgeAddressUnavailable,
+		canActAs: (address: `0x${string}`) => canActAs($connection, address),
 		isTargetStepReached: storeIsTargetStepReached as any, // Cast for type guard
 		targetStep,
 		walletOnly,
