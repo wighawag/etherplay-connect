@@ -178,6 +178,9 @@ describe('wallet lifecycle', () => {
 			await vi.advanceTimersByTimeAsync(200);
 
 			expect(snapshot().error?.message).toContain('failed to select wallet Broken Wallet');
+			// A wallet that cannot answer `eth_chainId` is not the user refusing anything and not a
+			// recognised EIP-1193 condition: the catch-all is the honest label.
+			expect(snapshot().error?.reason).toBe('failed');
 			expect(snapshot().wallet).toBeUndefined();
 		});
 	});

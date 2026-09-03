@@ -84,6 +84,8 @@ Per address rather than per connection for the same reason one step further out:
 
 **One address-bound request at a time.** A connection has one wallet, one account and one such state, so two calls naming different accounts cannot both stand: the newer supersedes and the older is answered with an honest `could not reach ...`, never with a cancellation the user did not make. Two accounts ready at once is what two connections with different `storagePrefix`es are for.
 
+That answer is honest but was not IDENTIFIABLE: from outside it looked like every other "came to rest, nothing in progress". `0004-a-failure-says-why-with-a-safe-default-shape.md` labels it `superseded`, using a registry of live address-bound requests, because the distinguishing fact lives in another call rather than in the state this one can see.
+
 ### `canActAs(connection, address)`
 
 Added because a consumer needed to RENDER readiness and wrote the comparison itself, against `connection.account.address`, which is the address the connection agreed on rather than the one that can sign now. Its check passed for a locked wallet, so it skipped the `ensureConnected` call, let the send out, and reported the provider's `{code: 4001}` as "transaction rejected by user" about a prompt nobody was shown. A predicate that initiates nothing is what that code wanted; without one, every consumer writes an approximation of it.

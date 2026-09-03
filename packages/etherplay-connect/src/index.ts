@@ -342,6 +342,79 @@ type SignedIn<WalletProviderType, WS = WalletState<WalletProviderType>> =
 			wallet: WS;
 	  };
 
+/**
+ * WHY a connection attempt ended without reaching what was asked for.
+ *
+ * A machine-readable discriminant, so an app never has to parse `message` or infer from which
+ * fields happen to be absent. It is called `reason` and not `code` because `ConnectionFailure.code`
+ * is taken: that one carries the EIP-1193 code off `cause`, and the two answer different questions
+ * ("what did the wallet say" versus "what happened to my call").
+ *
+ * FORWARD COMPATIBILITY, decided rather than left implicit. This is a closed union so the type
+ * system can exhaust it, but **new members may appear in a MINOR version**, because a reason this
+ * library cannot yet tell apart is a reason it may learn to tell apart. That is why `'failed'`
+ * exists as a catch-all: most future causes land there and need no new member, and anything that
+ * does get one was previously indistinguishable from a generic failure anyway. **Keep a `default`
+ * branch in your switch.** An exhaustive switch with no default is the one shape a new member can
+ * break, and the trade was taken knowingly: a union you cannot switch on is worth less than one
+ * that may grow.
+ *
+ * - `cancelled` — the user closed or dismissed the connect flow (`cancel()`, `back(...)`, closing
+ *   the hosted popup, or a disconnect while the call was waiting). Nothing failed and nothing is
+ *   worth showing: they decided. **Say nothing.**
+ * - `address-unavailable-acknowledged` — the user read `connection.addressUnavailable` ("your
+ *   wallet is not on that account") and chose not to switch. Also a decision, also not an error,
+ *   and deliberately carrying the SAME `message` as `cancelled` (`'Connection cancelled'`) so that
+ *   every existing "a refusal maps to cancelled" path keeps working untouched. Tell the two apart
+ *   by THIS field, not by the shape.
+ * - `superseded` — a newer `ensureConnected` naming a DIFFERENT address took the connection's one
+ *   account slot. The user decided nothing; the app asked for two things at once. Retry it, or use
+ *   two connections with different `storagePrefix`es.
+ * - `unreachable` — the connection came to rest, nothing is in progress, and nothing can be
+ *   initiated from here, so the target cannot be reached without a fresh gesture. An outcome to
+ *   REPORT ("could not connect, try again"), not a silent no-op.
+ * - `wallet-rejected` — the wallet prompt was declined (EIP-1193 4001). Offer a retry.
+ * - `wallet-unavailable` — the wallet cannot authorise accounts (EIP-1193 4100): read-only,
+ *   locked, or not configured. Retrying the same prompt will not help; the user must act in the
+ *   wallet.
+ * - `no-accounts` — the wallet answered the request with an empty account list. It looks like a
+ *   refusal and is not one, which is why it does not alias onto `cancelled`.
+ * - `cross-origin-blocked` — the wallet host refused a cross-origin request. The remedy is a
+ *   registered delegate, not retrying the same popup. `cause` is the host's
+ *   `{type: 'cross-origin-blocked', windowOrigin, signingOrigin}`.
+ * - `host-refused` — the wallet host refused for a reason of ITS own, which this library does not
+ *   model. The host is deployed separately and chooses its own vocabulary, so its `type` is passed
+ *   through untouched on `cause` rather than being mapped to a member this library cannot verify:
+ *   read `(err.cause as {type?: string})?.type` and `err.message` to distinguish them.
+ * - `failed` — anything else, with the underlying error on `cause`. The catch-all: treat it as "it
+ *   did not work", show `message`, offer a retry.
+ */
+export type ConnectionFailureReason =
+	| 'cancelled'
+	| 'address-unavailable-acknowledged'
+	| 'superseded'
+	| 'unreachable'
+	| 'wallet-rejected'
+	| 'wallet-unavailable'
+	| 'no-accounts'
+	| 'cross-origin-blocked'
+	| 'host-refused'
+	| 'failed';
+
+/**
+ * The error a connection comes to rest carrying, which an app renders.
+ *
+ * `reason` is REQUIRED, and that is the whole design: it makes the compiler enumerate every place
+ * that can put an error on the connection, rather than leaving the next one to remember. This
+ * codebase has twice fixed bugs whose root cause was an invariant maintained at N call sites
+ * instead of one.
+ *
+ * It is the same vocabulary as the `ConnectionFailure` a pending `ensureConnected` rejects with,
+ * and not by coincidence: that failure COPIES this field, so the state an app renders and the
+ * error a caller catches cannot disagree about what happened.
+ */
+export type ConnectionError = {message: string; cause?: any; reason: ConnectionFailureReason};
+
 // What the connection is, independently of which step it is at.
 //
 // Named rather than written inline below so that `set` can be given the same thing MINUS
@@ -350,7 +423,8 @@ type ConnectionCommon<WalletProviderType> = {
 	// The connection can have an error in every state.
 	// a banner or other mechanism to show error should be used.
 	// error should be dismissable
-	error?: {message: string; cause?: any};
+	// `reason` says WHICH failure this is, in a closed vocabulary: see `ConnectionFailureReason`.
+	error?: ConnectionError;
 	/**
 	 * Set when a caller asked this connection to act as an address the wallet is not offering.
 	 *
@@ -628,17 +702,88 @@ export type EnsureConnectedOptions = ConnectOptions & {
 	forceConnect?: boolean;
 };
 
-// Error thrown by `ensureConnected` when a connection attempt ends without reaching the target step.
-// `cause` (and the convenience `code` copied from it) is the underlying error reported by the wallet,
-// so callers can distinguish a user rejection (EIP-1193 code 4001) from a genuine failure.
+/**
+ * Error thrown by `ensureConnected` when a connection attempt ends without reaching the target step.
+ *
+ * Three fields, answering three different questions:
+ *
+ * - `reason` — WHAT HAPPENED TO THIS CALL, in a closed vocabulary this library controls. Read this
+ *   one to decide what to do. See `ConnectionFailureReason`, including its note on new members.
+ * - `cause` — the underlying error, exactly as whoever raised it wrote it (a wallet's EIP-1193
+ *   error, the wallet host's `{type, message}` refusal). Unchanged by the arrival of `reason`.
+ * - `code` — the convenience copy of `cause.code`, so a user rejection is still `code === 4001`.
+ *   `reason === 'wallet-rejected'` now says the same thing without the reach into `cause`.
+ *
+ * `message` is unchanged on every path, deliberately, including `'Connection cancelled'` for a
+ * dismissed `addressUnavailable`: the shape stays the safe one every consumer already maps to "the
+ * user chose not to", and `reason` says which of those it was.
+ *
+ * The third constructor argument is optional so that constructing one by hand (a test double, a
+ * consumer's own re-throw) keeps compiling; inside this library every failure comes from one place
+ * that always supplies it.
+ */
 export class ConnectionFailure extends Error {
 	name = 'ConnectionFailure';
 	readonly code?: unknown;
-	constructor(message: string, cause?: unknown) {
+	readonly reason: ConnectionFailureReason;
+	constructor(message: string, cause?: unknown, reason: ConnectionFailureReason = 'failed') {
 		super(message);
 		this.cause = cause;
 		this.code = (cause as {code?: unknown} | undefined)?.code;
+		this.reason = reason;
 	}
+}
+
+/**
+ * What an error THROWN AT US means, in the vocabulary above.
+ *
+ * One function rather than a test repeated at each catch site, because the mapping is the part that
+ * has to stay consistent: the same rejected wallet prompt must read as `wallet-rejected` whether it
+ * arrives from `eth_requestAccounts`, from a signature request, or from an attempt that rejected
+ * before it published anything.
+ *
+ * Only shapes this library can actually VERIFY are mapped. EIP-1193 codes are a standard the wallet
+ * and this library both agree on, and `cross-origin-blocked` is minted by `@etherplay/connect-core`
+ * in this same repo. Everything else keeps its own words on `cause` and lands on the catch-all.
+ *
+ * Note what this deliberately does NOT do: an unknown `{type}` does not become `host-refused` here,
+ * because an arbitrary thrown object carrying a `type` is not evidence that a HOST refused
+ * anything. Host refusals reach the connection through the popup catch, which uses
+ * `reasonForHostRefusal` instead. No path currently throws a host refusal INTO this function; if
+ * one ever does, it will read as `failed`, and this is the comment that says to route it through
+ * `reasonForHostRefusal` at that point rather than loosening the test here.
+ */
+function reasonForError(err: unknown): ConnectionFailureReason {
+	const code = (err as {code?: unknown} | undefined)?.code;
+	if (code === 4001) {
+		return 'wallet-rejected';
+	}
+	if (code === 4100) {
+		return 'wallet-unavailable';
+	}
+	if ((err as {type?: unknown} | undefined)?.type === 'cross-origin-blocked') {
+		return 'cross-origin-blocked';
+	}
+	return 'failed';
+}
+
+/**
+ * What a WALLET HOST refusal means, in the vocabulary above.
+ *
+ * The host is deployed separately and picks its own `type` strings, so only types this library can
+ * verify are mapped, and everything else passes through as `host-refused` with the host's own
+ * `type` left intact on `cause`. Inventing a member per host vocabulary word would be claiming to
+ * know something this package cannot check, and would go stale the moment the host shipped a new
+ * one.
+ *
+ * Exactly ONE type is mapped here, `cross-origin-blocked`, which comes from
+ * `@etherplay/connect-core` in this repo. The other verifiable type, `cancelation` (raised by this
+ * package's own popup, `src/popup.ts`), is handled by the CALLER and never reaches this function:
+ * closing the popup sets no error at all, and `ensureConnected` reports it through its own
+ * cancellation branch. A `undefined` refusal likewise cannot arrive, for the same reason.
+ */
+function reasonForHostRefusal(refusal: {type?: string} | undefined): ConnectionFailureReason {
+	return refusal?.type === 'cross-origin-blocked' ? 'cross-origin-blocked' : 'host-refused';
 }
 
 // Steps where a connection attempt is actively in progress: reaching one of them means an attempt started,
@@ -1136,7 +1281,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	//
 	// Auto-connect failures follow the same rule and rest on `Idle`: the user asked for nothing, so there is
 	// no decision to offer them. A cancelled popup is likewise a cancellation, not a failure, and rests on `Idle`.
-	function setConnectionFailure(error: {message: string; cause?: any}) {
+	//
+	// `error` carries a REQUIRED `reason` (see `ConnectionFailureReason`). That is not decoration: a
+	// pending `ensureConnected` copies it onto the `ConnectionFailure` it rejects with, so what the
+	// app renders and what the caller catches cannot disagree, and requiring it here is what makes
+	// the compiler enumerate the producers instead of leaving the next one to remember.
+	function setConnectionFailure(error: ConnectionError) {
 		const wallets = $connection.wallets;
 		// Every resting state below has `wallet: undefined`, so `set` tears the live wallet down.
 		if (!walletOnly) {
@@ -1147,7 +1297,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			set({step: 'Idle', loading: false, wallets, wallet: undefined, error});
 		}
 	}
-	function setError(error: {message: string; cause?: any}) {
+	function setError(error: ConnectionError) {
 		if ($connection) {
 			set({
 				...$connection,
@@ -1218,6 +1368,52 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// The reason most recently PUBLISHED, so that a dismissal arriving in the brief window where an
 	// attempt has cleared the field still names the address the user was actually looking at.
 	let lastPublishedAddressUnavailable: `0x${string}` | undefined;
+
+	/**
+	 * The address-bound `ensureConnected` calls that are still live on this connection, in the order
+	 * they were made. Mirrors `addressUnavailableAcknowledgements` above: per connection, per address,
+	 * kept by the one thing that knows.
+	 *
+	 * WHY IT EXISTS. A connection has one wallet, one account and one `addressUnavailable` slot, so a
+	 * second call naming a DIFFERENT address supersedes the first: the newer request takes the slot,
+	 * the older one loses the state it was resting on and comes to rest with nothing in progress. That
+	 * is a real answer and it was already delivered honestly (`could not reach ...`, never a
+	 * cancellation the user did not make), but it arrived looking exactly like every other
+	 * come-to-rest, so no consumer could tell "your own app asked for something else" from "this
+	 * connection cannot get there". Only ONE call knows the difference and it is not the one being
+	 * answered, which is why supersession cannot be read off the connection state and needs a
+	 * registry.
+	 *
+	 * Registration is a monotonic id rather than a set, because the question is ordered: an OLDER
+	 * request is superseded by a NEWER one, never the other way round.
+	 *
+	 * WHAT IT IS AND IS NOT. `superseded` says "a later live request names another account", which is
+	 * an over-approximation of "that request is what displaced me": if some third thing (the app's own
+	 * `connect()`, a disconnect) ends both at once, the older is still labelled superseded. That is
+	 * the harmless direction, since the newer request was going to take the slot anyway, and the
+	 * remedy the label implies (retry) is the right one either way. The opposite error is avoided by
+	 * construction: a call that resolves without ever waiting returns before it registers.
+	 *
+	 * An entry lives exactly as long as its promise is unsettled, which for an abandoned call means as
+	 * long as the promise itself: this map holds no more than the pending calls already do.
+	 */
+	let addressBoundRequests = 0;
+	const liveAddressBoundRequests = new Map<number, `0x${string}`>();
+	function registerAddressBoundRequest(address: `0x${string}`): number {
+		const id = ++addressBoundRequests;
+		liveAddressBoundRequests.set(id, address.toLowerCase() as `0x${string}`);
+		return id;
+	}
+	/** Is a LATER live request naming a DIFFERENT address, i.e. holding the slot this one needs? */
+	function isSupersededBy(id: number, address: `0x${string}`): boolean {
+		const asked = address.toLowerCase();
+		for (const [otherId, otherAddress] of liveAddressBoundRequests) {
+			if (otherId > id && otherAddress !== asked) {
+				return true;
+			}
+		}
+		return false;
+	}
 
 	// How many times the user's WALLET has announced a DIFFERENT set of accounts. It is the unit
 	// `ensureConnected` retries on, and it is the honest one: a retry is a response to the user
@@ -1609,7 +1805,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					name: $connection.mechanism.name,
 					address: $connection.mechanism.address,
 				},
-				error: {message: 'failed to sign message', cause: err},
+				// A declined signature prompt is the same 4001 a declined connect is, and the same
+				// mapping names it: an app that offers "try again" on a rejection must not have to know
+				// which prompt was rejected to recognise one.
+				error: {message: 'failed to sign message', cause: err, reason: reasonForError(err)},
 			});
 			return;
 		}
@@ -1883,6 +2082,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	function restoreWalletChosenAfterFailedConnect(
 		errorMessage: string,
 		cause: unknown,
+		// Taken as an argument rather than derived from `cause` here: this function is the RESTING
+		// half of a failure whose other half is `setConnectionFailure`, and the two must label the
+		// same event identically. An empty accounts answer has no `cause` to derive anything from.
+		reason: ConnectionFailureReason,
 		chosenMechanism: WalletMechanism<string, undefined> | undefined,
 		chosenWallet: {provider: WalletProvider<WalletProviderType>; chainId: string} | undefined,
 	): boolean {
@@ -1923,7 +2126,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				invalidChainId: alwaysOnChainId != chainId,
 				switchingChain: false,
 			},
-			error: {message: errorMessage, cause},
+			error: {message: errorMessage, cause, reason},
 		});
 		return true;
 	}
@@ -2183,11 +2386,15 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										!restoreWalletChosenAfterFailedConnect(
 											'could not get any accounts',
 											undefined,
+											// `no-accounts`, NOT a cancellation. The wallet answered, and answered with
+											// nothing: from the outside that looks like a refusal and it is not one, which
+											// is exactly the aliasing a consumer's own sniffing module got wrong.
+											'no-accounts',
 											chosenMechanismBeforeConnect,
 											chosenWalletBeforeConnect,
 										)
 									) {
-										setConnectionFailure({message: 'could not get any accounts'});
+										setConnectionFailure({message: 'could not get any accounts', reason: 'no-accounts'});
 									}
 								}
 							} else {
@@ -2261,6 +2468,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 							// read-only, locked, or not yet configured (e.g. werust's keyless
 							// provider). 4001 (User Rejected Request): the user actively declined in
 							// the wallet popup. Anything else is a genuine failure.
+							// The message picked per code below and the `reason` a consumer reads instead of
+							// re-deriving it are two lists over the same two codes. They agree today and nothing
+							// COUPLES them: a third message added here without a matching member in
+							// `reasonForError` would be prose the discriminant does not know about. Deriving the
+							// message from the reason would fix that and would change every message string, which
+							// this change is not allowed to do.
 							const code = (err as {code?: unknown})?.code;
 							let errorMessage = `failed to connect to wallet`;
 							if (code === 4100) {
@@ -2277,20 +2490,28 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 							// also tears the wallet down, because every failure state's `wallet` is
 							// `undefined` — a failed attempt must not keep routing requests (including
 							// read-only RPC calls like eth_call) through the failed wallet.
+							// ONE derivation, read by both halves of the failure. The restore path and
+							// `setConnectionFailure` are two landings for the same event, so a reason computed
+							// twice is two chances to compute it differently.
+							const reason = reasonForError(err);
 							if (
 								!restoreWalletChosenAfterFailedConnect(
 									errorMessage,
 									err,
+									reason,
 									chosenMechanismBeforeConnect,
 									chosenWalletBeforeConnect,
 								)
 							) {
-								setConnectionFailure({message: errorMessage, cause: err});
+								setConnectionFailure({message: errorMessage, cause: err, reason});
 							}
 						}
 					} else {
 						console.error(`failed to get wallet ${walletName}`, $connection.wallets);
-						setConnectionFailure({message: `failed to get wallet ${walletName}`});
+						// The catch-all, deliberately: the named wallet is not among the announced ones (a typo, an
+						// extension uninstalled between render and click). It gets no member of its own because it
+						// is not a state the user can answer, and the message already names the wallet.
+						setConnectionFailure({message: `failed to get wallet ${walletName}`, reason: 'failed'});
 					}
 				} else {
 					// TODO can also be done automatically before hand
@@ -2422,7 +2643,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 						loading: false,
 						wallet: undefined,
 						wallets: $connection.wallets,
-						error: canceled ? undefined : {message: refusal.message || 'sign in failed', cause: refusal},
+						// The host's own `type` stays on `cause`, untouched; `reason` pins only what this library
+						// can verify (`cross-origin-blocked`) and passes anything else through as `host-refused`.
+						error: canceled
+							? undefined
+							: {message: refusal.message || 'sign in failed', cause: refusal, reason: reasonForHostRefusal(refusal)},
 					});
 				} finally {
 					unsubscribe();
@@ -2642,6 +2867,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			// Dismissals of the address-unavailable state that happened BEFORE this call: only a later one
 			// is this call's answer.
 			const acknowledgementsOnEntry = askedAddress ? acknowledgementsFor(askedAddress) : 0;
+			// THIS CALL'S PLACE IN THE QUEUE for the connection's one account slot, kept only while the
+			// call is live (see `settle`). Registered here, after the early resolve above has already
+			// returned, so a call that never waited never claims the slot at all.
+			const addressBoundRequestId = askedAddress ? registerAddressBoundRequest(askedAddress) : undefined;
 			// WHAT STOPS "try again" FROM BECOMING A LOOP: at most one attempt per wallet announcement.
 			//
 			// Our own attempts do not bump `walletAnnouncements`, so an attempt can never start another one
@@ -2679,9 +2908,38 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				settled = true;
 				// unsubscribe can still be undefined here if the store settles during the initial (synchronous) subscription
 				unsubscribe?.();
+				// This call is over, so it stops competing for the account slot and stops being counted
+				// against anybody.
+				//
+				// HONEST NOTE, because no test fails if this is deleted: it is defensive. For it to change
+				// an observable label, a NEWER address-bound call would have to settle while an OLDER one
+				// stays live, and every way a newer call can settle publishes a state that also ends an
+				// older call resting on it — while an older call that is still waiting is waiting on
+				// something in progress, which publishes again in its turn. Kept anyway: it also bounds the
+				// map, and "the registry contains the live requests" is cheaper to keep true than to reason
+				// about every time somebody adds a settle path.
+				if (addressBoundRequestId !== undefined) {
+					liveAddressBoundRequests.delete(addressBoundRequestId);
+				}
 				perform();
 			};
-			const cancelled = () => settle(() => reject(new ConnectionFailure('Connection cancelled')));
+			/**
+			 * THE ONE PLACE A `ConnectionFailure` IS BUILT, and it takes the reason first.
+			 *
+			 * Not tidiness: `reason` is the field that must never be forgotten, and a rule kept at four
+			 * call sites is a rule that is kept at three of them a year from now. This codebase has
+			 * twice fixed bugs whose root cause was exactly that (`pendingRequests`, wallet teardown).
+			 */
+			const failWith = (reason: ConnectionFailureReason, message: string, cause?: unknown) =>
+				settle(() => reject(new ConnectionFailure(message, cause, reason)));
+			/**
+			 * The MESSAGE is the same for both, and that is the point: every consumer already maps
+			 * `'Connection cancelled'` to "the user chose not to" and shows nothing, so a dismissed
+			 * `addressUnavailable` must keep arriving in that shape and must not paint a red banner over
+			 * a decision. What was missing is WHICH decision, and that is what `reason` adds.
+			 */
+			const cancelled = (reason: 'cancelled' | 'address-unavailable-acknowledged') =>
+				failWith(reason, 'Connection cancelled');
 
 			/**
 			 * Start an attempt and stay honest about it while it runs.
@@ -2710,7 +2968,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					},
 					(err) => {
 						attemptsInFlight--;
-						settle(() => reject(new ConnectionFailure((err as Error)?.message || `could not reach ${step}`, err)));
+						failWith(reasonForError(err), (err as Error)?.message || `could not reach ${step}`, err);
 					},
 				);
 			};
@@ -2931,7 +3189,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// disappearing. Several things clear that field and only one of them is a decision; and a
 				// decision about one address is not an answer to a request about another.
 				if (askedAddress && acknowledgementsFor(askedAddress) !== acknowledgementsOnEntry) {
-					cancelled();
+					cancelled('address-unavailable-acknowledged');
 					return;
 				}
 
@@ -2947,20 +3205,23 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// a generic cancellation.
 				const error = connection.error;
 				if (error && error !== errorOnEntry) {
-					settle(() => reject(new ConnectionFailure(error.message, error.cause)));
+					// The reason is COPIED, never re-derived. Deriving it again here from `message` or from
+					// `cause` is how the state an app renders and the error a caller catches come to disagree
+					// about one event: they are the same failure, so they carry the same label by construction.
+					failWith(error.reason, error.message, error.cause);
 					return;
 				}
 
 				// Reject on disconnect/back to Idle
 				if (connection.step === 'Idle' && idlePassed) {
-					cancelled();
+					cancelled('cancelled');
 					return;
 				}
 
 				// The attempt went back to a resting step without an error: it was aborted (back/cancel).
 				// This must never trigger on a resting step we merely started from, hence `attemptStarted`.
 				if (attemptStarted && stepsAtRest.includes(connection.step)) {
-					cancelled();
+					cancelled('cancelled');
 					return;
 				}
 
@@ -3003,18 +3264,29 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// make impossible, and it is stated as a POSITIVE list (`awaitingUserReason`) on purpose:
 				// a new step, or a new resting reason, is unreachable-by-default rather than a fresh way
 				// to hang.
-				const reason = awaitingUserReason(connection);
-				if (!reason) {
+				const waitReason = awaitingUserReason(connection);
+				if (!waitReason) {
 					// The message names where the connection actually is, including the wallet's status,
 					// because the likeliest way to arrive here is a wallet that went locked or was revoked
 					// between the attempt finishing and this state being published.
 					const wallet = connection.wallet ? ` (wallet ${connection.wallet.status})` : '';
-					settle(() =>
-						reject(
-							new ConnectionFailure(
-								`could not reach ${step}: the connection is at ${connection.step}${wallet} and nothing is in progress`,
-							),
-						),
+					// SUPERSEDED, when a NEWER address-bound call is holding the connection's one account
+					// slot: this call did not come to rest because the connection cannot get there, it came to
+					// rest because the app itself asked for a different account in the meantime. The two are
+					// indistinguishable from the state (the newer request took the `addressUnavailable` slot
+					// with it, so there is nothing left on the connection to read), and telling them apart is
+					// the difference between "this connection is stuck" and "retry, it was your own doing".
+					//
+					// The MESSAGE is unchanged, deliberately: it is the honest `could not reach ...` this path
+					// has always produced, and specifically not a cancellation, because the user decided
+					// nothing.
+					const superseded =
+						askedAddress !== undefined &&
+						addressBoundRequestId !== undefined &&
+						isSupersededBy(addressBoundRequestId, askedAddress);
+					failWith(
+						superseded ? 'superseded' : 'unreachable',
+						`could not reach ${step}: the connection is at ${connection.step}${wallet} and nothing is in progress`,
 					);
 				}
 			};
@@ -3074,7 +3346,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			// through it) and report the error on the CURRENT state — throwing the choice away
 			// over a typo or a wallet uninstalled between render and click would deselect the
 			// user's read path without them refusing anything.
-			setError({message: `failed to get wallet ${walletName}`});
+			setError({message: `failed to get wallet ${walletName}`, reason: 'failed'});
 			return;
 		}
 		// Clear old wallet watchers if switching from a previously chosen/connected wallet.
@@ -3118,7 +3390,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			// setConnectionFailure tears down the previously chosen wallet (provider still on
 			// the wrapper if the new wallet's getChainId threw before setWalletProvider) before
 			// landing on its `wallet: undefined` resting step.
-			setConnectionFailure({message: `failed to select wallet ${walletName}`, cause: err});
+			setConnectionFailure({message: `failed to select wallet ${walletName}`, cause: err, reason: reasonForError(err)});
 		}
 	}
 
@@ -3435,7 +3707,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		//
 		// `error` is omitted rather than set to `undefined` when there is none, so a successful
 		// switch does not silently clear an unrelated error the app has not shown yet.
-		const doneAsking = (error?: {message: string; cause?: unknown}) => {
+		const doneAsking = (error?: ConnectionError) => {
 			if ($connection.wallet) {
 				set({
 					...$connection,
@@ -3472,7 +3744,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// this library's summary and the branch is reached both from a refusal to switch and
 				// from a wallet reporting its error as a result.
 				const message = `Chain "${named}" is not available on your wallet`;
-				doneAsking({message, cause: err});
+				doneAsking({message, cause: err, reason: reasonForError(err)});
 				throw new Error(message);
 			}
 		}
@@ -3499,7 +3771,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				return;
 			}
 			const message = `Failed to add new chain: ${named}`;
-			doneAsking({message, cause: err});
+			doneAsking({message, cause: err, reason: reasonForError(err)});
 			throw err;
 		}
 	}

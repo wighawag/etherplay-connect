@@ -259,6 +259,7 @@ describe('WalletChosen target', () => {
 			const state = currentState(store);
 			expect(state.step).toBe('WalletChosen');
 			expect(state.error?.message).toBe('failed to get wallet No Such Wallet');
+			expect(state.error?.reason).toBe('failed');
 			if (state.step === 'WalletChosen') {
 				expect(state.mechanism.name).toBe('Injected Wallet');
 				expect(state.wallet.status).toBe('disconnected');
@@ -613,6 +614,7 @@ describe('WalletChosen target', () => {
 			const state = currentState(store);
 			expect(state.step).toBe('WalletChosen');
 			expect(state.error?.message).toBe('Connection request was declined.');
+			expect(state.error?.reason).toBe('wallet-rejected');
 			if (state.step === 'WalletChosen') {
 				expect(state.mechanism.name).toBe('Injected Wallet');
 			}
@@ -647,6 +649,8 @@ describe('WalletChosen target', () => {
 			const state = currentState(store);
 			expect(state.step).toBe('WalletChosen');
 			expect(state.error?.message).toBe('could not get any accounts');
+			// Not a cancellation: the wallet answered, with nothing. See `test/failure-reasons.test.ts`.
+			expect(state.error?.reason).toBe('no-accounts');
 			if (state.step === 'WalletChosen') {
 				expect(state.mechanism.name).toBe('Empty Wallet');
 			}

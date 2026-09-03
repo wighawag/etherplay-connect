@@ -34,8 +34,84 @@
 // genuine hang would be blessed as a legitimate wait.
 
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
-import {createConnection, isTargetStepReached, type Connection, type TargetStep} from '../src/index.js';
+import {
+	createConnection,
+	isTargetStepReached,
+	ConnectionFailure,
+	type Connection,
+	type ConnectionFailureReason,
+	type TargetStep,
+} from '../src/index.js';
 import {installLockableWallet, type LockableWallet} from './fixtures/lockable-wallet.js';
+
+/**
+ * THE WHOLE VOCABULARY, WRITTEN OUT.
+ *
+ * Deliberately a literal list rather than a check that `reason` is merely truthy: a typo'd reason
+ * is a reason no consumer switches on, so "it has one" is not the property worth pinning.
+ *
+ * EXHAUSTIVENESS IS NOT CHECKED HERE, and cannot be. `tsconfig.types.json` deliberately excludes
+ * the runtime test files, and vitest transpiles without type-checking, so a type-level guard
+ * written in this file is inert — one was, and adding a member to the union left it green. The
+ * exhaustive version of this list lives in `test/types/failure-reason.types.ts`, where `tsc`
+ * actually runs; this one is the runtime membership check, and the two are meant to agree.
+ */
+const REASONS: readonly ConnectionFailureReason[] = [
+	'cancelled',
+	'address-unavailable-acknowledged',
+	'superseded',
+	'unreachable',
+	'wallet-rejected',
+	'wallet-unavailable',
+	'no-accounts',
+	'cross-origin-blocked',
+	'host-refused',
+	'failed',
+];
+
+/**
+ * NO REJECTION SHIPS UNLABELLED, checked across the whole enumeration.
+ *
+ * WHAT THIS ACTUALLY COVERS, measured rather than assumed. Of the 180 combinations, 66 resolve and
+ * 114 reject, and every one of those 114 rejects because this test pressed `cancel()`. So the
+ * population here is one reason deep, and the real value is not the membership check but the
+ * `expected` argument below: 114 cancellations must all read as `cancelled`, which is the aliasing
+ * property at scale and the direction that actually went wrong (an outcome quietly wearing the
+ * cancellation's clothes, or the reverse).
+ *
+ * It is NOT a safety net that catches a new failure path shipping unlabelled: it can only see paths
+ * this matrix reaches, and today the matrix reaches no rejection except a cancellation. A new
+ * failure path needs its own test in `test/failure-reasons.test.ts`, which is where each of the ten
+ * members is pinned individually. (An earlier version of this comment claimed the safety net; it
+ * was wrong, and the count below is what disproved it.)
+ */
+function expectLabelled(
+	ensuring: {settled: string; error?: any},
+	label: string,
+	expected?: ConnectionFailureReason,
+): ConnectionFailureReason | undefined {
+	if (ensuring.settled !== 'rejected') {
+		return undefined;
+	}
+	expect(ensuring.error, `${label}: rejected with something that is not a ConnectionFailure`).toBeInstanceOf(
+		ConnectionFailure,
+	);
+	const reason = (ensuring.error as ConnectionFailure).reason;
+	expect(
+		REASONS,
+		`${label}: rejected with an unusable reason (${JSON.stringify(reason)}), message: ${(ensuring.error as Error).message}`,
+	).toContain(reason);
+	if (expected) {
+		// Stronger than membership where the answer is KNOWN, which is the aliasing check at scale:
+		// the user pressed cancel, so anything but `cancelled` means some other outcome has started
+		// wearing the cancellation's label — the exact confusion this discriminant exists to end.
+		expect(
+			reason,
+			`${label}: answered a cancel() with ${JSON.stringify(reason)}, message: ${(ensuring.error as Error).message}`,
+		).toBe(expected);
+	}
+	return reason;
+}
 
 const chainInfo = {
 	id: 1,
@@ -500,6 +576,10 @@ describe('every reachable entry state settles, or rests on something the user ca
 
 	it('answers, or rests on something the user can see and end', async () => {
 		const outcomes: {case: string; outcome: string; reason?: string}[] = [];
+		// Every rejection this matrix produces, so the labelling invariant below can be shown not to be
+		// vacuous. A check that runs zero times passes, and this suite has shipped two assertions that
+		// held against broken code (`work/notes/observations`); the count is what stops a third.
+		const labelled: (ConnectionFailureReason | undefined)[] = [];
 
 		for (const entry of entries) {
 			for (const target of targets) {
@@ -543,6 +623,7 @@ describe('every reachable entry state settles, or rests on something the user ca
 								).toBe(false);
 							}
 						}
+						labelled.push(expectLabelled(ensuring, label));
 						outcomes.push({case: label, outcome: ensuring.settled});
 						continue;
 					}
@@ -563,6 +644,10 @@ describe('every reachable entry state settles, or rests on something the user ca
 					connection.cancel();
 					await vi.advanceTimersByTimeAsync(500);
 					expect(ensuring.settled, `${label}: cancel() did not settle it (${reason})`).not.toBe('no');
+					// ...and the answer a cancel produces is labelled too, as exactly one thing. This is the
+					// half of the matrix a consumer meets most, since every app offers a cancel button
+					// whatever the wait was.
+					labelled.push(expectLabelled(ensuring, label, 'cancelled'));
 					outcomes.push({case: label, outcome: `waited then ${ensuring.settled}`, reason});
 				}
 			}
@@ -572,6 +657,18 @@ describe('every reachable entry state settles, or rests on something the user ca
 		// assertions above would hold while proving nothing about reaching a target at all. The bar is
 		// a THIRD of the matrix rather than a token few: the count is 66 of 180 today, and a change
 		// that turned a large block of successes into refusals is exactly the regression this guards.
+		// THE LABELLING INVARIANT, and the proof it ran. Every rejection the matrix produced carries a
+		// reason from the closed set, and every one produced by a `cancel()` reads as `cancelled`
+		// (asserted case by case above, where the failure message names the case). The floor is what
+		// makes that mean something: a check that runs zero times passes. 114 of the 180 combinations
+		// reject today, all of them after a cancel.
+		const rejections = labelled.filter((reason) => reason !== undefined);
+		expect(rejections.length).toBeGreaterThanOrEqual(100);
+		// ...and they are all the same reason, which is stated here rather than left to be inferred from
+		// the per-case assertions: it is the honest description of this file's coverage, and it is what
+		// stops the paragraph above from drifting back into claiming more than it checks.
+		expect([...new Set(rejections)]).toEqual(['cancelled']);
+
 		const resolvedOnItsOwn = outcomes.filter((o) => o.outcome === 'resolved');
 		expect(outcomes.length).toBe(entries.length * targets.length * mechanisms.length);
 		// An ABSOLUTE floor, not a ratio: a ratio moves with the entry list, so adding entry states that
@@ -599,5 +696,8 @@ describe('every reachable entry state settles, or rests on something the user ca
 
 		expect(ensuring.settled).toBe('rejected');
 		expect((ensuring.error as Error).message).toContain('walletHost');
+		// Even the answer that never reached a state carries a reason: the catch-all, which is what
+		// keeps "switch on `reason`" total rather than nearly total.
+		expect((ensuring.error as ConnectionFailure).reason).toBe('failed');
 	});
 });

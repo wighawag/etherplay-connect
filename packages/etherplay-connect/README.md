@@ -129,17 +129,54 @@ The last row is the one worth knowing about: with the default `requestSignatureA
 - It rejects with a `ConnectionFailure` when the attempt fails. `cause` and the convenience `code` carry the underlying wallet error, so a user rejection is `code === 4001`.
 - It rejects with `ConnectionFailure('Connection cancelled')` when the user backs out, including by acknowledging an `addressUnavailable`.
 
+#### Why it failed: `reason`
+
+**Read `reason`, not `message`, and not "is there a `cause`".** Every `ConnectionFailure` carries a `reason` from a closed set of string literals, and the connection's own resting `error` carries the same field, with the same value for the same event: the thrown failure copies it, so the banner your app renders and the error your `await` caught cannot disagree.
+
+This replaces the older advice to tell a cancellation from a failure by whether an underlying error is present. That test was all there was, and it was not enough: several outcomes carry no `cause` and mean completely different things, so "no cause" collapsed "the user closed the dialog" (say nothing) together with "the connection came to rest and cannot get there" (report it) and "your own app asked for a different account" (retry it).
+
+| `reason`                           | What happened                                                                            | What to do                                                                                      |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `cancelled`                        | The user closed or dismissed the connect flow (`cancel()`, `back()`, closed the popup).  | Nothing. Do not show an error: they decided.                                                    |
+| `address-unavailable-acknowledged` | The user read `addressUnavailable` and chose not to switch account.                      | Nothing, or re-offer the action. Also a decision, also not an error.                            |
+| `superseded`                       | A newer `ensureConnected` naming a **different** address took the account slot.          | Retry, if you still want it. The user decided nothing; your app asked for two things at once.   |
+| `unreachable`                      | Came to rest, nothing in progress, nothing can be initiated from here.                   | **Report it.** "Could not connect, try again." This is an outcome, not a silent no-op.          |
+| `wallet-rejected`                  | The wallet prompt was declined (EIP-1193 `4001`).                                        | Offer a retry; the same prompt can succeed next time.                                           |
+| `wallet-unavailable`               | The wallet cannot authorise accounts (EIP-1193 `4100`): read-only, locked, unconfigured. | Retrying will not help. Tell the user to unlock or configure their wallet.                      |
+| `no-accounts`                      | The wallet answered with an empty account list.                                          | Report it. It looks like a refusal and is not one.                                              |
+| `cross-origin-blocked`             | The wallet host refused a cross-origin request.                                          | Offer the onchain delegate path, not another popup. See "Cross-origin requests" below.          |
+| `host-refused`                     | The wallet host refused for a reason of **its** own.                                     | Show `message`; read `(err.cause as {type?: string})?.type` if you need to tell refusals apart. |
+| `failed`                           | Anything else. The underlying error is on `cause`.                                       | Show `message`, offer a retry.                                                                  |
+
 ```typescript
 import {ConnectionFailure} from '@etherplay/connect';
 
 try {
 	const state = await connection.ensureConnected('WalletConnected');
 } catch (err) {
-	if (err instanceof ConnectionFailure && err.code === 4001) {
-		// the user rejected the wallet prompt, they can just try again
+	if (!(err instanceof ConnectionFailure)) throw err;
+	switch (err.reason) {
+		case 'cancelled':
+		case 'address-unavailable-acknowledged':
+			break; // the user decided: say nothing
+		case 'wallet-rejected':
+			toast('Connection declined. Try again when you are ready.');
+			break;
+		case 'superseded':
+			break; // your own app asked for another account; retry if you still want this one
+		default:
+			toast(err.message); // unreachable, no-accounts, host refusals, anything new
 	}
 }
 ```
+
+**Host refusals are deliberately not modelled further.** The wallet host is deployed separately and chooses its own vocabulary, so this library pins only the refusal types it can verify: `cross-origin-blocked`, minted by `@etherplay/connect-core`, and its own popup's `cancelation`, which is not a refusal at all and surfaces as `cancelled`. Anything else passes through as `host-refused` with the host's `type` intact on `cause`. A member per host word would be a claim this package cannot check, and would go stale the day the host shipped a new one.
+
+**A dismissed `addressUnavailable` keeps the shape of a cancellation.** Its `message` is still `'Connection cancelled'`, exactly as `cancel()` produces, so every path you already wrote that maps a refusal to "the user chose not to" keeps working and nobody paints a red banner over a decision. `reason` is what tells the two apart, and it is the only thing that does.
+
+**New members may appear in a MINOR version, so keep a `default` branch.** A union the type system can exhaust is worth having, and it comes with that cost: an exhaustive `switch` with no default is the one shape a new member breaks. The trade was taken deliberately (see [ADR-0004](../../docs/adr/0004-a-failure-says-why-with-a-safe-default-shape.md)). `failed` is the catch-all, so most future causes will need no new member at all, and anything that does get one was indistinguishable from a generic failure before it existed.
+
+`reason` is **additive**: `message`, `cause` and `code` are unchanged on every path, so code that ignores it behaves exactly as it did.
 
 ### Asking for a specific account
 
@@ -198,11 +235,11 @@ It sits beside `error` rather than in it, because nothing failed: the wallet wor
 Two ways out, and you have to offer both:
 
 - **The user switches account in their wallet.** The original request then proceeds on its own and the promise resolves: somebody who has just done what was asked should not have to press anything in your app.
-- **The user acknowledges it.** `acknowledgeAddressUnavailable()` clears the state and settles the pending `ensureConnected` as `ConnectionFailure('Connection cancelled')`, the same shape as any other "the user chose not to", so existing refusal handling covers it and nobody sees an error for a decision. The connection stays connected on the account the wallet is offering.
+- **The user acknowledges it.** `acknowledgeAddressUnavailable()` clears the state and settles the pending `ensureConnected` as `ConnectionFailure('Connection cancelled')`, the same shape as any other "the user chose not to", so existing refusal handling covers it and nobody sees an error for a decision. The connection stays connected on the account the wallet is offering. To tell this dismissal from the user closing the connect dialog, read [`reason`](#why-it-failed-reason): it is `'address-unavailable-acknowledged'`, where a `cancel()` is `'cancelled'`. The message is identical on purpose, so nothing else distinguishes them.
 
 Only an address **you** named produces this. A replayed one degrades to an ordinary connect as it always did.
 
-**One request at a time.** A connection has one wallet, one account and one such state, so two `ensureConnected` calls naming _different_ accounts cannot both stand: the newer supersedes, and the older is answered with a `ConnectionFailure` naming where the connection came to rest. It is **not** answered with `Connection cancelled`, because the user decided nothing — that message is reserved for `acknowledgeAddressUnavailable()`, and a dismissal answers only the request for the address it was showing. If you need two accounts ready at once, use two connections with different `storagePrefix`es (see "Running more than one connection in a page").
+**One request at a time.** A connection has one wallet, one account and one such state, so two `ensureConnected` calls naming _different_ accounts cannot both stand: the newer supersedes, and the older is answered with a `ConnectionFailure` carrying [`reason: 'superseded'`](#why-it-failed-reason) and naming where the connection came to rest. It is **not** answered with `Connection cancelled`, because the user decided nothing — that message is reserved for `acknowledgeAddressUnavailable()`, and a dismissal answers only the request for the address it was showing. If you need two accounts ready at once, use two connections with different `storagePrefix`es (see "Running more than one connection in a page").
 
 ##### Wallets that only expose one account
 
@@ -210,7 +247,7 @@ Only an address **you** named produces this. A replayed one degrades to an ordin
 
 Two consequences for your UI:
 
-- **Do not render `available` as an exhaustive account picker**, and do not read "the requested address is absent" as "the user does not have it". Show it as detail, and only when it has more than one entry. If you do offer its entries as a choice, say what choosing one MEANS: connecting to a different account abandons the request that produced this state, so the pending `ensureConnected` settles as a cancellation.
+- **Do not render `available` as an exhaustive account picker**, and do not read "the requested address is absent" as "the user does not have it". Show it as detail, and only when it has more than one entry. If you do offer its entries as a choice, say what choosing one MEANS: connecting to a different account abandons the request that produced this state, so the pending `ensureConnected` settles (with `reason: 'unreachable'`, since the user acknowledged nothing and no newer request took the slot).
 - **The instruction is the remedy.** `message` asks the user to switch to that account in their wallet, which is the only thing that works when the wallet exposes one at a time. Nothing in the app can pick an account the wallet is not offering.
 
 That path is fully automatic on the library side: every wallet emits `accountsChanged` when the user switches, so the pending `ensureConnected` picks it up and proceeds to satisfy the original request. There is no "retry" button to wire, and pressing one would be redundant — at most one attempt is made per announcement the wallet makes, and an attempt never starts another off its own result.
@@ -228,7 +265,9 @@ There is deliberately no call that asks the wallet to open its own account picke
 | `wallet.invalidChainId`                              | "your wallet is on another chain" | `switchWalletChain()`, showing `wallet.switchingChain` |
 | `connection.addressUnavailable`                      | its `message`, as an instruction  | the user switches in the wallet, or acknowledge it     |
 | `connection.pendingRequests`                         | what the wallet is asking for     | the user answers it in the wallet                      |
-| `connection.error`                                   | the failure                       | `clearError()` and retry                               |
+| `connection.error`                                   | its `message`, per `error.reason` | `clearError()` and retry                               |
+
+`connection.error` carries the same `reason` as the `ConnectionFailure` a pending `ensureConnected` rejects with, and for the same event it is the same value, so the two cannot tell the user different stories: see [Why it failed: `reason`](#why-it-failed-reason) for the table. It is the field to branch on before you decide to render a red banner at all, since some of what lands there is a decision the user made rather than a failure.
 
 **A locked wallet is the one most likely to be missed**, and it became more visible with the target semantics: `step` stays `WalletConnected`, `account.address` still names the account that was agreed on, and only `wallet.status` (and `canActAs`) knows it cannot sign. A signed-in app is not exempt: its session account keeps working, but anything sent from the **wallet** account cannot be signed until the user unlocks.
 
@@ -369,15 +408,15 @@ const hasSigner = connection.targetStep === 'SignedIn';
 
 **Cross-origin requests are blocked by default.** The wallet host honours one only when the signing origin has recorded that it accepts requests from that origin, and even then the user is still asked (twice, where the consent was a blanket one rather than a naming of this specific site). With no consent recorded there is no prompt, because a screen asking someone to compare two domain names is not a decision they can make well.
 
-A blocked request comes back as an error rather than as a cancellation, so an app can tell it from the user closing the popup:
+A blocked request comes back as an error rather than as a cancellation, so an app can tell it from the user closing the popup. `reason` says so directly (`'cross-origin-blocked'`); `cause` still carries the host's own object, which names both origins:
 
 ```typescript
 try {
 	await connection.ensureConnected();
 } catch (err) {
-	// err is a ConnectionFailure; the wallet host's reason is on `cause`
-	if ((err as ConnectionFailure).cause?.type === 'cross-origin-blocked') {
-		// {type, message, windowOrigin, signingOrigin}
+	if ((err as ConnectionFailure).reason === 'cross-origin-blocked') {
+		// `cause` is the host's own object, which names both origins:
+		// {type: 'cross-origin-blocked', message, windowOrigin, signingOrigin}
 	}
 }
 ```

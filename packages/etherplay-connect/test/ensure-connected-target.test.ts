@@ -887,6 +887,13 @@ describe('an address the wallet cannot offer is a state the user can answer', ()
 		expect(forNeverSeen.settled).toBe('rejected');
 		expect((forNeverSeen.error as Error).message).not.toBe('Connection cancelled');
 		expect((forNeverSeen.error as Error).message).toContain('could not reach');
+		// TIGHTENED from "not a cancellation" to what it actually IS. "Not cancelled" was as much as
+		// the shape could say, and it left this outcome indistinguishable from "this connection came
+		// to rest and cannot get there" — which asks the app for a different response: the target is
+		// perfectly reachable, this call just lost the connection's one account slot to a newer
+		// request of the app's own making, so retrying it is meaningful where retrying `unreachable`
+		// mostly is not.
+		expect((forNeverSeen.error as ConnectionFailure).reason).toBe('superseded');
 
 		// The one still standing is the one the user can see, and dismissing it answers THAT one.
 		expect(snapshot().addressUnavailable.requested).toBe(B);
@@ -895,6 +902,9 @@ describe('an address the wallet cannot offer is a state the user can answer', ()
 
 		expect(forB.settled).toBe('rejected');
 		expect((forB.error as Error).message).toBe('Connection cancelled');
+		// ...and the NEWER one, answered by an actual decision, carries the decision's own reason. The
+		// two rejections in this test are the pair that used to be told apart only by their message.
+		expect((forB.error as ConnectionFailure).reason).toBe('address-unavailable-acknowledged');
 	});
 
 	it('does not cancel a call whose wallet prompt is open because another request was dismissed', async () => {

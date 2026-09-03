@@ -245,6 +245,9 @@ describe('switchWalletChain', () => {
 		// refusal and from a wallet reporting its error as a result, and "not available on your
 		// wallet" is our summary of it rather than anything the wallet said.
 		expect(snapshot().error?.cause).toMatchObject({code: 4902});
+		// 4902 is neither a refusal (4001, which returns before this branch) nor an authorisation
+		// problem (4100), so it is the catch-all. `cause` is where the 4902 stays readable.
+		expect(snapshot().error?.reason).toBe('failed');
 		expect(wallet.addChainCalls()).toEqual([]);
 	});
 

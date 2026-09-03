@@ -112,6 +112,9 @@ describe('connect: the paths nothing went down', () => {
 			await connecting;
 
 			expect(snapshot().error?.message).toBe('failed to get wallet Absent Wallet');
+			// The catch-all, deliberately: a name that matches nothing announced is not a state the user
+			// can answer, so it gets no member of its own. Asserted so that stays a decision.
+			expect(snapshot().error?.reason).toBe('failed');
 			expect(snapshot().wallet).toBeUndefined();
 			expect(wallet.requestAccountsCalls()).toBe(0);
 		});
@@ -242,6 +245,7 @@ describe('connect: the paths nothing went down', () => {
 			expect(snapshot().step).toBe('Idle');
 			expect(snapshot().error?.message).toBe('this origin may not sign');
 			expect(snapshot().error?.cause).toMatchObject({type: 'cross-origin-blocked'});
+			expect(snapshot().error?.reason).toBe('cross-origin-blocked');
 		});
 
 		it('ignores a reply carrying the wrong id', async () => {
