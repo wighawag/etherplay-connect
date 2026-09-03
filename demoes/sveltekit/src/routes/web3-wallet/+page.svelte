@@ -54,7 +54,13 @@
 		} catch (err) {
 			// A refusal maps to a cancellation, including the user acknowledging "your wallet is on a
 			// different account": nobody should see a red error for a decision they made.
-			const cancelled = err instanceof ConnectionFailure && err.message === 'Connection cancelled';
+			//
+			// Read `reason`, not the message. Both decisions deliberately keep the same
+			// `'Connection cancelled'` message, so matching on the text cannot tell them apart, and it
+			// is the discriminant that says which one this is.
+			const cancelled =
+				err instanceof ConnectionFailure &&
+				(err.reason === 'cancelled' || err.reason === 'address-unavailable-acknowledged');
 			replaceStatus = cancelled ? 'not replaced' : `could not replace: ${(err as Error).message}`;
 		}
 	}
