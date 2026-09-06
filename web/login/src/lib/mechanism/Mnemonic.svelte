@@ -157,7 +157,7 @@
 		padding: 0.3rem;
 		align-items: center;
 		font-size: max(min(10vw, 3rem), 1rem);
-		font-family: Audiowide;
+		font-family: var(--font-display);
 		text-decoration: none;
 		color: #222222;
 	}
