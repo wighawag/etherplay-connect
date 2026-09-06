@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D4d icon</title>
+  <g fill="none" stroke="currentColor" stroke-width="34" stroke-linecap="round">
+    <path d="M28 68 H88" />
+    <path d="M28 128 H148" />
+    <path d="M28 188 H88" />
+  </g>
+  <path d="M136 50 L214 128 L136 206" fill="none" stroke="#3b82f6" stroke-width="38"
+        stroke-linecap="round" stroke-linejoin="round" />
+</svg>

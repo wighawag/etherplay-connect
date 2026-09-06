@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D3 icon: seed and husk</title>
+  <g fill="none" stroke="currentColor" stroke-width="30" stroke-linecap="round">
+    <path d="M58 124 C34 160 38 198 66 222" />
+    <path d="M198 124 C222 160 218 198 190 222" />
+  </g>
+  <path d="M128 26 C170 82 180 130 180 160 C180 202 157 228 128 228 C99 228 76 202 76 160 C76 130 86 82 128 26 Z"
+        fill="#f59e0b" />
+</svg>

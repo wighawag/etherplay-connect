@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D1 confluence r2: three shapes in, one connection out, through one seam</title>
+  <!-- three ways in, kept apart so the outline keeps its gaps -->
+  <g fill="none" stroke="currentColor" stroke-width="22" stroke-linecap="round">
+    <path d="M20 72 H84" />
+    <path d="M20 128 H84" />
+    <path d="M20 184 H84" />
+  </g>
+  <!-- the seam: one accent field everything passes through -->
+  <rect x="96" y="72" width="64" height="112" rx="20" fill="#f59e0b" />
+  <!-- one connection out -->
+  <path d="M172 128 H236" fill="none" stroke="currentColor" stroke-width="38" stroke-linecap="round" />
+</svg>

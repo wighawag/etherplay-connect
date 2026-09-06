@@ -1,3 +1,7 @@
+<div align="center">
+<a href="https://github.com/wighawag/etherplay-connect"><img alt="@etherplay/connect" src="https://raw.githubusercontent.com/wighawag/etherplay-connect/main/branding/preview.png" width="640" /></a>
+</div>
+
 # @etherplay/connect
 
 A modern wallet connection library that provides seamless authentication via session accounts. Support for both social login mechanisms (email, OAuth, mnemonic) and traditional Web3 wallet connections.

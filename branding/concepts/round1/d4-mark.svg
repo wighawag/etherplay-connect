@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D4 sibling: the Etherplay arrow, lanes made to mean something</title>
+  <!-- three ways in, ink; the third one is open at its end: the way out -->
+  <g fill="none" stroke="currentColor" stroke-width="26" stroke-linecap="round">
+    <path d="M26 74 H104" />
+    <path d="M26 128 H104" />
+    <path d="M26 182 H62" />
+    <path d="M92 182 H104" />
+  </g>
+  <!-- one connection, accent -->
+  <path d="M126 44 L214 128 L126 212" fill="none" stroke="#3b82f6" stroke-width="30"
+        stroke-linecap="round" stroke-linejoin="round" />
+</svg>

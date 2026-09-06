@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Etherplay Connect">
+  <title>Etherplay Connect icon</title>
+  <desc>The simplified mark on an opaque plate: two bars, not three, because three do not survive 16px. Plate is opaque so the icon does not vanish on a dark browser tab.</desc>
+  <rect width="256" height="256" rx="46" fill="#13171f" />
+  <g transform="translate(8.31 3.93) scale(0.9692)">
+    <g fill="none" stroke="#f4f6fb" stroke-width="40" stroke-linecap="round">
+      <path d="M30 84 H104" />
+      <path d="M30 172 H104" />
+    </g>
+    <path d="M136 48 L216 128 L136 208" fill="none" stroke="#3b82f6" stroke-width="42" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>

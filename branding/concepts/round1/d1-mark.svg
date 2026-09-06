@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D1 confluence: three inbound shapes, one connection</title>
+  <!-- three inbound strands, ink -->
+  <g fill="none" stroke="currentColor" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 58 H84 C124 58 140 84 140 128" />
+    <path d="M32 128 H140" />
+    <path d="M32 198 H84 C124 198 140 172 140 128" />
+  </g>
+  <!-- the single stem they all become, accent -->
+  <rect x="140" y="105" width="92" height="46" rx="14" fill="#f59e0b" />
+</svg>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 32 220 192" width="220" height="192" style="color:#13171f" role="img" aria-label="Etherplay Connect">
+  <title>Etherplay Connect</title>
+  <desc>Three unequal ways in (a connected wallet, a built-in wallet, a hosted account), one connection out. Ink is currentColor; only the chevron is fixed accent.</desc>
+  <g fill="none" stroke="currentColor" stroke-width="28" stroke-linecap="round">
+    <path d="M26 72 H101" />
+    <path d="M26 128 H157" />
+    <path d="M26 184 H101" />
+  </g>
+  <path d="M136 48 L216 128 L136 208" fill="none" stroke="#3b82f6" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

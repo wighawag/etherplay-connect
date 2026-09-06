@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D1 icon r2: three shapes in, one out</title>
+  <g fill="none" stroke="currentColor" stroke-width="28" stroke-linecap="round">
+    <path d="M22 66 H70" />
+    <path d="M22 128 H70" />
+    <path d="M22 190 H70" />
+  </g>
+  <rect x="90" y="60" width="72" height="136" rx="24" fill="#f59e0b" />
+  <path d="M182 128 H234" fill="none" stroke="currentColor" stroke-width="46" stroke-linecap="round" />
+</svg>

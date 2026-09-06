@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D4a sibling: three ways in, one connection. Blue accent, as the parent.</title>
+  <g fill="none" stroke="currentColor" stroke-width="28" stroke-linecap="round">
+    <path d="M26 72 H104" />
+    <path d="M26 128 H104" />
+    <path d="M26 184 H104" />
+  </g>
+  <path d="M136 48 L216 128 L136 208" fill="none" stroke="#3b82f6" stroke-width="32"
+        stroke-linecap="round" stroke-linejoin="round" />
+</svg>

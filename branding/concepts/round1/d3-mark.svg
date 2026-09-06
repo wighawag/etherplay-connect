@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D3 seed: the mnemonic you can take with you</title>
+  <!-- the husk it is not fused to, ink -->
+  <g fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round">
+    <path d="M62 118 C40 156 44 196 70 220" />
+    <path d="M194 118 C216 156 212 196 186 220" />
+  </g>
+  <!-- the seed itself, accent, liftable -->
+  <path d="M128 28 C168 82 178 130 178 160 C178 200 156 226 128 226 C100 226 78 200 78 160 C78 130 88 82 128 28 Z"
+        fill="#f59e0b" />
+</svg>

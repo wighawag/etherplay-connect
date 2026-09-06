@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D2 mount r2: a constant holder, a core that is plainly swappable</title>
+  <!-- the holder: constant, accent, squared so it cannot read as a stand -->
+  <g fill="none" stroke="#f59e0b" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M84 46 H44 V210 H84" />
+    <path d="M172 46 H212 V210 H172" />
+  </g>
+  <!-- the core: whoever owns the account, ink, wider than tall so it is no capsule -->
+  <rect x="92" y="86" width="72" height="84" rx="18" fill="currentColor" />
+</svg>

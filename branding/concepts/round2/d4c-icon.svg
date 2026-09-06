@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D4c icon: simplified, the pass-through kept</title>
+  <g fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round">
+    <path d="M24 70 H96" />
+    <path d="M24 128 H96" />
+    <path d="M24 186 H120" />
+    <path d="M186 186 H236" />
+  </g>
+  <path d="M132 52 L208 128 L132 204" fill="none" stroke="#3b82f6" stroke-width="36"
+        stroke-linecap="round" stroke-linejoin="round" />
+</svg>

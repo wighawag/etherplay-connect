@@ -1,0 +1,5 @@
+# Contact sheets and type tests: regenerate with sheet.sh / typesheet.py /
+# lockup-test.py / wordmark-test.py. The SVG variants beside them ARE tracked,
+# because they are the record of what was tried and rejected.
+concepts/*.png
+__pycache__/

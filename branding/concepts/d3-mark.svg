@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D3 seed r2: a hard-edged grain, tilted, leaving the holder it is not fused to</title>
+  <!-- the holder it came out of: open, ink, gap facing the grain -->
+  <path d="M104 196 A56 56 0 1 1 160 140" fill="none" stroke="currentColor"
+        stroke-width="26" stroke-linecap="round" />
+  <!-- the grain: faceted and flat-ended, tilted so it cannot read as a flame -->
+  <g transform="rotate(34 168 92)">
+    <path d="M168 34 L196 68 L196 116 L168 150 L140 116 L140 68 Z" fill="#f59e0b" />
+  </g>
+</svg>

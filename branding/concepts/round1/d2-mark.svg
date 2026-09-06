@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D2 mount: constant holder, interchangeable core</title>
+  <!-- the cradle: constant, accent -->
+  <path d="M52 104 V158 C52 196 86 216 128 216 C170 216 204 196 204 158 V104"
+        fill="none" stroke="#f59e0b" stroke-width="32" stroke-linecap="round" />
+  <!-- the core: whoever owns the account, ink, seated and liftable -->
+  <rect x="90" y="44" width="76" height="128" rx="20" fill="currentColor" />
+</svg>

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <title>Etherplay Connect</title>
+  <desc>Card source with LIVE TEXT. card.svg is this with the text outlined; solve-card.py owns the numbers.</desc>
+  <defs>
+    <radialGradient id="glow" cx="18%" cy="82%" r="62%">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.16" />
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="#13171f" />
+  <rect width="1280" height="640" fill="url(#glow)" />
+
+  <!-- texture: the mark's own chevron, faint, kept wholly inside the 40px safe
+       margin. Cropped at the canvas edge it read as an accident, not as bleed. -->
+  <g fill="none" stroke="#f4f6fb" stroke-opacity="0.045" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M136 48 L216 128 L136 208" stroke-width="32" transform="translate(894 420) scale(0.8)" />
+    <path d="M136 48 L216 128 L136 208" stroke-width="32" transform="translate(972 420) scale(0.8)" />
+    <path d="M136 48 L216 128 L136 208" stroke-width="32" transform="translate(1050 420) scale(0.8)" />
+  </g>
+
+  <!-- the mark: same geometry as logo.svg, light ink. Ink box 252 tall: at 300 it
+       shouted over the wordmark, because this mark is wide (220x192), not square. -->
+  <g id="mark" transform="translate(104.558 152) scale(1.3125)">
+    <g fill="none" stroke="#f4f6fb" stroke-width="28" stroke-linecap="round">
+      <path d="M26 72 H101" />
+      <path d="M26 128 H157" />
+      <path d="M26 184 H101" />
+    </g>
+    <path d="M136 48 L216 128 L136 208" fill="none" stroke="#3b82f6" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <text id="wordmark" x="469.786" y="303.559" font-family="Nunito" font-weight="900" font-size="71.117" fill="#f4f6fb" xml:space="preserve"><tspan fill="#8e97a8">@etherplay/</tspan>connect</text>
+
+  <rect id="rule" x="473.057" y="339" width="120" height="6" rx="3" fill="#3b82f6" />
+
+  <text id="tagline" x="471.409" y="387.362" font-family="Nunito" font-weight="600" font-size="20.1142" fill="#8e97a8" xml:space="preserve">Built-in wallet, hosted account, or connection only. One store.</text>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" style="color:#13171f">
+  <title>D3 icon r2: grain and open holder</title>
+  <path d="M100 204 A62 62 0 1 1 164 142" fill="none" stroke="currentColor"
+        stroke-width="32" stroke-linecap="round" />
+  <g transform="rotate(34 172 88)">
+    <path d="M172 26 L202 62 L202 114 L172 150 L142 114 L142 62 Z" fill="#f59e0b" />
+  </g>
+</svg>
