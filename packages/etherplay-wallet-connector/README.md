@@ -39,8 +39,20 @@ type WalletInfo = {
 	name: string;
 	icon: string;
 	rdns: string;
+	// This wallet answers by itself: it puts nothing on the user's screen and waits for nobody.
+	// Absent means it prompts.
+	autoApproves?: boolean;
 };
+
+// The question the other way round, with the default in one place.
+function walletPrompts(info: WalletInfo | undefined): boolean;
 ```
+
+`autoApproves` is a declaration beside the name and the icon, because it is the same kind of fact: something only the wallet knows, which cannot be inferred from the outside (a generated in-tab key and a browser extension expose the same provider surface). Only a wallet that is CONSTRUCTED with a key it holds itself can honestly set it: a chain running in the browser tab, a burner signer, a custodian answering over RPC.
+
+**Absent means loud**, so every discovered wallet and every existing caller is unaffected. The polarity is deliberate: `if (info.autoApproves)` is the safe reading when the field is missing, whereas a field named `prompts` would make `!info.prompts` claim "never prompts" about every ordinary wallet. Use `walletPrompts(info)` rather than reading the field, so the default is not re-derived per consumer.
+
+It says nothing about speed and nothing about trust. It is exactly the claim "there is no dialog to wait for", and `@etherplay/connect` acts on it in exactly one way: it announces no `PendingRequest` for such a wallet. See [ADR-0005](../../docs/adr/0005-a-wallet-can-declare-that-it-never-prompts.md).
 
 ### ChainInfo
 

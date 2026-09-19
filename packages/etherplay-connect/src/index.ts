@@ -1,12 +1,14 @@
 import type {
 	WalletConnector,
 	WalletHandle,
+	WalletInfo,
 	WalletProvider,
 	PendingRequest,
 	RequestEvent,
 	RequestEventHandler,
 	RequestPurpose,
 } from '@etherplay/wallet-connector';
+import {walletPrompts} from '@etherplay/wallet-connector';
 import {EthereumWalletConnector, type UnderlyingEthereumProvider} from '@etherplay/wallet-connector-ethereum';
 import {writable} from 'sveltore';
 import {createPopupLauncher, type PopupPromise} from './popup.js';
@@ -48,6 +50,12 @@ export type {OriginAccount, AuthMechanism, PermissionRequest, PermissionOutcome,
 // What `wallet.pendingRequests` and `onRequest` are made of. Re-exported so a consumer rendering
 // "your wallet is asking for something" can name WHICH thing without a second dependency.
 export type {PendingRequest, RequestEvent, RequestEventHandler, RequestPurpose};
+
+// What a caller needs to BRING a wallet (`wallets`) or to read what one declared, for the same
+// reason: an app that hands this library a wallet of its own should not need a second dependency
+// to name the shape of the thing it is handing over.
+export type {WalletHandle, WalletInfo, WalletProvider, WalletConnector};
+export {walletPrompts};
 
 export type {UnderlyingEthereumProvider};
 
@@ -271,6 +279,30 @@ function describeAddressUnavailable(details: {
 
 type WalletStateCommon<WalletProviderType> = {
 	provider: WalletProvider<WalletProviderType>;
+	/**
+	 * WHICH wallet this is: the `info` of the handle the provider came from, name, icon and
+	 * `autoApproves` included.
+	 *
+	 * Stamped by `set` rather than supplied, for the same reason `pendingRequests` is (see the ADR): a
+	 * fact that every construction site would otherwise have to remember to copy is a fact in the wrong
+	 * place. No construction site can supply one, because `WalletStateInput` omits it.
+	 *
+	 * It exists because the state that says a wallet is CONNECTED said nothing about which wallet it
+	 * was: a consumer had to take `mechanism.name` and look it up in `wallets` to render the wallet's
+	 * own name, and had to do the same to find out whether that wallet prompts at all. Reading
+	 * `walletPrompts(connection.wallet.info)` is the whole of that question now.
+	 *
+	 * For every state this library builds it is the live wallet's own `info`, taken from the handle
+	 * that was chosen, so it is exact. Two weaker cases exist and are worth knowing about:
+	 *
+	 * - ABSENT. A custom connector may hand over a provider that no announced handle belongs to, and a
+	 *   list in which that provider is ambiguous answers with nothing rather than with a guess. Absent
+	 *   means "not known", which `walletPrompts` reads as the loud default.
+	 * - ONE PUBLISH STALE. A state spread from a published one keeps the `info` it was published with
+	 *   if the handle has since left the list, which beats a state that cannot say which wallet it is
+	 *   about. The next transition re-derives it.
+	 */
+	info?: WalletInfo;
 	accounts: `0x${string}`[];
 	accountChanged?: `0x${string}`;
 	chainId: string;
@@ -298,11 +330,11 @@ type WalletStatus =
 
 export type WalletState<WalletProviderType> = WalletStateCommon<WalletProviderType> & WalletStatus;
 
-// The same wallet state MINUS the deprecated list, which `set` stamps. Nothing inside this file
-// supplies `pendingRequests` when it builds a wallet: that is the whole point of having one
-// construction site, and this type is what stops a hand-written eleventh rebuild from supplying a
-// wrong one instead.
-type WalletStateInput<WalletProviderType> = Omit<WalletStateCommon<WalletProviderType>, 'pendingRequests'> &
+// The same wallet state MINUS the fields `set` stamps: the deprecated request list, and the `info`
+// of the wallet the provider belongs to. Nothing inside this file supplies either when it builds a
+// wallet: that is the whole point of having one construction site, and this type is what stops a
+// hand-written eleventh rebuild from supplying a wrong one instead.
+type WalletStateInput<WalletProviderType> = Omit<WalletStateCommon<WalletProviderType>, 'pendingRequests' | 'info'> &
 	WalletStatus;
 
 // The step types below take the wallet state as a parameter so that the same union can describe
@@ -942,51 +974,64 @@ export type AnyConnectionStore<WalletProviderType> =
 
 // Function overloads for proper typing
 //
-// `walletHost` is optional exactly when no popup can be reached: on both `WalletConnected`
-// overloads (which never sign in) and on the `walletOnly: true` `SignedIn` overloads (where
-// `connect` always defaults the mechanism to `{type: 'wallet'}`, so the mechanism picker is never
-// shown). It stays REQUIRED on the `walletOnly?: false` `SignedIn` overloads, which can reach the
-// hosted email/oauth/mnemonic popups. That split is the promise; see the README section
-// "Wallet-only sign-in with no backend", and `test/types/wallet-only-no-host.types.ts` which fails
-// to compile if it is flattened.
+// ONE OVERLOAD PER CONFIGURATION, and the configuration is named by `targetStep` and `walletOnly`
+// ONLY. Nothing else in the settings selects an overload, which is a property worth stating because
+// it used to be false and cost a consumer real time.
+//
+// There used to be two overloads per configuration, split on `walletConnector`: one requiring it
+// (generic in the provider type) and one requiring it to be ABSENT (pinned to the Ethereum
+// connector). That made an ordinary optional setting into a discriminant, and a discriminant is a
+// thing a caller must spell exactly:
+//
+//   const settings = {...base, ...(connector ? {walletConnector: connector} : {})};
+//   createConnection(settings);                      // matched NEITHER overload
+//   createConnection({...base, walletConnector});    // `WalletConnector<P> | undefined` matched neither
+//   createConnection({...base, walletConnector: undefined}); // silently selected the OTHER one
+//
+// None of those are exotic: they are what building settings conditionally looks like. So the
+// provider type is now a defaulted type parameter and `walletConnector` is an ordinary optional
+// setting. With no connector and no other mention of the provider type there is nothing to infer
+// from, and the default (`UnderlyingEthereumProvider`) applies, which is exactly what the removed
+// overloads said. With a connector, `wallets`, or a `chainInfo` carrying a `provider`, the provider
+// type is inferred from those. `test/types/connection-settings.types.ts` pins all of it, including
+// the three call shapes above.
+//
+// `walletHost` is optional exactly when no popup can be reached: on `WalletConnected` and
+// `WalletChosen` (which never sign in) and on `walletOnly: true` `SignedIn` (where `connect` always
+// defaults the mechanism to `{type: 'wallet'}`, so the mechanism picker is never shown). It stays
+// REQUIRED on the `walletOnly?: false` `SignedIn` overload, which can reach the hosted
+// email/oauth/mnemonic popups. That split is the promise; see the README section "Wallet-only
+// sign-in with no backend", and `test/types/wallet-only-no-host.types.ts` which fails to compile if
+// it is flattened.
 //
 // The `WalletChosen` and `WalletConnected` overloads report `WalletOnly = true`, because that is
 // what the runtime computes: `walletOnly = settings.walletOnly || targetStep === 'WalletChosen' ||
 // targetStep === 'WalletConnected'`, so both stores always expose `walletOnly === true`.
 
-// WalletChosen target with custom wallet connector - walletHost optional
-export function createConnection<WalletProviderType>(settings: {
+// WalletChosen target - walletHost optional
+export function createConnection<WalletProviderType = UnderlyingEthereumProvider>(settings: {
 	targetStep: 'WalletChosen';
 	walletHost?: string;
 	nodeURL?: string;
 	chainInfo: ChainInfo<WalletProviderType>;
-	walletConnector: WalletConnector<WalletProviderType>;
+	walletConnector?: WalletConnector<WalletProviderType> | undefined;
+	// The wallets this app BRINGS. Supplying them replaces discovery: see the implementation
+	// signature below, which is where that is explained.
+	wallets?: WalletHandle<WalletProviderType>[] | undefined;
 	autoConnect?: boolean;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
 	storagePrefix?: string;
 }): ConnectionStore<WalletProviderType, 'WalletChosen', true>;
 
-// WalletChosen target with default Ethereum connector - walletHost optional
-export function createConnection(settings: {
-	targetStep: 'WalletChosen';
-	walletHost?: string;
-	nodeURL?: string;
-	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
-	walletConnector?: undefined;
-	autoConnect?: boolean;
-	prioritizeWalletProvider?: boolean;
-	requestsPerSecond?: number;
-	storagePrefix?: string;
-}): ConnectionStore<UnderlyingEthereumProvider, 'WalletChosen', true>;
-
-// WalletConnected target with custom wallet connector - walletHost optional
-export function createConnection<WalletProviderType>(settings: {
+// WalletConnected target - walletHost optional
+export function createConnection<WalletProviderType = UnderlyingEthereumProvider>(settings: {
 	targetStep: 'WalletConnected';
 	walletHost?: string;
 	nodeURL?: string;
 	chainInfo: ChainInfo<WalletProviderType>;
-	walletConnector: WalletConnector<WalletProviderType>;
+	walletConnector?: WalletConnector<WalletProviderType> | undefined;
+	wallets?: WalletHandle<WalletProviderType>[] | undefined;
 	autoConnect?: boolean;
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	prioritizeWalletProvider?: boolean;
@@ -994,28 +1039,15 @@ export function createConnection<WalletProviderType>(settings: {
 	storagePrefix?: string;
 }): ConnectionStore<WalletProviderType, 'WalletConnected', true>;
 
-// WalletConnected target with default Ethereum connector - walletHost optional
-export function createConnection(settings: {
-	targetStep: 'WalletConnected';
-	walletHost?: string;
-	nodeURL?: string;
-	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
-	walletConnector?: undefined;
-	autoConnect?: boolean;
-	useCurrentAccount?: 'always' | 'whenSingle' | false;
-	prioritizeWalletProvider?: boolean;
-	requestsPerSecond?: number;
-	storagePrefix?: string;
-}): ConnectionStore<UnderlyingEthereumProvider, 'WalletConnected', true>;
-
-// SignedIn target with walletOnly: true (custom wallet connector) - walletHost optional
-export function createConnection<WalletProviderType>(settings: {
+// SignedIn target with walletOnly: true - walletHost optional
+export function createConnection<WalletProviderType = UnderlyingEthereumProvider>(settings: {
 	targetStep?: 'SignedIn';
 	walletOnly: true;
 	walletHost?: string;
 	nodeURL?: string;
 	chainInfo: ChainInfo<WalletProviderType>;
-	walletConnector: WalletConnector<WalletProviderType>;
+	walletConnector?: WalletConnector<WalletProviderType> | undefined;
+	wallets?: WalletHandle<WalletProviderType>[] | undefined;
 	signingOrigin?: string;
 	autoConnect?: boolean;
 	requestSignatureAutomaticallyIfPossible?: boolean;
@@ -1026,32 +1058,15 @@ export function createConnection<WalletProviderType>(settings: {
 	storagePrefix?: string;
 }): ConnectionStore<WalletProviderType, 'SignedIn', true>;
 
-// SignedIn target with walletOnly: true (default Ethereum connector) - walletHost optional
-export function createConnection(settings: {
-	targetStep?: 'SignedIn';
-	walletOnly: true;
-	walletHost?: string;
-	nodeURL?: string;
-	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
-	walletConnector?: undefined;
-	signingOrigin?: string;
-	autoConnect?: boolean;
-	requestSignatureAutomaticallyIfPossible?: boolean;
-	useCurrentAccount?: 'always' | 'whenSingle' | false;
-	prioritizeWalletProvider?: boolean;
-	requestsPerSecond?: number;
-	domainRedirectBridge?: boolean;
-	storagePrefix?: string;
-}): ConnectionStore<UnderlyingEthereumProvider, 'SignedIn', true>;
-
-// SignedIn target (explicit) with custom wallet connector - walletHost required
-export function createConnection<WalletProviderType>(settings: {
+// SignedIn target (the default) - walletHost required
+export function createConnection<WalletProviderType = UnderlyingEthereumProvider>(settings: {
 	targetStep?: 'SignedIn';
 	walletOnly?: false;
 	walletHost: string;
 	nodeURL?: string;
 	chainInfo: ChainInfo<WalletProviderType>;
-	walletConnector: WalletConnector<WalletProviderType>;
+	walletConnector?: WalletConnector<WalletProviderType> | undefined;
+	wallets?: WalletHandle<WalletProviderType>[] | undefined;
 	signingOrigin?: string;
 	// Permissions to ask for at connect time. See `PermissionDeclaration`.
 	permissions?: PermissionDeclaration[];
@@ -1064,26 +1079,6 @@ export function createConnection<WalletProviderType>(settings: {
 	storagePrefix?: string;
 }): ConnectionStore<WalletProviderType, 'SignedIn', false>;
 
-// SignedIn target (default) with default Ethereum connector - walletHost required
-export function createConnection(settings: {
-	targetStep?: 'SignedIn';
-	walletOnly?: false;
-	walletHost: string;
-	nodeURL?: string;
-	chainInfo: ChainInfo<UnderlyingEthereumProvider>;
-	walletConnector?: undefined;
-	signingOrigin?: string;
-	// Permissions to ask for at connect time. See `PermissionDeclaration`.
-	permissions?: PermissionDeclaration[];
-	autoConnect?: boolean;
-	requestSignatureAutomaticallyIfPossible?: boolean;
-	useCurrentAccount?: 'always' | 'whenSingle' | false;
-	prioritizeWalletProvider?: boolean;
-	requestsPerSecond?: number;
-	domainRedirectBridge?: boolean;
-	storagePrefix?: string;
-}): ConnectionStore<UnderlyingEthereumProvider, 'SignedIn', false>;
-
 // Implementation signature
 export function createConnection<WalletProviderType = UnderlyingEthereumProvider>(settings: {
 	targetStep?: TargetStep;
@@ -1093,7 +1088,36 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	permissions?: PermissionDeclaration[];
 	walletHost?: string;
 	autoConnect?: boolean;
-	walletConnector?: WalletConnector<WalletProviderType>;
+	walletConnector?: WalletConnector<WalletProviderType> | undefined;
+	/**
+	 * The wallets this app BRINGS, instead of the ones the page happens to have.
+	 *
+	 * Supplying this REPLACES discovery: the connector's `fetchWallets` is not called, no
+	 * `eip6963:requestProvider` is dispatched, and `connection.wallets` is exactly this list, INCLUDING
+	 * WHEN IT IS EMPTY. `wallets: []` is a connection about no wallets, not a connection that falls
+	 * back to discovery, because `wallets: maybeList ?? []` must not quietly enrol every extension in
+	 * the page into a connection the caller meant to keep to itself. Pass `undefined` (or nothing) to
+	 * ask for discovery. That is
+	 * the point rather than a side effect. A wallet an app constructs (a chain running in the tab
+	 * with a key it generated, a burner signer, a test double) is not a member of the same population
+	 * as the extensions a user installed: it belongs to ONE connection, and announcing it into a
+	 * page-wide list, or letting page-wide announcements into this connection's list, mixes two
+	 * populations that answer for different things. An app that wants both runs two connections, or
+	 * supplies a list containing both.
+	 *
+	 * With ONE wallet supplied, no picker can ever be shown: `connect({type: 'wallet'})` resolves the
+	 * name from the single entry, exactly as it does for a single installed wallet.
+	 *
+	 * The handles are used as given and never mutated. `info.autoApproves` is how such a wallet says
+	 * it prompts for nothing, which is usually true of one an app constructs: see `WalletInfo`.
+	 *
+	 * This exists so that bringing a wallet does not require SUBCLASSING a connector. The alternative
+	 * a consumer had was to extend `EthereumWalletConnector` and override `fetchWallets` to announce
+	 * one handle, inheriting `createAlwaysOnProvider` and `accountGenerator` unchanged: a class whose
+	 * entire content was a list. `walletConnector` remains the right answer for a DIFFERENT CHAIN
+	 * FAMILY, which is what it is for.
+	 */
+	wallets?: WalletHandle<WalletProviderType>[] | undefined;
 	requestSignatureAutomaticallyIfPossible?: boolean;
 	useCurrentAccount?: 'always' | 'whenSingle' | false;
 	nodeURL?: string;
@@ -1156,6 +1180,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	const requestSignatureAutomaticallyIfPossible =
 		targetStep === 'SignedIn' ? settings.requestSignatureAutomaticallyIfPossible || false : false;
 
+	// Whether each in-flight request is one the user will ever be asked about, decided once when it
+	// starts. Declared up here because the first published state already reads the list. See `silenced`
+	// below for what puts an entry in it and why both answers are recorded.
+	const requestSilencing = new Map<string, boolean>();
+
 	// The list as last published. Kept so that an UNCHANGED list keeps its identity across publishes:
 	// the wrapper hands back a fresh array every call, and publishing a new array (and so a new
 	// `wallet` object) on every unrelated `set` would invalidate `derived` stores, `{#key}` blocks and
@@ -1163,7 +1192,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// `PendingRequest` is created once and never mutated.
 	let publishedPendingRequests: PendingRequest[] = [];
 	function currentPendingRequests(): PendingRequest[] {
-		const latest = alwaysOnProviderWrapper.getPendingRequests();
+		const latest = alwaysOnProviderWrapper
+			.getPendingRequests()
+			.filter((request) => requestSilencing.get(request.id) !== true);
 		if (
 			latest.length === publishedPendingRequests.length &&
 			latest.every((request, i) => request === publishedPendingRequests[i])
@@ -1229,14 +1260,30 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		// `{#key}` blocks and effect dependencies do not re-run on an unrelated publish.
 		const incomingWallet = connection.wallet as WalletStateInput<WalletProviderType> & {
 			pendingRequests?: PendingRequest[];
+			info?: WalletInfo;
 		};
+		// WHICH wallet this provider belongs to.
+		//
+		// The live wallet's own `info` when the state is about the live wallet, which is every state this
+		// library builds and is the EXACT answer: it came from the handle that was chosen, rather than
+		// from a scan over a list where provider identity may not be unique.
+		//
+		// The scan is the fallback for anything else, and what the caller spread in is the fallback after
+		// that, so a state rebuilt from a published one keeps the `info` it was published with even once
+		// the handle has left the list. That last one is deliberately allowed to be STALE: a name that is
+		// one publish old is better than a state that cannot say which wallet it is about, and the field
+		// is re-derived on the next transition.
+		const info =
+			(_wallet && _wallet.provider === connection.wallet.provider ? _wallet.info : undefined) ??
+			walletInfoIn(connection.wallets, connection.wallet.provider) ??
+			incomingWallet.info;
 		$connection = {
 			...connection,
 			pendingRequests,
 			wallet:
-				incomingWallet.pendingRequests === pendingRequests
+				incomingWallet.pendingRequests === pendingRequests && incomingWallet.info === info
 					? (incomingWallet as WalletState<WalletProviderType>)
-					: {...connection.wallet, pendingRequests},
+					: {...connection.wallet, pendingRequests, info},
 		};
 		_store.set($connection);
 		return $connection;
@@ -1262,12 +1309,78 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// disconnect followed by a reconnect left the app blind to every subsequent wallet prompt. The
 	// wrapper is created here and lives exactly as long as this connection, so there is nothing to
 	// release.
-	alwaysOnProviderWrapper.onRequest(() => {
+	alwaysOnProviderWrapper.onRequest((event) => {
+		// Decide, and RECORD, whether this request is one the user will ever be asked about, before the
+		// list below is read. See `silenced`.
+		silenced(event);
 		// Republish. `set` re-reads the wrapper, so this needs to say nothing about the list itself,
 		// and it must run whether or not a wallet is currently in the state: a request outstanding
 		// while the flow rests on `wallet: undefined` is exactly the case that used to go unreported.
 		set($connection);
 	});
+
+	// NOTHING CAN BE OUTSTANDING WITH A WALLET THAT ANSWERS BY ITSELF.
+	//
+	// `pendingRequests` means "your wallet is holding something and is waiting for you", and every
+	// consumer renders it as a question on the user's screen: a modal saying the wallet will ask them
+	// to confirm, a cancel affordance, an unload guard. A wallet that declares `info.autoApproves`
+	// signs with no dialog, so all three describe an event that does not happen, and each consumer
+	// would otherwise have to infer that for itself from a fact only the wallet knows.
+	//
+	// So the announcement is dropped HERE, at the connection, and not in the wrapper. The wrapper's
+	// own bookkeeping stays honest and complete (it is what tells a request's end from its start, and
+	// it is per-connector, so silencing there would have to be implemented again by every connector).
+	// This library's published surface is the one that claims a user is being asked, and it is the one
+	// that stops claiming it.
+	//
+	// The decision is made ONCE, when the request STARTS, and then remembered by id. A request can
+	// outlive the wallet that started it (the user is free to switch wallet while one is outstanding,
+	// see the ADR), and "was anybody ever going to be asked about this" is a fact about the wallet that
+	// TOOK it, not about whichever wallet is current when it ends. Deciding again at the end would
+	// silence a real prompt, or announce the end of something never announced as started.
+	//
+	// `walletPrompts` is the default: a wallet that says nothing prompts, so every existing caller and
+	// every discovered wallet is untouched by this.
+	function activeWalletAutoApproves(): boolean {
+		// `_wallet.info` and not a lookup: see the declaration of `_wallet`. This is the one answer that
+		// must not be guessed, because guessing it wrong in the silencing direction hides a prompt the
+		// user is looking at.
+		return !!_wallet && !walletPrompts(_wallet.info);
+	}
+	/**
+	 * Is this event about a request the user was never going to see?
+	 *
+	 * Idempotent, and order-independent: the store's own subscription and every consumer subscription
+	 * ask, in whatever order they were registered, and the first to ask about a `requestStart` is the
+	 * one that decides. Every later ask reads that decision back, INCLUDING A NEGATIVE ONE.
+	 *
+	 * Recording the negative answer too is what makes the order not matter. The decision is a question
+	 * about the live wallet, and publishing between handlers (the store's own subscription calls `set`,
+	 * which runs consumer subscribers synchronously) is an opportunity for the live wallet to change
+	 * under the remaining handlers. Nothing reachable today flips it in that window, but a half-silenced
+	 * request is exactly the split this feature exists to avoid: announced on `pendingRequests` and
+	 * missing from `onRequest`, or the reverse.
+	 */
+	function silenced(event: RequestEvent): boolean {
+		const decided = requestSilencing.get(event.request.id);
+		if (decided !== undefined) {
+			if (event.type === 'requestEnd') {
+				// Forgotten only once every handler has been given this event, so that a consumer cannot be
+				// handed the END of a request whose START it never saw. A native microtask rather than a
+				// timer: the whole synchronous emit loop has run by then, and no test clock can defer it.
+				Promise.resolve().then(() => requestSilencing.delete(event.request.id));
+			}
+			return decided;
+		}
+		if (event.type !== 'requestStart') {
+			// An end with no decision on record is a request that started before this connection was
+			// listening. It was never silenced, so it is not silenced now.
+			return false;
+		}
+		const silence = activeWalletAutoApproves();
+		requestSilencing.set(event.request.id, silence);
+		return silence;
+	}
 	// Where the flow comes to rest when a connection attempt fails.
 	//
 	// The rule: rest on the step that offers the user a real next decision, and never on a step this app has
@@ -1429,7 +1542,21 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// ask.
 	let walletAnnouncements = 0;
 
-	let _wallet: {provider: WalletProvider<WalletProviderType>; chainId: string} | undefined;
+	// THE LIVE WALLET, and WHICH wallet it is.
+	//
+	// `info` is carried here, from the handle that was chosen, rather than looked up from the provider
+	// when it is needed. The lookup is a scan of `wallets` by provider identity, and provider identity
+	// is not a key: two handles supplied by a caller may wrap the SAME provider object under different
+	// names, at which point the scan answers with whichever comes first. That is a wrong name on the
+	// published state, and, worse, a wrong answer to "does this wallet prompt", which could silence a
+	// request the user is genuinely being asked about. Every site that registers a wallet has the
+	// handle in hand, so the exact answer is free.
+	//
+	// The key is REQUIRED (and may hold `undefined`) so that a new registration site has to say what it
+	// knows rather than inherit a default by forgetting.
+	let _wallet:
+		| {provider: WalletProvider<WalletProviderType>; chainId: string; info: WalletInfo | undefined}
+		| undefined;
 
 	let popup: PopupPromise<OriginAccount> | undefined;
 
@@ -1453,18 +1580,59 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		return !!a.info.rdns && a.info.rdns === b.info.rdns;
 	}
 
-	function fetchWallets() {
-		walletConnector.fetchWallets((detail) => {
-			const existingWallets = $connection.wallets;
-			if (existingWallets.some((existing) => isSameWallet(existing, detail))) {
-				return;
-			}
+	function announceWallet(detail: WalletHandle<WalletProviderType>) {
+		const existingWallets = $connection.wallets;
+		if (existingWallets.some((existing) => isSameWallet(existing, detail))) {
+			return;
+		}
 
-			set({
-				...$connection,
-				wallets: [...existingWallets, detail],
-			});
+		set({
+			...$connection,
+			wallets: [...existingWallets, detail],
 		});
+	}
+
+	// WHERE THIS CONNECTION'S WALLETS COME FROM: the caller, or the page.
+	//
+	// A caller that supplies `wallets` gets exactly those and DISCOVERY IS NOT RUN, so no
+	// `eip6963:requestProvider` is dispatched and no installed extension can announce itself into this
+	// list. See the setting's doc on the implementation signature: a wallet the app constructed and a
+	// wallet the user installed are two different populations, and the whole reason to supply one is
+	// to say which of them this connection is about.
+	//
+	// The supplied handles go through the same `announceWallet` as discovered ones, so a caller that
+	// hands over the same wallet twice gets it once, exactly as a wallet announcing itself twice does.
+	function fetchWallets() {
+		// `!== undefined`, so an EMPTY supplied list is still a supplied list: see the setting's doc.
+		if (settings.wallets !== undefined) {
+			for (const walletHandle of settings.wallets) {
+				announceWallet(walletHandle);
+			}
+			return;
+		}
+		walletConnector.fetchWallets(announceWallet);
+	}
+
+	/**
+	 * The `info` of the announced handle this provider belongs to, or NOTHING IF IT IS AMBIGUOUS.
+	 *
+	 * The fallback for a wallet this connection did not register itself (a custom connector may hand
+	 * over a provider without a handle behind it), which is why it is a scan rather than a key lookup:
+	 * provider identity is not a key, and a caller supplying two handles that wrap the same provider
+	 * object under different names makes it answer with whichever comes first.
+	 *
+	 * So an ambiguous scan answers with nothing at all. Absent is read as the LOUD default everywhere
+	 * it matters, which is the direction a wrong guess must fail in: naming the wrong wallet is a
+	 * cosmetic error, while inheriting the wrong wallet's `autoApproves` would silence a request the
+	 * user is genuinely being asked about. `_wallet.info` is the exact answer and is preferred over
+	 * this wherever it is available.
+	 */
+	function walletInfoIn(
+		wallets: WalletHandle<WalletProviderType>[],
+		provider: WalletProvider<WalletProviderType>,
+	): WalletInfo | undefined {
+		const matches = wallets.filter((walletHandle) => walletHandle.walletProvider === provider);
+		return matches.length === 1 ? matches[0].info : undefined;
 	}
 
 	function waitForWallet(name: string): Promise<WalletHandle<WalletProviderType>> {
@@ -1527,7 +1695,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									const walletProvider = walletDetails.walletProvider;
 									const chainIdAsHex = await withTimeout(walletProvider.getChainId());
 									const chainId = Number(chainIdAsHex).toString();
-									_wallet = {provider: walletProvider, chainId};
+									_wallet = {provider: walletProvider, chainId, info: walletDetails.info};
 									alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
 									watchForChainIdChange(_wallet.provider);
 									let accounts: `0x${string}`[] = [];
@@ -1582,7 +1750,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								const walletProvider = walletDetails.walletProvider;
 								const chainIdAsHex = await withTimeout(walletProvider.getChainId());
 								const chainId = Number(chainIdAsHex).toString();
-								_wallet = {provider: walletProvider, chainId};
+								_wallet = {provider: walletProvider, chainId, info: walletDetails.info};
 								alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
 								alwaysOnProviderWrapper.setWalletStatus('disconnected');
 								watchForChainIdChange(_wallet.provider);
@@ -1624,7 +1792,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								const walletProvider = walletDetails.walletProvider;
 								const chainIdAsHex = await withTimeout(walletProvider.getChainId());
 								const chainId = Number(chainIdAsHex).toString();
-								_wallet = {provider: walletProvider, chainId};
+								_wallet = {provider: walletProvider, chainId, info: walletDetails.info};
 								alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
 								watchForChainIdChange(_wallet.provider);
 
@@ -2087,7 +2255,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		// same event identically. An empty accounts answer has no `cause` to derive anything from.
 		reason: ConnectionFailureReason,
 		chosenMechanism: WalletMechanism<string, undefined> | undefined,
-		chosenWallet: {provider: WalletProvider<WalletProviderType>; chainId: string} | undefined,
+		chosenWallet:
+			| {provider: WalletProvider<WalletProviderType>; chainId: string; info: WalletInfo | undefined}
+			| undefined,
 	): boolean {
 		if (!chosenMechanism || !chosenWallet) {
 			return false;
@@ -2101,7 +2271,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		// The fresher chainId wins: `onChainChanged` keeps updating the live `_wallet`, so when
 		// the attempt was on the same provider its chainId may be newer than the captured one.
 		const chainId = _wallet && _wallet.provider === chosenWallet.provider ? _wallet.chainId : chosenWallet.chainId;
-		_wallet = {provider: chosenWallet.provider, chainId};
+		_wallet = {provider: chosenWallet.provider, chainId, info: chosenWallet.info};
 		stopWatchingForAccountChange(_wallet.provider);
 		// Re-establish what the start of connect() tore down. If the failure happened early
 		// (getChainId threw), the wrapper provider and the chain watcher were never
@@ -2292,6 +2462,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 							_wallet = {
 								chainId,
 								provider,
+								info: wallet.info,
 							};
 							// TODO
 							alwaysOnProviderWrapper.setWalletProvider(_wallet.provider.underlyingProvider);
@@ -3361,7 +3532,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			const provider = wallet.walletProvider;
 			const chainIdAsHex = await withTimeout(provider.getChainId());
 			const chainId = Number(chainIdAsHex).toString();
-			_wallet = {chainId, provider};
+			_wallet = {chainId, provider, info: wallet.info};
 			alwaysOnProviderWrapper.setWalletProvider(provider.underlyingProvider);
 			alwaysOnProviderWrapper.setWalletStatus('disconnected');
 			watchForChainIdChange(provider);
@@ -3807,7 +3978,17 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		provider: alwaysOnProviderWrapper.provider,
 		chainId: '' + settings.chainInfo.id,
 		chainInfo: settings.chainInfo,
-		onRequest: (handler: RequestEventHandler) => alwaysOnProviderWrapper.onRequest(handler),
+		// Wrapped rather than passed straight through, so that a consumer driving its own UI from the
+		// event stream sees exactly what `pendingRequests` shows: nothing at all for a wallet that
+		// answers by itself. A consumer given the END of a request whose START it never saw would be
+		// asked to close a dialog it never opened, so both halves are dropped or neither is.
+		onRequest: (handler: RequestEventHandler) =>
+			alwaysOnProviderWrapper.onRequest((event) => {
+				if (silenced(event)) {
+					return;
+				}
+				handler(event);
+			}),
 	};
 
 	return store as ConnectionStore<WalletProviderType, TargetStep, boolean>;

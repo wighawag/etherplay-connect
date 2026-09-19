@@ -2,7 +2,50 @@ export type WalletHandle<UnderlyingProvider> = {
 	walletProvider: WalletProvider<UnderlyingProvider>;
 	info: WalletInfo;
 };
-export type WalletInfo = {uuid: string; name: string; icon: string; rdns: string};
+export type WalletInfo = {
+	uuid: string;
+	name: string;
+	icon: string;
+	rdns: string;
+	/**
+	 * This wallet ANSWERS BY ITSELF: it puts nothing on the user's screen and waits for nobody.
+	 *
+	 * A declaration, beside the name and the icon, because it is the same kind of fact: something
+	 * only the wallet knows and every consumer would otherwise have to re-infer. An app that renders
+	 * "your wallet will ask you to confirm this in a moment", a connect prompt, or an account picker
+	 * is describing an interaction that, for such a wallet, never happens, and it cannot tell from the
+	 * outside: a generated in-tab key and a browser extension expose the same provider surface.
+	 *
+	 * ABSENT MEANS LOUD. Every wallet this library discovers over EIP-6963 is an ordinary wallet that
+	 * may prompt, so the field is optional and its absence is the existing behaviour. Only a wallet
+	 * that is CONSTRUCTED with a key it holds itself (a chain running in the tab, a burner signer,
+	 * a server-side custodian answering over RPC) can honestly set it.
+	 *
+	 * Polarity is deliberate. `autoApproves` is the exceptional claim, so the safe reading
+	 * (`if (info.autoApproves)`) is also the correct one when the field is missing. A field named
+	 * `prompts` would make the common case the one nobody writes, and `!info.prompts` would then read
+	 * "never prompts" about every ordinary wallet in existence. Use `walletPrompts(info)` to ask the
+	 * question the other way round without repeating the polarity.
+	 *
+	 * It says nothing about SPEED and nothing about TRUST: a wallet that answers instantly because it
+	 * holds the key is still the thing signing, and a user who cannot see the request cannot refuse
+	 * it. It is exactly the claim "there is no dialog to wait for", and `@etherplay/connect` acts on
+	 * it in exactly one way: it does not announce a `PendingRequest` for a wallet that makes it.
+	 */
+	autoApproves?: boolean;
+};
+
+/**
+ * Will this wallet put something on the user's screen that they have to answer?
+ *
+ * The question consumers actually ask, written once so that the default ("yes, assume it does")
+ * lives in one place rather than at every `!info.autoApproves` in every app. An unknown wallet
+ * prompts: that is the assumption every wallet UI was written under, and the only safe one.
+ */
+export function walletPrompts(info: WalletInfo | undefined): boolean {
+	return !info?.autoApproves;
+}
+
 export type ChainInfo = Readonly<{
 	chainId: `0x${string}`;
 	rpcUrls?: readonly string[];

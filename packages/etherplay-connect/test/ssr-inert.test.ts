@@ -239,6 +239,46 @@ describe('SSR / construction inertness (no DOM globals)', () => {
 		sessionStorageTrip.cleanup();
 	});
 
+	it('constructs with SUPPLIED wallets off-browser, and publishes them', () => {
+		// Supplied wallets are announced during construction, so `set` now runs in a DOM-less
+		// environment on a path that used to do nothing there (discovery is `typeof window` guarded
+		// inside the connector, and never reached the store off-browser).
+		//
+		// The published value therefore DIFFERS from the empty-list contract above, and deliberately:
+		// a wallet the app brought exists on the server too, so reporting it is the same answer on
+		// both sides and hydration still matches. What must not change is the inertness: no storage,
+		// no timers, no throw.
+		assertNoDomGlobals();
+
+		const localStorageTrip = installStorageTripwire('localStorage');
+		const sessionStorageTrip = installStorageTripwire('sessionStorage');
+
+		const handle = {
+			info: {uuid: 'ssr-wallet', name: 'SSR Wallet', icon: '', rdns: 'com.example.ssr', autoApproves: true},
+			walletProvider: {} as never,
+		};
+
+		let store: ReturnType<typeof createConnection>;
+		const timers = trackTimersDuring(() => {
+			store = constructSafely({
+				targetStep: 'WalletConnected',
+				chainInfo,
+				autoConnect: true,
+				wallets: [handle],
+			});
+		});
+
+		const value = snapshot(store);
+		expect(value).toEqual({step: 'Idle', loading: true, wallets: [handle], pendingRequests: []});
+
+		expect(localStorageTrip.wasAccessed(), 'localStorage was touched during construction').toBe(false);
+		expect(sessionStorageTrip.wasAccessed(), 'sessionStorage was touched during construction').toBe(false);
+		expect(timers.pending(), 'construction left a timer/interval pending').toBe(0);
+
+		localStorageTrip.cleanup();
+		sessionStorageTrip.cleanup();
+	});
+
 	it('keeps loading:true off-browser because the auto-connect block is window-guarded (matches first browser render)', () => {
 		assertNoDomGlobals();
 

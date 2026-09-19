@@ -395,7 +395,8 @@ const hasSigner = connection.targetStep === 'SignedIn';
 | `walletHost`                              | `string`                                            | Conditional | URL for popup-based auth. Required for `targetStep: 'SignedIn'` **unless** `walletOnly: true`; never used by `targetStep: 'WalletConnected'` or `'WalletChosen'`. See [Supported connection shapes](#supported-connection-shapes) |
 | `signingOrigin`                           | `string`                                            | No          | Sign for ANOTHER origin's account (defaults to the current origin). Refused unless that origin consents; see [Signing for another origin](#signing-for-another-origin)                                                            |
 | `autoConnect`                             | `boolean`                                           | No          | Auto-reconnect returning users (default: `true`)                                                                                                                                                                                  |
-| `walletConnector`                         | `WalletConnector`                                   | No          | Custom wallet connector (defaults to Ethereum)                                                                                                                                                                                    |
+| `walletConnector`                         | `WalletConnector`                                   | No          | Custom wallet connector (defaults to Ethereum). For a different **chain family**, not for a different list of wallets                                                                                                             |
+| `wallets`                                 | `WalletHandle[]`                                    | No          | The wallets this app **brings**. Supplying them replaces EIP-6963 discovery for this connection; see [Bringing your own wallet](#bringing-your-own-wallet)                                                                        |
 | `requestSignatureAutomaticallyIfPossible` | `boolean`                                           | No          | Auto-request signature after wallet connection                                                                                                                                                                                    |
 | `useCurrentAccount`                       | `'always' \| 'whenSingle'`                          | No          | Always use current wallet account                                                                                                                                                                                                 |
 | `prioritizeWalletProvider`                | `boolean`                                           | No          | Prioritize wallet for RPC calls                                                                                                                                                                                                   |
@@ -495,6 +496,92 @@ You do not need to share a `walletConnector` between connections. EIP-6963 disco
 
 > Known limitation, unchanged: the Ethereum connector listens for EIP-6963 announcements for 100 ms after construction. A wallet that announces later than that is not listed.
 
+## Bringing your own wallet
+
+Some wallets are not installed by the user, they are **constructed by the app**: a chain running in the browser tab with a key it generated, a burner signer, a custodian answering over RPC, a test double. Pass them as `wallets` and this connection is about exactly those.
+
+```typescript
+import {createConnection, type WalletHandle} from '@etherplay/connect';
+
+const worldWallet: WalletHandle<UnderlyingEthereumProvider> = {
+	info: {
+		uuid: 'world:1',
+		name: 'World Wallet',
+		icon: '',
+		rdns: 'io.example.world',
+		// It holds its own key and signs with no dialog. See "Wallets that never prompt" below.
+		autoApproves: true,
+	},
+	walletProvider: myWorldWalletProvider,
+};
+
+export const world = createConnection({
+	// `provider` instead of `rpcUrls`: the chain is in the tab. It is read lazily, per request.
+	// This one is an Ethereum-family provider, so the default connector is the right one; pair a
+	// provider of another chain family with the `walletConnector` that speaks for it.
+	chainInfo: {id: 31337, name: 'World', provider: worldChainProvider},
+	targetStep: 'WalletConnected',
+	storagePrefix: 'world:',
+	wallets: [worldWallet],
+});
+
+// One wallet, so no picker is ever shown: the name is resolved from the single entry.
+await world.ensureConnected();
+```
+
+**Supplying `wallets` replaces discovery for that connection.** No `eip6963:requestProvider` is dispatched, no announcement is listened for, and `connection.wallets` is exactly the list you passed. That is the point rather than a side effect: a wallet your app constructed belongs to ONE connection, while EIP-6963 is page-wide, and mixing the two populations is not something a consumer can undo afterwards. To offer both, run two connections (each with its own `storagePrefix`) or pass a list containing both.
+
+Discovery is the default and is untouched for every caller that passes no `wallets`.
+
+**`wallets: []` means "no wallets", not "discover some".** An empty list is still a supplied list, because `wallets: maybeList ?? []` and `wallets: list.filter(...)` are ordinary things to write, and falling back to discovery there would quietly enrol every extension in the page into a connection you meant to keep to itself. Pass `undefined`, or omit the key, to ask for discovery.
+
+**You do not need a custom `walletConnector` for this.** `walletConnector` is for a different **chain family**, where the provider type, the always-on provider and the account derivation change together. Subclassing one only to replace the list of wallets is the ceremony this setting removes.
+
+### The settings object does not discriminate
+
+`walletConnector` and `wallets` are ordinary optional settings: only `targetStep` and `walletOnly` select an overload. So all of these compile, and all mean what they look like:
+
+```typescript
+createConnection({...base, walletConnector: maybeConnector}); // WalletConnector | undefined
+createConnection({...base, walletConnector: undefined}); // same as omitting it
+createConnection({...base, ...(useCustom ? {walletConnector} : {})}); // conditionally present
+```
+
+Both settings are declared `?: T | undefined`, so the second form also compiles in an app using `exactOptionalPropertyTypes: true`.
+
+(This was not always true: `walletConnector` used to select between two overloads, so the first two forms matched none and the third silently picked the other one. `test/types/connection-settings.types.ts` keeps it true.)
+
+## Wallets that never prompt
+
+A wallet can declare that it asks the user nothing:
+
+```typescript
+info: {uuid, name, icon, rdns, autoApproves: true}
+```
+
+`autoApproves` means there is no dialog to wait for: the wallet holds its own key and answers by itself. **Absent means it prompts**, which is every wallet discovered over EIP-6963, so nothing changes for existing wallets or callers.
+
+Read it with `walletPrompts`, which puts that default in one place:
+
+```typescript
+import {walletPrompts} from '@etherplay/connect';
+
+connection.subscribe(($connection) => {
+	// On the wallet you are connected to...
+	const willAsk = walletPrompts($connection.wallet?.info);
+	// ...or on any wallet in the list, e.g. before rendering a picker row.
+	const rows = $connection.wallets.map((w) => ({name: w.info.name, prompts: walletPrompts(w.info)}));
+});
+```
+
+`connection.wallet.info` is the `info` of the handle the connected provider came from, stamped by the library, so "which wallet is this" and "does it ask the user anything" are both answerable without matching `mechanism.name` against `wallets` by hand.
+
+**The library acts on the declaration in exactly one way: it announces no `PendingRequest` for such a wallet.** `connection.pendingRequests` stays empty and `connection.onRequest` emits nothing, because that list means "your wallet is holding something and is waiting for you", and nothing can be outstanding with a wallet that answers synchronously. A modal saying "your wallet will ask you to confirm this in a moment" is describing an event that never happens.
+
+The decision is made when a request STARTS and kept for its lifetime, so switching wallet mid-request cannot silence a prompt that is genuinely on the user's screen, nor announce one that never was.
+
+Nothing else in the flow changes: the connect flow, `WaitingForSignature`, and the account picker behave exactly as they do for any other wallet. If your app wants to skip those for a silent wallet, `requestSignatureAutomaticallyIfPossible`, `useCurrentAccount` and your own rendering are the controls, and reading `walletPrompts` is how you decide. See `docs/adr/0005-a-wallet-can-declare-that-it-never-prompts.md`.
+
 ## Connection States
 
 The connection follows a state machine with these primary steps:
@@ -537,6 +624,8 @@ When connected via wallet, additional state is available:
 ```typescript
 interface WalletState {
 	provider: WalletProvider;
+	// Which wallet this is: name, icon, and `autoApproves`. Stamped from the announced handle.
+	info?: WalletInfo;
 	accounts: `0x${string}`[];
 	accountChanged?: `0x${string}`; // Set if user switched accounts
 	chainId: string;
@@ -570,6 +659,8 @@ connection.subscribe(($connection) => {
 The prompt is on the user's screen throughout. Reading the list off `wallet` meant losing it in exactly those moments, which is the bug this replaces: see `docs/adr/0001-wallet-requests-are-announced-through-the-wrapper.md`.
 
 `wallet.pendingRequests` is still populated, is always the same list, and is **deprecated**. Move to `connection.pendingRequests`; the wallet-level copy will go in a later major version.
+
+A wallet that declares `info.autoApproves` announces nothing here at all: see [Wallets that never prompt](#wallets-that-never-prompt). Nothing can be outstanding with a wallet that answers by itself, and the empty list is the honest one.
 
 One request is deliberately NOT announced here: the sign-in signature, which has its own `step: 'WaitingForSignature'`. Consumers open a "please sign" dialog from that step and a separate modal from this list, so announcing it in both would stack two. The ADR records that exception and why it is the only one.
 
@@ -847,7 +938,7 @@ In a Svelte app the `$` auto-subscription and helpers such as `get`/`derived` fr
 
 - **Construction never throws and does no I/O.** No `window`, `document`, `localStorage`, `sessionStorage`, `navigator`, `crypto`, timers, intervals, or network requests are touched during `createConnection(...)`. The only thing it builds is in-memory state.
 - **Nothing auto-connects without a `window`.** The entire auto-connect block (which reads saved accounts / last wallet from `localStorage` and polls installed wallets) is behind a `typeof window !== 'undefined'` guard, as is `fetchWallets()` in the Ethereum connector. Off-browser both are no-ops.
-- **The store rests at `{step: 'Idle', loading: true, wallets: [], pendingRequests: []}`.** This is the exact same value a browser renders on its very first paint (before the auto-connect promise has resolved), so a server-rendered app hydrates with no store mismatch.
+- **The store rests at `{step: 'Idle', loading: true, wallets: [], pendingRequests: []}`.** This is the exact same value a browser renders on its very first paint (before the auto-connect promise has resolved), so a server-rendered app hydrates with no store mismatch. With [supplied `wallets`](#bringing-your-own-wallet) the list holds them instead of being empty, on the server as on the client: a wallet your app brought exists in both, so the two still agree.
 
 ### Why `loading` stays `true` off-browser
 
