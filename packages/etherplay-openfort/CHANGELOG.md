@@ -1,5 +1,13 @@
 # @etherplay/openfort
 
+## 0.5.3
+
+### Patch Changes
+
+- Updated dependencies [233304b]
+  - @etherplay/wallet-connector@0.2.0
+  - @etherplay/connect-core@0.7.3
+
 ## 0.5.2
 
 ### Patch Changes

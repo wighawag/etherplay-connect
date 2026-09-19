@@ -1,5 +1,12 @@
 # @etherplay/connect-core
 
+## 0.7.3
+
+### Patch Changes
+
+- Updated dependencies [233304b]
+  - @etherplay/wallet-connector@0.2.0
+
 ## 0.7.2
 
 ### Patch Changes
