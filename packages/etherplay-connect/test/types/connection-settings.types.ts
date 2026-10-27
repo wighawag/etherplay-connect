@@ -144,7 +144,7 @@ export type _InferredFromTheConnector = Expect<
 // WHAT THIS ONE PINS IS A KNOWN-UNSOUND INFERENCE, recorded rather than endorsed.
 //
 // With no connector, the runtime uses the default Ethereum one, so `store.provider` is that
-// connector's `CurriedRPC<Methods>` while the type here says `CustomProvider`. Under the removed
+// connector's `UnderlyingEthereumProvider` while the type here says `CustomProvider`. Under the removed
 // overloads this call did not compile at all; the collapse that made `walletConnector` a normal
 // optional setting is what lets it through, and ADR-0005 accepts that as the price (it can only
 // reach a caller who was already pairing a foreign provider with the Ethereum connector).

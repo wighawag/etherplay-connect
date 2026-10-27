@@ -80,9 +80,9 @@ export function fromPrivateKey(key: string | Uint8Array): string {
  * bare `CurriedRPC<Methods>` is not assignable to any eip-1193 0.7 provider type, and an app could
  * not pass it to a library slot typed `EIP1193CoreProvider` (`@etherkit/tx-observer`, etherfold,
  * rocketh). The runtime object answers every `request` the wallet does, so the eip-1193 half is a
- * true description of it. `asUnderlyingEthereumProvider` (utils.ts) is the one place that asserts it.
+ * true description of it. The eip-1193 half comes first so that `request` resolves with eip-1193 0.7's (narrower) result types. `asUnderlyingEthereumProvider` (utils.ts) is the one place that asserts it.
  */
-export type UnderlyingEthereumProvider = CurriedRPC<Methods> & EIP1193WalletProvider;
+export type UnderlyingEthereumProvider = EIP1193WalletProvider & CurriedRPC<Methods>;
 
 interface EIP6963ProviderInfo {
 	uuid: string;

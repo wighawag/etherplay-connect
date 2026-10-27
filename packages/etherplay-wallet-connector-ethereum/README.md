@@ -129,18 +129,18 @@ connector.fetchWallets(async (walletHandle) => {
 
 ### EthereumWalletConnector
 
-Main connector class implementing `WalletConnector<CurriedRPC<Methods>>`:
+Main connector class implementing `WalletConnector<UnderlyingEthereumProvider>`:
 
 ```typescript
 class EthereumWalletConnector {
 	accountGenerator: AccountGenerator;
-	fetchWallets(walletAnnounced: (walletHandle: WalletHandle<CurriedRPC<Methods>>) => void): void;
+	fetchWallets(walletAnnounced: (walletHandle: WalletHandle<UnderlyingEthereumProvider>) => void): void;
 	createAlwaysOnProvider(params: {
-		endpoint: string | UnderlyingEthereumProvider;
+		endpoint: string | CurriedRPC<Methods>;
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
-	}): AlwaysOnProviderWrapper<CurriedRPC<Methods>>;
+	}): AlwaysOnProviderWrapper<UnderlyingEthereumProvider>;
 }
 ```
 
@@ -161,8 +161,8 @@ class EthereumAccountGenerator implements AccountGenerator {
 Wrapper for EIP-1193 wallet providers:
 
 ```typescript
-class EthereumWalletProvider implements WalletProvider<CurriedRPC<Methods>> {
-	underlyingProvider: CurriedRPC<Methods>;
+class EthereumWalletProvider implements WalletProvider<UnderlyingEthereumProvider> {
+	underlyingProvider: UnderlyingEthereumProvider;
 	signMessage(message: string, account: `0x${string}`): Promise<`0x${string}`>;
 	getChainId(): Promise<`0x${string}`>;
 	getAccounts(): Promise<`0x${string}`[]>;
