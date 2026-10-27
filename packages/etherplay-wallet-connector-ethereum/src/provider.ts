@@ -59,7 +59,6 @@ function asAddress(value: unknown): `0x${string}` | undefined {
  *   personal_sign        [data, address]
  *   eth_sign             [address, data]
  *   eth_signTypedData*   [address, typedData]
-
  *   eth_sendTransaction  [{from, ...}]
  *   eth_signTransaction  [{from, ...}]
  *
