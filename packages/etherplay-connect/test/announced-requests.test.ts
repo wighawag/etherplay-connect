@@ -229,8 +229,8 @@ describe('what the app can see while the wallet is being asked', () => {
 	});
 
 	it('reads eth_signTypedData as [address, typedData], like v4, not as the legacy V1 order', async () => {
-		// eip-1193 0.7 types `eth_signTypedData` as V1 (`[typedData, address]`), but V1 is not what
-		// callers send: they send the v4 order. Reading the V1 position announced no account at all.
+		// eip-1193 0.7.0 to 0.7.3 typed `eth_signTypedData` as V1 (`[typedData, address]`), and 0.2.0 to
+		// 0.3.0 of the connector followed it. Callers send the v4 order, so that announced no account.
 		const {connection} = await signedInWithWallet();
 
 		const started: PendingRequest[] = [];
