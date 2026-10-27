@@ -2,6 +2,13 @@
 	"name": "@etherplay/openfort",
 	"version": "0.5.3",
 	"description": "Openfort implementation of the AuthProvider interface for etherplay-connect",
+	"keywords": [
+		"ethereum",
+		"wallet",
+		"openfort",
+		"authentication",
+		"etherplay"
+	],
 	"homepage": "https://github.com/wighawag/etherplay-connect#readme",
 	"repository": {
 		"type": "git",

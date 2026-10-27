@@ -7,10 +7,10 @@ import type {
 	AccountGenerator,
 	PrivateKeyAccount,
 } from '@etherplay/wallet-connector';
-import type {EIP1193ChainId, EIP1193WalletProvider, EIP1193WindowWalletProvider, Methods} from 'eip-1193';
-import {asUnderlyingEthereumProvider, personalSign} from './utils.js';
+import type {EIP1193ChainId, EIP1193WindowWalletProvider, Methods} from 'eip-1193';
+import {personalSign} from './utils.js';
 import {createProvider} from './provider.js';
-import {createCurriedJSONRPC, CurriedRPC} from 'remote-procedure-call';
+import {createCurriedJSONRPC, CurriedRPC, type RequestEndpoint} from 'remote-procedure-call';
 import {HDKey} from '@scure/bip32';
 import {mnemonicToSeedSync} from '@scure/bip39';
 import {bytesToHex} from '@noble/hashes/utils';
@@ -73,16 +73,11 @@ export function fromPrivateKey(key: string | Uint8Array): string {
 
 /**
  * The wallet provider this connector hands to apps: remote-procedure-call's curried client over the
- * browser-wallet methods, ALSO typed as eip-1193's `EIP1193WalletProvider`.
- *
- * Why both: remote-procedure-call types `request` without distributing a method whose entry is a
- * union (`eth_getBlockByNumber` with `false` or `true`, for example), which eip-1193 0.7 does, so a
- * bare `CurriedRPC<Methods>` is not assignable to any eip-1193 0.7 provider type, and an app could
- * not pass it to a library slot typed `EIP1193CoreProvider` (`@etherkit/tx-observer`, etherfold,
- * rocketh). The runtime object answers every `request` the wallet does, so the eip-1193 half is a
- * true description of it. The eip-1193 half comes first so that `request` resolves with eip-1193 0.7's (narrower) result types. `asUnderlyingEthereumProvider` (utils.ts) is the one place that asserts it.
+ * browser-wallet methods. Since remote-procedure-call 0.2 it uses eip-1193 0.7's request typing, so
+ * it is assignable to `EIP1193WalletProvider` and `EIP1193CoreProvider`, and an app can pass it to
+ * any library slot typed with them (`@etherkit/tx-observer`, etherfold, rocketh).
  */
-export type UnderlyingEthereumProvider = EIP1193WalletProvider & CurriedRPC<Methods>;
+export type UnderlyingEthereumProvider = CurriedRPC<Methods>;
 
 interface EIP6963ProviderInfo {
 	uuid: string;
@@ -290,7 +285,7 @@ export class EthereumWalletConnector implements WalletConnector<UnderlyingEthere
 	}
 
 	createAlwaysOnProvider(params: {
-		endpoint: string | CurriedRPC<Methods>;
+		endpoint: string | RequestEndpoint;
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
@@ -372,7 +367,7 @@ export class EthereumAccountGenerator implements AccountGenerator {
 export class EthereumWalletProvider implements WalletProvider<UnderlyingEthereumProvider> {
 	public readonly underlyingProvider: UnderlyingEthereumProvider;
 	constructor(protected windowProvider: EIP1193WindowWalletProvider) {
-		this.underlyingProvider = asUnderlyingEthereumProvider(createCurriedJSONRPC<Methods>(windowProvider));
+		this.underlyingProvider = createCurriedJSONRPC<Methods>(windowProvider);
 	}
 	async signMessage(message: string, account: `0x${string}`): Promise<`0x${string}`> {
 		return personalSign(this.underlyingProvider, message, account);

@@ -4,10 +4,10 @@
 //
 // Apps pass `connection.provider` straight to libraries whose provider slots are typed with
 // eip-1193 0.7 (`@etherkit/tx-observer`'s `createTransactionObserver({provider})`, etherfold,
-// rocketh), most of them `EIP1193CoreProvider`. remote-procedure-call's `CurriedRPC<Methods>` alone
-// is NOT assignable to those (it does not distribute union method entries the way eip-1193 0.7
-// does), which is why `UnderlyingEthereumProvider` is also an `EIP1193WalletProvider`. If that half
-// is dropped, the assignments below stop compiling.
+// rocketh), most of them `EIP1193CoreProvider`. `UnderlyingEthereumProvider` is remote-procedure-
+// call's `CurriedRPC<Methods>`, which fits them from remote-procedure-call 0.2 (0.1 did not
+// distribute union method entries the way eip-1193 0.7 does). If that regresses, the assignments
+// below stop compiling.
 
 import type {EIP1193CoreProvider, EIP1193WalletProvider} from 'eip-1193';
 import type {ConnectionStore, UnderlyingEthereumProvider} from '../../src/index.js';
