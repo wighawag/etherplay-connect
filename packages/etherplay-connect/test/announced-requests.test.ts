@@ -228,6 +228,29 @@ describe('what the app can see while the wallet is being asked', () => {
 		await sending;
 	});
 
+	it('reads eth_signTypedData as [address, typedData], like v4, not as the legacy V1 order', async () => {
+		// eip-1193 0.7 types `eth_signTypedData` as V1 (`[typedData, address]`), but V1 is not what
+		// callers send: they send the v4 order. Reading the V1 position announced no account at all.
+		const {connection} = await signedInWithWallet();
+
+		const started: PendingRequest[] = [];
+		const stop = connection.onRequest((event) => {
+			if (event.type === 'requestStart') started.push(event.request);
+		});
+		const typedData = {types: {}, primaryType: 'Mail', domain: {}, message: {}};
+		for (const method of ['eth_signTypedData', 'eth_signTypedData_v4']) {
+			const signing = connection.provider.request({method, params: [ACCOUNT, typedData]} as any).catch(() => {});
+			await vi.advanceTimersByTimeAsync(50);
+			await signing;
+		}
+		stop();
+
+		expect(started.map((r) => [r.method, r.account])).toStrictEqual([
+			['eth_signTypedData', ACCOUNT],
+			['eth_signTypedData_v4', ACCOUNT],
+		]);
+	});
+
 	it('keeps announcing a request that a reconnect happens on top of', async () => {
 		// THE REGRESSION THIS EXISTS FOR, reproduced from a real report: with a locked wallet, a send
 		// raises the connection flow, so `connect()` runs WHILE the wallet is holding the transaction.
