@@ -1,6 +1,5 @@
 import {bytesToHex} from '@noble/hashes/utils';
 import type {Methods} from 'eip-1193';
-import type {UnderlyingEthereumProvider} from './index.js';
 import type {CurriedRPC} from 'remote-procedure-call';
 
 /**
@@ -65,12 +64,4 @@ export function personalSign(
 		method: 'personal_sign',
 		params: [hashMessage(message), account],
 	}) as Promise<`0x${string}`>;
-}
-
-/**
- * The one place a remote-procedure-call client is asserted to be an `UnderlyingEthereumProvider`:
- * a genuine boundary between two typings of the same `request`, not a claim about extra behaviour.
- */
-export function asUnderlyingEthereumProvider(rpc: CurriedRPC<Methods>): UnderlyingEthereumProvider {
-	return rpc as UnderlyingEthereumProvider;
 }

@@ -1,6 +1,6 @@
-import type {EIP1193WalletProvider, Methods} from 'eip-1193';
-import {createCurriedJSONRPC, CurriedRPC} from 'remote-procedure-call';
-import {asUnderlyingEthereumProvider, personalSign, withTimeout} from './utils.js';
+import type {Methods} from 'eip-1193';
+import {createCurriedJSONRPC, CurriedRPC, type RequestEndpoint} from 'remote-procedure-call';
+import {personalSign, withTimeout} from './utils.js';
 import {
 	AlwaysOnProviderWrapper,
 	PendingRequest,
@@ -120,7 +120,7 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Underly
 	private requestCounter = 0;
 
 	constructor(params: {
-		endpoint: string | CurriedRPC<Methods>;
+		endpoint: string | RequestEndpoint;
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
@@ -129,10 +129,9 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Underly
 		this.chainId = params.chainId;
 		this.jsonRPC = createCurriedJSONRPC<Methods>(params.endpoint);
 
-		// A genuine boundary, hence the cast below: this object is an untyped router that forwards
-		// whatever it is given to the wallet or to the JSON-RPC endpoint, so it cannot satisfy the
-		// per-method overloads of a typed provider by itself. It serves the wallet surface (`Methods`)
-		// and emits no events, so it is an EIP1193WalletProvider, not an EIP1193Provider.
+		// An untyped router: it forwards whatever it is given to the wallet or to the JSON-RPC
+		// endpoint. remote-procedure-call takes any object with an async `request`, and the client
+		// built over it is what carries the `Methods` typing.
 		const provider = {
 			async request(req: {method: string; params?: any[]}) {
 				// Check if this is a tracked method
@@ -143,11 +142,9 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Underly
 				// Non-tracked methods - execute directly
 				return self.executeRequest(req, params.prioritizeWalletProvider);
 			},
-		} as unknown as EIP1193WalletProvider;
+		};
 
-		this.provider = asUnderlyingEthereumProvider(
-			createCurriedJSONRPC<Methods>(provider, {requestsPerSecond: params.requestsPerSecond}),
-		);
+		this.provider = createCurriedJSONRPC<Methods>(provider, {requestsPerSecond: params.requestsPerSecond});
 	}
 
 	// Event subscription
@@ -338,7 +335,7 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Underly
 }
 
 export function createProvider(params: {
-	endpoint: string | CurriedRPC<Methods>;
+	endpoint: string | RequestEndpoint;
 	chainId: string;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
