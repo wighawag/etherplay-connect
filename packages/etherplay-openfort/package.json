@@ -1,6 +1,6 @@
 {
 	"name": "@etherplay/openfort",
-	"version": "0.5.3",
+	"version": "0.5.4",
 	"description": "Openfort implementation of the AuthProvider interface for etherplay-connect",
 	"keywords": [
 		"ethereum",

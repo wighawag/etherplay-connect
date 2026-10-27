@@ -1,6 +1,6 @@
 {
 	"name": "@etherplay/connect-core",
-	"version": "0.7.3",
+	"version": "0.7.4",
 	"description": "core functionality for @etherplay/connect and other",
 	"keywords": [
 		"ethereum",
