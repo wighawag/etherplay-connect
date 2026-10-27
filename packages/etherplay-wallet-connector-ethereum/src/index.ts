@@ -7,8 +7,8 @@ import type {
 	AccountGenerator,
 	PrivateKeyAccount,
 } from '@etherplay/wallet-connector';
-import type {EIP1193ChainId, EIP1193WindowWalletProvider, Methods} from 'eip-1193';
-import {personalSign} from './utils.js';
+import type {EIP1193ChainId, EIP1193WalletProvider, EIP1193WindowWalletProvider, Methods} from 'eip-1193';
+import {asUnderlyingEthereumProvider, personalSign} from './utils.js';
 import {createProvider} from './provider.js';
 import {createCurriedJSONRPC, CurriedRPC} from 'remote-procedure-call';
 import {HDKey} from '@scure/bip32';
@@ -71,7 +71,18 @@ export function fromPrivateKey(key: string | Uint8Array): string {
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-export type UnderlyingEthereumProvider = CurriedRPC<Methods>;
+/**
+ * The wallet provider this connector hands to apps: remote-procedure-call's curried client over the
+ * browser-wallet methods, ALSO typed as eip-1193's `EIP1193WalletProvider`.
+ *
+ * Why both: remote-procedure-call types `request` without distributing a method whose entry is a
+ * union (`eth_getBlockByNumber` with `false` or `true`, for example), which eip-1193 0.7 does, so a
+ * bare `CurriedRPC<Methods>` is not assignable to any eip-1193 0.7 provider type, and an app could
+ * not pass it to a library slot typed `EIP1193CoreProvider` (`@etherkit/tx-observer`, etherfold,
+ * rocketh). The runtime object answers every `request` the wallet does, so the eip-1193 half is a
+ * true description of it. `asUnderlyingEthereumProvider` (utils.ts) is the one place that asserts it.
+ */
+export type UnderlyingEthereumProvider = CurriedRPC<Methods> & EIP1193WalletProvider;
 
 interface EIP6963ProviderInfo {
 	uuid: string;
@@ -146,12 +157,12 @@ function detectWindowEthereumInfo(provider: EIP1193WindowWalletProvider): EIP696
 	};
 }
 
-type WalletAnnouncementFunction = (walletInfo: WalletHandle<CurriedRPC<Methods>>) => void;
+type WalletAnnouncementFunction = (walletInfo: WalletHandle<UnderlyingEthereumProvider>) => void;
 export type WalletFetcher = {
 	fetchWallets(walletAnnounced: WalletAnnouncementFunction): void;
 };
 function createWalletFetcher(): WalletFetcher {
-	const walletHandles: WalletHandle<CurriedRPC<Methods>>[] = [];
+	const walletHandles: WalletHandle<UnderlyingEthereumProvider>[] = [];
 	const walletAnnouncementFunctions: WalletAnnouncementFunction[] = [];
 	let requesting = false;
 	let eip6963Received = false;
@@ -166,7 +177,7 @@ function createWalletFetcher(): WalletFetcher {
 	//
 	// `uuid` is the EIP-6963 identity of the announcement; `rdns` is the stable identity of the
 	// wallet itself and is checked as a fallback for wallets that regenerate their uuid.
-	function alreadyAnnounced(walletHandle: WalletHandle<CurriedRPC<Methods>>): boolean {
+	function alreadyAnnounced(walletHandle: WalletHandle<UnderlyingEthereumProvider>): boolean {
 		return walletHandles.some(
 			(existing) =>
 				(!!existing.info.uuid && existing.info.uuid === walletHandle.info.uuid) ||
@@ -174,7 +185,7 @@ function createWalletFetcher(): WalletFetcher {
 		);
 	}
 
-	function announceWallet(walletHandle: WalletHandle<CurriedRPC<Methods>>) {
+	function announceWallet(walletHandle: WalletHandle<UnderlyingEthereumProvider>) {
 		if (alreadyAnnounced(walletHandle)) {
 			return;
 		}
@@ -266,7 +277,7 @@ export interface EIP6963AnnounceProviderEvent extends CustomEvent {
 	detail: EIP6963ProviderDetail;
 }
 
-export class EthereumWalletConnector implements WalletConnector<CurriedRPC<Methods>> {
+export class EthereumWalletConnector implements WalletConnector<UnderlyingEthereumProvider> {
 	accountGenerator: AccountGenerator = new EthereumAccountGenerator();
 	walletFetcher: WalletFetcher;
 
@@ -274,16 +285,16 @@ export class EthereumWalletConnector implements WalletConnector<CurriedRPC<Metho
 		this.walletFetcher = createWalletFetcher();
 	}
 
-	fetchWallets(walletAnnounced: (walletInfo: WalletHandle<CurriedRPC<Methods>>) => void): void {
+	fetchWallets(walletAnnounced: (walletInfo: WalletHandle<UnderlyingEthereumProvider>) => void): void {
 		this.walletFetcher.fetchWallets(walletAnnounced);
 	}
 
 	createAlwaysOnProvider(params: {
-		endpoint: string | UnderlyingEthereumProvider;
+		endpoint: string | CurriedRPC<Methods>;
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
-	}): AlwaysOnProviderWrapper<CurriedRPC<Methods>> {
+	}): AlwaysOnProviderWrapper<UnderlyingEthereumProvider> {
 		return createProvider(params);
 	}
 }
@@ -358,10 +369,10 @@ export class EthereumAccountGenerator implements AccountGenerator {
 	}
 }
 
-export class EthereumWalletProvider implements WalletProvider<CurriedRPC<Methods>> {
-	public readonly underlyingProvider: CurriedRPC<Methods>;
+export class EthereumWalletProvider implements WalletProvider<UnderlyingEthereumProvider> {
+	public readonly underlyingProvider: UnderlyingEthereumProvider;
 	constructor(protected windowProvider: EIP1193WindowWalletProvider) {
-		this.underlyingProvider = createCurriedJSONRPC<Methods>(windowProvider);
+		this.underlyingProvider = asUnderlyingEthereumProvider(createCurriedJSONRPC<Methods>(windowProvider));
 	}
 	async signMessage(message: string, account: `0x${string}`): Promise<`0x${string}`> {
 		return personalSign(this.underlyingProvider, message, account);

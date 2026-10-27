@@ -1,6 +1,6 @@
 import type {EIP1193WalletProvider, Methods} from 'eip-1193';
 import {createCurriedJSONRPC, CurriedRPC} from 'remote-procedure-call';
-import {personalSign, withTimeout} from './utils.js';
+import {asUnderlyingEthereumProvider, personalSign, withTimeout} from './utils.js';
 import {
 	AlwaysOnProviderWrapper,
 	PendingRequest,
@@ -13,7 +13,7 @@ import {
 	TransactionMethod,
 	SignatureMethod,
 } from '@etherplay/wallet-connector';
-import {UnderlyingEthereumProvider} from './index.js';
+import type {UnderlyingEthereumProvider} from './index.js';
 
 // Type guard for transaction methods
 function isTransactionMethod(method: TrackedRequestMethod): method is TransactionMethod {
@@ -104,10 +104,10 @@ const connectedAccountMethods = ['eth_sendTransaction'];
 
 const walletOnlyMethods = ['eth_requestAccounts', 'wallet_switchEthereumChain', 'wallet_addEthereumChain'];
 
-class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<CurriedRPC<Methods>> {
+class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<UnderlyingEthereumProvider> {
 	public readonly chainId: string;
-	public readonly provider: CurriedRPC<Methods>;
-	private walletProvider?: CurriedRPC<Methods>;
+	public readonly provider: UnderlyingEthereumProvider;
+	private walletProvider?: UnderlyingEthereumProvider;
 	private jsonRPC: CurriedRPC<Methods>;
 	private status: 'connected' | 'locked' | 'disconnected' = 'disconnected';
 
@@ -117,7 +117,7 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 	private requestCounter = 0;
 
 	constructor(params: {
-		endpoint: string | UnderlyingEthereumProvider;
+		endpoint: string | CurriedRPC<Methods>;
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
@@ -142,7 +142,9 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 			},
 		} as unknown as EIP1193WalletProvider;
 
-		this.provider = createCurriedJSONRPC<Methods>(provider, {requestsPerSecond: params.requestsPerSecond});
+		this.provider = asUnderlyingEthereumProvider(
+			createCurriedJSONRPC<Methods>(provider, {requestsPerSecond: params.requestsPerSecond}),
+		);
 	}
 
 	// Event subscription
@@ -323,7 +325,7 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 		return this.jsonRPC.request(req as any);
 	}
 
-	setWalletProvider(walletProvider: CurriedRPC<Methods> | undefined) {
+	setWalletProvider(walletProvider: UnderlyingEthereumProvider | undefined) {
 		this.walletProvider = walletProvider;
 	}
 
@@ -333,10 +335,10 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 }
 
 export function createProvider(params: {
-	endpoint: string | UnderlyingEthereumProvider;
+	endpoint: string | CurriedRPC<Methods>;
 	chainId: string;
 	prioritizeWalletProvider?: boolean;
 	requestsPerSecond?: number;
-}): AlwaysOnProviderWrapper<CurriedRPC<Methods>> {
+}): AlwaysOnProviderWrapper<UnderlyingEthereumProvider> {
 	return new AlwaysOnEthereumProviderWrapper(params);
 }
