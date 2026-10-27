@@ -89,8 +89,8 @@ importers:
         specifier: ^0.0.11
         version: 0.0.11
       eip-1193:
-        specifier: ^0.6.3
-        version: 0.6.3
+        specifier: ^0.7.3
+        version: 0.7.3
       ldenv:
         specifier: ^0.3.12
         version: 0.3.12
@@ -135,8 +135,8 @@ importers:
         specifier: ^0.0.11
         version: 0.0.11
       eip-1193:
-        specifier: ^0.6.3
-        version: 0.6.3
+        specifier: ^0.7.3
+        version: 0.7.3
       ldenv:
         specifier: ^0.3.12
         version: 0.3.12
@@ -256,6 +256,9 @@ importers:
       '@scure/bip39':
         specifier: ^1.5.4
         version: 1.5.4
+      eip-1193:
+        specifier: ^0.7.3
+        version: 0.7.3
       remote-procedure-call:
         specifier: ^0.1.1
         version: 0.1.1(@types/node@24.13.3)(happy-dom@20.8.3(bufferutil@4.0.9)(utf-8-validate@5.0.10))(jsdom@25.0.1(bufferutil@4.0.9)(utf-8-validate@5.0.10))(sass@1.86.3)(terser@5.39.0)
@@ -263,9 +266,6 @@ importers:
       as-soon:
         specifier: ^0.0.11
         version: 0.0.11
-      eip-1193:
-        specifier: ^0.6.3
-        version: 0.6.3
       ldenv:
         specifier: ^0.3.12
         version: 0.3.12
@@ -1991,8 +1991,8 @@ packages:
   earl@2.0.0:
     resolution: {integrity: sha512-je2x7VWHNN3kN5zqcUUeEEokHoL7HWwiOxCdlLi66LkMqUnLECVZGePdgBtrqLrUg25bHLFrM+bkBXwcI7f+EQ==}
 
-  eip-1193@0.6.3:
-    resolution: {integrity: sha512-6vAWYsAWCfwkLana//Ow5xKbT4T1ovXfJGNwcfHEPjleeuI132sI0EetG+xVBg/nsqzcqJA3AOomMovFk7jbPg==}
+  eip-1193@0.7.3:
+    resolution: {integrity: sha512-oznmudxUQ2dG44QF4rF5VP/SkI5g0AqTURtUxuj7T4GQIXuAkIhzPZ64AOt3C58j7sdJG0gNfS8sR0kc3wMZnA==}
 
   elliptic@6.6.1:
     resolution: {integrity: sha512-RaddvvMatK2LJHqFJ+YA4WysVN5Ita9E35botqIYspQ4TkRAlCicdzKOjlyv/1Za5RyTNn7di//eEV0uTAfe3g==}
@@ -5128,7 +5128,7 @@ snapshots:
     dependencies:
       error-stack-parser: 2.1.4
 
-  eip-1193@0.6.3: {}
+  eip-1193@0.7.3: {}
 
   elliptic@6.6.1:
     dependencies:

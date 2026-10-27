@@ -43,6 +43,11 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # The published .d.ts files must only import packages the package declares as a dependency
+      # or peer. `pnpm install` already built them (root `prepare`).
+      - name: Published types declare their imports
+        run: pnpm check:type-deps
+
       - name: Format
         run: pnpm format:check
 

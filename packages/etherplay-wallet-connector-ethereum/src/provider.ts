@@ -1,4 +1,4 @@
-import type {EIP1193Provider, EIP1193WalletProvider, EIP1193WindowWalletProvider, Methods} from 'eip-1193';
+import type {EIP1193WalletProvider, Methods} from 'eip-1193';
 import {createCurriedJSONRPC, CurriedRPC} from 'remote-procedure-call';
 import {personalSign, withTimeout} from './utils.js';
 import {
@@ -58,7 +58,8 @@ function asAddress(value: unknown): `0x${string}` | undefined {
  *
  *   personal_sign        [data, address]
  *   eth_sign             [address, data]
- *   eth_signTypedData*   [address, typedData]
+ *   eth_signTypedData    [typedData, address]   (v1, the reverse of v3/v4)
+ *   eth_signTypedData_v4 [address, typedData]
  *   eth_sendTransaction  [{from, ...}]
  *   eth_signTransaction  [{from, ...}]
  *
@@ -75,9 +76,9 @@ function accountForRequest(method: TrackedRequestMethod, params?: any[]): `0x${s
 		case 'eth_signTransaction':
 			return asAddress(params[0]?.from);
 		case 'personal_sign':
+		case 'eth_signTypedData':
 			return asAddress(params[1]);
 		case 'eth_sign':
-		case 'eth_signTypedData':
 		case 'eth_signTypedData_v4':
 			return asAddress(params[0]);
 		default:
@@ -125,6 +126,10 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 		this.chainId = params.chainId;
 		this.jsonRPC = createCurriedJSONRPC<Methods>(params.endpoint);
 
+		// A genuine boundary, hence the cast below: this object is an untyped router that forwards
+		// whatever it is given to the wallet or to the JSON-RPC endpoint, so it cannot satisfy the
+		// per-method overloads of a typed provider by itself. It serves the wallet surface (`Methods`)
+		// and emits no events, so it is an EIP1193WalletProvider, not an EIP1193Provider.
 		const provider = {
 			async request(req: {method: string; params?: any[]}) {
 				// Check if this is a tracked method
@@ -135,7 +140,7 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 				// Non-tracked methods - execute directly
 				return self.executeRequest(req, params.prioritizeWalletProvider);
 			},
-		} as unknown as EIP1193Provider;
+		} as unknown as EIP1193WalletProvider;
 
 		this.provider = createCurriedJSONRPC<Methods>(provider, {requestsPerSecond: params.requestsPerSecond});
 	}

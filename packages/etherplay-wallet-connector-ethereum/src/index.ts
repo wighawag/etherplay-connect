@@ -361,7 +361,7 @@ export class EthereumAccountGenerator implements AccountGenerator {
 export class EthereumWalletProvider implements WalletProvider<CurriedRPC<Methods>> {
 	public readonly underlyingProvider: CurriedRPC<Methods>;
 	constructor(protected windowProvider: EIP1193WindowWalletProvider) {
-		this.underlyingProvider = createCurriedJSONRPC<Methods>(windowProvider as any);
+		this.underlyingProvider = createCurriedJSONRPC<Methods>(windowProvider);
 	}
 	async signMessage(message: string, account: `0x${string}`): Promise<`0x${string}`> {
 		return personalSign(this.underlyingProvider, message, account);
