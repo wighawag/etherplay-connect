@@ -40,7 +40,7 @@
 	"devDependencies": {
 		"@vitest/coverage-v8": "^4.0.18",
 		"as-soon": "^0.0.11",
-		"eip-1193": "^0.6.3",
+		"eip-1193": "^0.7.3",
 		"ldenv": "^0.3.12",
 		"prettier": "^3.5.3",
 		"typescript": "^5.8.3",

@@ -13,7 +13,7 @@
     "prepare": "set-defaults .vscode && pnpm build:packages",
     "prepublishOnly": "pnpm format:check && pnpm build:packages && pnpm build:dev-wallet-host",
     "release": "pnpm prepublishOnly && git push --all && pnpm changeset publish && git push --tags",
-    "release:ci": "pnpm prepublishOnly && pnpm changeset publish",
+    "release:ci": "pnpm prepublishOnly && pnpm check:type-deps && pnpm changeset publish",
     "changeset:check": "changeset status --since=main",
     "format": "pnpm run -r format",
     "format:check": "pnpm run -r format:check",
@@ -31,6 +31,7 @@
     "build:demo": "pnpm run build:packages && pnpm run --filter ./demoes/sveltekit build",
     "build-and-merge": "pnpm build:demo && pnpm build:web && cp -r ./demoes/sveltekit/build web/dist/demo",
     "start": "zellij-launcher a $npm_package_name || zellij -n zellij.kdl -s $npm_package_name",
-    "dev": "pnpm run --parallel -r dev"
+    "dev": "pnpm run --parallel -r dev",
+    "check:type-deps": "node scripts/check-type-deps.mjs packages/*"
   }
 }

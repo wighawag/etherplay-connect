@@ -1,4 +1,4 @@
-import type {EIP1193Provider, EIP1193WalletProvider, EIP1193WindowWalletProvider, Methods} from 'eip-1193';
+import type {EIP1193WalletProvider, Methods} from 'eip-1193';
 import {createCurriedJSONRPC, CurriedRPC} from 'remote-procedure-call';
 import {personalSign, withTimeout} from './utils.js';
 import {
@@ -125,6 +125,10 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 		this.chainId = params.chainId;
 		this.jsonRPC = createCurriedJSONRPC<Methods>(params.endpoint);
 
+		// A genuine boundary, hence the cast below: this object is an untyped router that forwards
+		// whatever it is given to the wallet or to the JSON-RPC endpoint, so it cannot satisfy the
+		// per-method overloads of a typed provider by itself. It serves the wallet surface (`Methods`)
+		// and emits no events, so it is an EIP1193WalletProvider, not an EIP1193Provider.
 		const provider = {
 			async request(req: {method: string; params?: any[]}) {
 				// Check if this is a tracked method
@@ -135,7 +139,7 @@ class AlwaysOnEthereumProviderWrapper implements AlwaysOnProviderWrapper<Curried
 				// Non-tracked methods - execute directly
 				return self.executeRequest(req, params.prioritizeWalletProvider);
 			},
-		} as unknown as EIP1193Provider;
+		} as unknown as EIP1193WalletProvider;
 
 		this.provider = createCurriedJSONRPC<Methods>(provider, {requestsPerSecond: params.requestsPerSecond});
 	}
