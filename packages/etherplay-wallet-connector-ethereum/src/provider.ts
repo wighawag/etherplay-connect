@@ -59,12 +59,13 @@ function asAddress(value: unknown): `0x${string}` | undefined {
  *   personal_sign        [data, address]
  *   eth_sign             [address, data]
  *   eth_signTypedData*   [address, typedData]
+
+ *   eth_sendTransaction  [{from, ...}]
+ *   eth_signTransaction  [{from, ...}]
  *
  * `eth_signTypedData` is read like v4, as every caller this library serves sends it. The legacy V1
  * shape (`[typedData, address]`, which eip-1193 0.7's table describes) is not supported; a request
  * in that shape simply announces no account, since `asAddress` rejects the typed data.
- *   eth_sendTransaction  [{from, ...}]
- *   eth_signTransaction  [{from, ...}]
  *
  * Every branch is shape-checked rather than trusted, so a caller passing something unexpected loses
  * the address and keeps the announcement, instead of announcing a confident wrong answer. Reporting

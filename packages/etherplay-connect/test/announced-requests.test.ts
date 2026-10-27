@@ -238,6 +238,8 @@ describe('what the app can see while the wallet is being asked', () => {
 			if (event.type === 'requestStart') started.push(event.request);
 		});
 		const typedData = {types: {}, primaryType: 'Mail', domain: {}, message: {}};
+		// The fixture wallet rejects both methods, which is fine: only the `requestStart` announcement,
+		// made before delivery, matters here.
 		for (const method of ['eth_signTypedData', 'eth_signTypedData_v4']) {
 			const signing = connection.provider.request({method, params: [ACCOUNT, typedData]} as any).catch(() => {});
 			await vi.advanceTimersByTimeAsync(50);
