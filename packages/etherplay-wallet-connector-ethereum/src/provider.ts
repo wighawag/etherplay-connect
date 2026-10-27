@@ -58,7 +58,8 @@ function asAddress(value: unknown): `0x${string}` | undefined {
  *
  *   personal_sign        [data, address]
  *   eth_sign             [address, data]
- *   eth_signTypedData*   [address, typedData]
+ *   eth_signTypedData    [typedData, address]   (v1, the reverse of v3/v4)
+ *   eth_signTypedData_v4 [address, typedData]
  *   eth_sendTransaction  [{from, ...}]
  *   eth_signTransaction  [{from, ...}]
  *
@@ -75,9 +76,9 @@ function accountForRequest(method: TrackedRequestMethod, params?: any[]): `0x${s
 		case 'eth_signTransaction':
 			return asAddress(params[0]?.from);
 		case 'personal_sign':
+		case 'eth_signTypedData':
 			return asAddress(params[1]);
 		case 'eth_sign':
-		case 'eth_signTypedData':
 		case 'eth_signTypedData_v4':
 			return asAddress(params[0]);
 		default:

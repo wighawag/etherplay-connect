@@ -11,9 +11,9 @@
   },
   "scripts": {
     "prepare": "set-defaults .vscode && pnpm build:packages",
-    "prepublishOnly": "pnpm format:check && pnpm build:packages && pnpm build:dev-wallet-host",
+    "prepublishOnly": "pnpm format:check && pnpm build:packages && pnpm build:dev-wallet-host && pnpm check:type-deps",
     "release": "pnpm prepublishOnly && git push --all && pnpm changeset publish && git push --tags",
-    "release:ci": "pnpm prepublishOnly && pnpm check:type-deps && pnpm changeset publish",
+    "release:ci": "pnpm prepublishOnly && pnpm changeset publish",
     "changeset:check": "changeset status --since=main",
     "format": "pnpm run -r format",
     "format:check": "pnpm run -r format:check",
