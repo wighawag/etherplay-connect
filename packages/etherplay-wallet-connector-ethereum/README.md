@@ -136,7 +136,7 @@ class EthereumWalletConnector {
 	accountGenerator: AccountGenerator;
 	fetchWallets(walletAnnounced: (walletHandle: WalletHandle<UnderlyingEthereumProvider>) => void): void;
 	createAlwaysOnProvider(params: {
-		endpoint: string | CurriedRPC<Methods>;
+		endpoint: string | RequestEndpoint; // a URL, or any object with an async `request` (an EIP-1193 provider, for example)
 		chainId: string;
 		prioritizeWalletProvider?: boolean;
 		requestsPerSecond?: number;
