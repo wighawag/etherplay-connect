@@ -1205,6 +1205,52 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		return latest;
 	}
 
+	// HOW MANY TIMES THE FLOW HAS MOVED, which is what lets a slow, unattended attempt find out that
+	// it has been overtaken.
+	//
+	// The auto-connect at construction is the one attempt nobody is waiting on: it asks the wallet two
+	// questions before it can restore anything, and a wallet backed by a chain that is still booting
+	// answers them slowly. The app is free to act in that window (an explicit `connect`, a
+	// `useCurrentAccount` reconnect following the wallet, a signature, a `disconnect`), and when the
+	// restore landed it used to publish the STORED account over all of it. Downstream that read as
+	// SignedIn as B, then SignedIn as A (the stored one), then WalletConnected as B with no signer,
+	// because the wallet still offered B first and `onAccountChanged` followed it without a signature.
+	//
+	// So the restore notes this counter when it starts and, after every await, publishes nothing if it
+	// moved: anything that changed the flow since is newer than what was in storage, and wins. Bumped
+	// in `set`, the one place every state goes through, rather than at each entry point, so a new
+	// entry point cannot forget to. The exception is an attempt whose START publishes nothing the
+	// diff can see (two connects to one wallet publish the same waiting state; `selectWallet`
+	// publishes nothing before it awaits): those bump it themselves when they start, so that the
+	// newer attempt always wins. See `connect` and `selectWallet`. See `movesTheFlow` for what counts, and
+	// `test/late-auto-connect.test.ts`.
+	let flowTransitions = 0;
+	/**
+	 * Does publishing `next` over `current` MOVE the flow, as opposed to republishing it?
+	 *
+	 * Republishing is what wallet discovery (the list growing), a wallet request starting or ending,
+	 * and a chain change do: they rebuild the same state with one field refreshed, and a restore that
+	 * yielded to them would never land on a page that discovers its wallets as it loads. Moving is a
+	 * different step, a different account or mechanism, or `loading` ending, which is how a
+	 * `disconnect` or `cancel` from the initial `Idle` shows up without changing the step.
+	 */
+	function movesTheFlow(current: Connection<WalletProviderType>, next: ConnectionInput<WalletProviderType>): boolean {
+		const currentMechanism = 'mechanism' in current ? current.mechanism : undefined;
+		const nextMechanism = 'mechanism' in next ? next.mechanism : undefined;
+		const currentAccount = 'account' in current ? current.account : undefined;
+		const nextAccount = 'account' in next ? next.account : undefined;
+		return (
+			current.step !== next.step ||
+			!!(current as {loading?: boolean}).loading !== !!(next as {loading?: boolean}).loading ||
+			currentMechanism?.type !== nextMechanism?.type ||
+			(currentMechanism as {name?: string} | undefined)?.name !==
+				(nextMechanism as {name?: string} | undefined)?.name ||
+			(currentMechanism as {address?: string} | undefined)?.address !==
+				(nextMechanism as {address?: string} | undefined)?.address ||
+			currentAccount?.address !== nextAccount?.address
+		);
+	}
+
 	let $connection: Connection<WalletProviderType> = {
 		step: 'Idle',
 		loading: true,
@@ -1225,6 +1271,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// The deprecated `wallet.pendingRequests` mirror is stamped from the same read, so the two cannot
 	// drift while consumers migrate.
 	function set(connection: ConnectionInput<WalletProviderType>) {
+		if (movesTheFlow($connection, connection)) {
+			flowTransitions++;
+		}
 		// A STATE THAT SHOWS NO WALLET MUST NOT LEAVE ONE LIVE, and this is where that is made true
 		// rather than at each of the eleven places that used to remember it. Two of those eleven did
 		// not: a bare `connect()` landing on `MechanismToChoose`, and a sign-in popup launched by a
@@ -1677,6 +1726,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// When targetStep: 'WalletConnected' - only check lastWallet
 	// When targetStep: 'SignedIn' - check originAccount first, then fallback to lastWallet
 	let autoConnectHandled = false;
+	// A restore yields to ANYTHING that moved the flow after it started: see `flowTransitions`. Every
+	// wallet branch below checks it after each await, and on its failure path too, since resting at
+	// `Idle` over a newer session tears that session's wallet down. The hosted branch publishes
+	// synchronously, before anything else can run, so it has nothing to yield to.
+	const autoConnectStartedAt = flowTransitions;
+	const autoConnectOvertaken = () => flowTransitions !== autoConnectStartedAt;
 	if (autoConnect) {
 		if (typeof window !== 'undefined') {
 			try {
@@ -1694,12 +1749,18 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
 									const walletProvider = walletDetails.walletProvider;
 									const chainIdAsHex = await withTimeout(walletProvider.getChainId());
+									if (autoConnectOvertaken()) {
+										return;
+									}
 									const chainId = Number(chainIdAsHex).toString();
 									_wallet = {provider: walletProvider, chainId, info: walletDetails.info};
 									alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
 									watchForChainIdChange(_wallet.provider);
 									let accounts: `0x${string}`[] = [];
 									accounts = await withTimeout(walletProvider.getAccounts());
+									if (autoConnectOvertaken()) {
+										return;
+									}
 									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
 									set({
 										step: 'SignedIn',
@@ -1721,6 +1782,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									watchForAccountChange(walletProvider);
 								})
 								.catch((err) => {
+									if (autoConnectOvertaken()) {
+										return;
+									}
 									// The wallet may have been registered on the wrapper before the failure (e.g.
 									// getAccounts threw). `set` tears it down: Idle carries no wallet.
 									set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
@@ -1749,6 +1813,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 							.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
 								const walletProvider = walletDetails.walletProvider;
 								const chainIdAsHex = await withTimeout(walletProvider.getChainId());
+								if (autoConnectOvertaken()) {
+									return;
+								}
 								const chainId = Number(chainIdAsHex).toString();
 								_wallet = {provider: walletProvider, chainId, info: walletDetails.info};
 								alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
@@ -1771,6 +1838,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								});
 							})
 							.catch((err) => {
+								if (autoConnectOvertaken()) {
+									return;
+								}
 								// The wallet may have been registered on the wrapper before the failure (e.g.
 								// getAccounts threw). `set` tears it down: Idle carries no wallet.
 								set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
@@ -1791,6 +1861,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 							.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
 								const walletProvider = walletDetails.walletProvider;
 								const chainIdAsHex = await withTimeout(walletProvider.getChainId());
+								if (autoConnectOvertaken()) {
+									return;
+								}
 								const chainId = Number(chainIdAsHex).toString();
 								_wallet = {provider: walletProvider, chainId, info: walletDetails.info};
 								alwaysOnProviderWrapper.setWalletProvider(walletProvider.underlyingProvider);
@@ -1798,6 +1871,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 
 								let accounts: `0x${string}`[] = [];
 								accounts = await withTimeout(walletProvider.getAccounts());
+								if (autoConnectOvertaken()) {
+									return;
+								}
 								accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
 								set({
 									step: 'WalletConnected',
@@ -1819,6 +1895,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								watchForAccountChange(walletProvider);
 							})
 							.catch((err) => {
+								if (autoConnectOvertaken()) {
+									return;
+								}
 								// The wallet may have been registered on the wrapper before the failure (e.g.
 								// getAccounts threw). `set` tears it down: Idle carries no wallet.
 								set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
@@ -1954,6 +2033,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			...$connection,
 			step: 'WaitingForSignature',
 		});
+		// A signature is only an answer for the state that asked for it. The user can take seconds over
+		// the prompt, and if the flow moved meanwhile (the app connected another account, the user
+		// disconnected) the result must be dropped: published, it would sign in WHOEVER the connection
+		// is on now with a key derived from somebody else's signature, and save that. See
+		// `flowTransitions`.
+		const askedAt = flowTransitions;
 
 		let signature: `0x${string}`;
 		try {
@@ -1962,6 +2047,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			console.error(err);
 			if ((err as any)?.cause?.code === 111111) {
 				// We ignore replaced signature request
+				return;
+			}
+			if (flowTransitions !== askedAt) {
 				return;
 			}
 			// TODO handle rejection (code: 4001 ?)
@@ -1981,6 +2069,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			return;
 		}
 
+		if (flowTransitions !== askedAt) {
+			return;
+		}
 		const originKey = fromSignatureToKey(signature);
 		const originMnemonic = fromEntropyKeyToMnemonic(originKey);
 		const originAccount = walletConnector.accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
@@ -2192,6 +2283,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			const provider = $connection.wallet?.provider;
 			if (provider) {
 				let accounts = await withTimeout(provider.getAccounts());
+				// The answer is about the wallet that was asked. If the connection has moved to another
+				// one meanwhile, applying it marked the NEW wallet locked, for good: these polls only act
+				// on an empty answer, so nothing would ever mark it unlocked again. Provider identity
+				// rather than `flowTransitions`: a lock is still true of this wallet across a sign-in.
+				if ($connection.wallet?.provider !== provider) {
+					return;
+				}
 				if (accounts.length == 0) {
 					onAccountChanged(accounts);
 				}
@@ -2455,9 +2553,30 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 							wallets: $connection.wallets,
 							wallet: undefined,
 						});
+						// THIS ATTEMPT YIELDS TO ANYTHING NEWER, exactly as the auto-connect does: see
+						// `flowTransitions`. Two attempts can overlap (the app's own `connect`, a
+						// `useCurrentAccount` reconnect following the wallet), and the wallet's answers come back in
+						// whatever order it gives them, so the slower attempt used to land LAST and publish the
+						// account the app had already moved away from. Checked after every await, and on the
+						// failure path, which would otherwise tear the newer attempt's wallet down.
+						//
+						// STARTING is itself a move, bumped here rather than inferred from the state above: two
+						// connects to the same wallet publish the SAME `WaitingForWalletConnection` (the mechanism
+						// carries no address yet), so the diff alone missed the second one starting, and the older
+						// attempt, answered first, overtook the newer.
+						const attemptMark = ++flowTransitions;
+						const overtaken = () => flowTransitions !== attemptMark;
+						// Set once this attempt has published its own result, after which the count moving is
+						// this attempt's own doing. A failure from then on (a malformed signature in the
+						// auto-sign, a storage write) is this attempt's to report, not a sign it was overtaken:
+						// swallowing it left the flow on `WaitingForSignature` for good.
+						let landed = false;
 						try {
 							const provider = wallet.walletProvider;
 							const chainIdAsHex = await withTimeout(provider.getChainId());
+							if (overtaken()) {
+								return;
+							}
 							const chainId = Number(chainIdAsHex).toString();
 							_wallet = {
 								chainId,
@@ -2468,8 +2587,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 							alwaysOnProviderWrapper.setWalletProvider(_wallet.provider.underlyingProvider);
 							watchForChainIdChange(_wallet.provider);
 							let accounts = await withTimeout(provider.getAccounts());
+							if (overtaken()) {
+								return;
+							}
 							accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 							if (accounts.length === 0) {
+								// Republishes the step this attempt is already on, so it does not move the flow and the
+								// mark above still holds.
 								set({
 									step: 'WaitingForWalletConnection', // TODO add another step to unlock ?
 									mechanism: mechanismToSave,
@@ -2477,6 +2601,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									wallet: undefined,
 								});
 								accounts = await provider.requestAccounts();
+								if (overtaken()) {
+									return;
+								}
 								accounts = accounts.map((v) => v.toLowerCase()) as `0x${string}`[];
 								if (accounts.length > 0) {
 									const requestedAddress = resolveRequestedAddress(accounts);
@@ -2536,11 +2663,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									) {
 										watchForAccountChange(_wallet.provider);
 
+										landed = true;
 										set(newState);
 										alwaysOnProviderWrapper.setWalletStatus('connected');
 										saveLastWallet(newState.mechanism);
 										await requestSignature();
 									} else {
+										landed = true;
 										set(newState);
 										alwaysOnProviderWrapper.setWalletStatus('connected');
 										if (newState.step === 'WalletConnected') {
@@ -2618,6 +2747,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									(requestSignatureAutomaticallyIfPossible || options?.requestSignatureRightAway) &&
 									!options?.requireUserConfirmationBeforeSignatureRequest
 								) {
+									landed = true;
 									set(newState);
 									alwaysOnProviderWrapper.setWalletStatus('connected');
 									saveLastWallet(newState.mechanism);
@@ -2625,6 +2755,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									await requestSignature();
 								} else {
 									watchForAccountChange(_wallet.provider);
+									landed = true;
 									set(newState);
 									alwaysOnProviderWrapper.setWalletStatus('connected');
 									if (newState.step === 'WalletConnected') {
@@ -2633,6 +2764,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								}
 							}
 						} catch (err) {
+							if (!landed && overtaken()) {
+								return;
+							}
 							// Distinguish EIP-1193 error codes so the dapp can surface a meaningful
 							// message instead of a generic "failed to connect".
 							// 4100 (Unauthorized): the wallet cannot authorise accounts — it may be
@@ -2773,6 +2907,13 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					// account arrives from code this package does not version: the wallet host is deployed
 					// separately, so an app on a current build can be talking to an older popup.
 					const result = withoutEntropyKey(await popup);
+					// The same ownership check as the failure path below, for the same reason. Connecting a
+					// wallet meanwhile does not close the popup, so it can still finish, and signing its account
+					// in then tore down the wallet the app had connected since, and saved the hosted account over
+					// it. The newer attempt wins; the user can sign in through the popup again.
+					if (popup !== launchedPopup || $connection.step !== 'PopupLaunched') {
+						return;
+					}
 					// console.log({result});
 					set({
 						step: 'SignedIn',
@@ -3524,13 +3665,43 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		// The provider is deliberately left on the wrapper until the new one replaces it
 		// (below or, on failure, via setConnectionFailure's teardown), so reads do not flap
 		// to the configured endpoint during the switch.
+		const stoppedProvider = _wallet?.provider;
 		if (_wallet) {
 			stopWatchingForAccountChange(_wallet.provider);
 			stopWatchingForChainIdChange(_wallet.provider);
 		}
+		// Yielding to a newer move must not leave behind the watchers this call stopped above. A move
+		// that REPLACES the wallet registers its own; one that keeps it (a signature asked for
+		// meanwhile) does not, so the wallet is watched again here if it is still the live one. A
+		// `WalletChosen` wallet is not watched for accounts, so it only gets its chain watcher back.
+		const yieldToNewerMove = () => {
+			if (
+				stoppedProvider &&
+				_wallet?.provider === stoppedProvider &&
+				$connection.wallet?.provider === stoppedProvider
+			) {
+				watchForChainIdChange(stoppedProvider);
+				if ($connection.step !== 'WalletChosen') {
+					watchForAccountChange(stoppedProvider);
+				}
+			}
+		};
+		// Nothing is published before the await below, so the mark is taken here: a choice the wallet
+		// confirms after the flow has moved on (an explicit `connect` meanwhile) is stale, and publishing
+		// it would drop a connected wallet back to an unconnected one. See `flowTransitions`.
+		//
+		// And bumped, since publishing nothing means the store cannot say an attempt started: as the
+		// newer attempt, this one must make any older one yield rather than yield to it. That matters
+		// beyond who wins, because the watchers on the live wallet were stopped just above, and an
+		// attempt that yielded here to an OLDER one would leave that wallet unwatched.
+		const choiceMark = ++flowTransitions;
 		try {
 			const provider = wallet.walletProvider;
 			const chainIdAsHex = await withTimeout(provider.getChainId());
+			if (flowTransitions !== choiceMark) {
+				yieldToNewerMove();
+				return;
+			}
 			const chainId = Number(chainIdAsHex).toString();
 			_wallet = {chainId, provider, info: wallet.info};
 			alwaysOnProviderWrapper.setWalletProvider(provider.underlyingProvider);
@@ -3558,6 +3729,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				},
 			});
 		} catch (err) {
+			if (flowTransitions !== choiceMark) {
+				yieldToNewerMove();
+				return;
+			}
 			// setConnectionFailure tears down the previously chosen wallet (provider still on
 			// the wrapper if the new wallet's getChainId threw before setWalletProvider) before
 			// landing on its `wallet: undefined` resting step.
@@ -3820,10 +3995,30 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				unlocking: true,
 			},
 		});
+		// The prompt can sit there for as long as the user likes, and the answer is about THIS wallet:
+		// applied after a disconnect it republished the old wallet onto `Idle` (which `set` then did not
+		// tear down, since the state showed one), and applied after a switch it judged the new wallet
+		// by the old one's accounts. Dropped if the flow moved meanwhile; see `flowTransitions`. The
+		// wallet's own `accountsChanged` on unlock still lands, through the watcher.
+		const promptedAt = flowTransitions;
 
 		try {
-			await wallet.provider.requestAccounts().then(onAccountChanged);
+			const accounts = await wallet.provider.requestAccounts();
+			if (flowTransitions !== promptedAt) {
+				return;
+			}
+			onAccountChanged(accounts);
 		} catch {
+			if (flowTransitions !== promptedAt) {
+				// The refusal is still true of the wallet it came from. If the newer state kept that
+				// wallet (a signature asked for meanwhile), `unlocking` must still be cleared, or the app
+				// shows its "Unlock" button spinning forever.
+				const current = $connection.wallet;
+				if (current && current.provider === wallet.provider && current.status === 'locked' && current.unlocking) {
+					set({...$connection, wallet: {...current, unlocking: false}});
+				}
+				return;
+			}
 			set({
 				...$connection,
 				wallet: {

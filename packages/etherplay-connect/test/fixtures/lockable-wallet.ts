@@ -79,8 +79,21 @@ export type LockableWallet = {
 	addChainCalls: () => any[];
 	/** The chain the wallet reports, as a wallet does after the user approves a switch. */
 	setChainId: (chainIdAsHex: string) => void;
+	/** What `personal_sign` answers, for a wallet that returns something that is not a signature. */
+	setSignature: (signature: string) => void;
 	/** Run while the wallet is holding a `personal_sign`, the only moment worth looking at. */
 	set whileSigning(hook: (() => void | Promise<void>) | undefined);
+	/**
+	 * Park the NEXT call of `method` until the returned function is called.
+	 *
+	 * Only the next one: a wallet backed by a chain that is still booting answers its first reads
+	 * slowly, while the attempts made a moment later are answered at once. That is the window in
+	 * which an auto-connect started at construction can land AFTER something the app did since.
+	 * `eth_requestAccounts` is the unlock prompt the user has not answered yet. Once released, the
+	 * call answers from the wallet's state at the moment of release, including
+	 * `rejectRequestAccounts`' error.
+	 */
+	holdNext: (method: 'eth_chainId' | 'eth_accounts' | 'eth_requestAccounts') => () => void;
 	requestAccountsCalls: () => number;
 	/** `eth_accounts` is the SILENT question; a flow that promises not to ask must not ask it either. */
 	getAccountsCalls: () => number;
@@ -114,7 +127,10 @@ export function installLockableWallet(options?: {
 	let requestAccountsCount = 0;
 	let getAccountsCount = 0;
 	let whileSigning: (() => void | Promise<void>) | undefined;
+	let signature = `0x${'ab'.repeat(65)}`;
 	let releaseTransaction: ((hash: string) => void) | undefined;
+
+	const held = new Map<string, Promise<void>>();
 
 	const listeners = new Map<string, Set<Handler>>();
 	const emit = (event: string, payload: any) => {
@@ -125,6 +141,11 @@ export function installLockableWallet(options?: {
 
 	const provider = {
 		request: async ({method, params}: {method: string; params?: any[]}) => {
+			const hold = held.get(method);
+			if (hold) {
+				held.delete(method);
+				await hold;
+			}
 			switch (method) {
 				case 'eth_chainId':
 					if (failChainId) {
@@ -153,7 +174,7 @@ export function installLockableWallet(options?: {
 					if (held) {
 						await held;
 					}
-					return `0x${'ab'.repeat(65)}`;
+					return signature;
 				}
 				case 'eth_sendTransaction':
 					// Held until the test releases it. Nothing about locking touches this promise,
@@ -246,6 +267,19 @@ export function installLockableWallet(options?: {
 		setChainId: (chainIdAsHex: string) => {
 			chainId = chainIdAsHex;
 			emit('chainChanged', chainIdAsHex);
+		},
+		holdNext: (method) => {
+			let release!: () => void;
+			held.set(
+				method,
+				new Promise<void>((resolve) => {
+					release = resolve;
+				}),
+			);
+			return () => release();
+		},
+		setSignature: (answer: string) => {
+			signature = answer;
 		},
 		requestAccountsCalls: () => requestAccountsCount,
 		getAccountsCalls: () => getAccountsCount,
