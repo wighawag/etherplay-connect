@@ -1251,6 +1251,65 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		);
 	}
 
+	// THE RESTORE IN FLIGHT, which an attempt asking for nothing new JOINS rather than overtakes.
+	//
+	// `flowTransitions` makes the restore yield to anything newer, and that is right for an attempt
+	// that names something DIFFERENT: another wallet, another account, a `selectWallet`, a
+	// `disconnect`. It was wrong for one that names nothing the restore is not already doing, and that
+	// is the commonest call there is: every game action calls `ensureConnected()`, so a click made while
+	// the page was still loading superseded the restore of a perfectly good stored session and asked
+	// the user to sign in again (with `requestSignatureAutomaticallyIfPossible`, a fresh signature).
+	// Measured downstream on 0.17.1 (template-commit-reveal's `table.e2e.ts`: sign in, reload, click).
+	// So such an attempt waits for the restore to settle and carries on from wherever it landed. See
+	// `restoreToJoin` for what counts as naming nothing new, and `test/joining-the-restore.test.ts`.
+	type RestoreOutcome = 'landed' | 'failed' | 'overtaken';
+	type RestoreInFlight = {
+		walletName: string;
+		/** The account it restores, lowercased; `undefined` for a wallet choice, which reaches none. */
+		address: `0x${string}` | undefined;
+		settled: Promise<RestoreOutcome>;
+	};
+	let restoreInFlight: RestoreInFlight | undefined;
+	/**
+	 * The restore an attempt for `mechanism` should JOIN, or `undefined` if it should run (and win).
+	 *
+	 * It joins when it names nothing the restore is not already doing: no mechanism, or a wallet
+	 * mechanism whose name (if any) is the restore's wallet and whose address (if any) is the
+	 * restore's account. The STEP asked for does not enter into it: a step the restore reaches or
+	 * passes resolves when it lands, and one it falls short of is driven on from where it landed,
+	 * which beats superseding it and starting over. A hosted mechanism, another wallet or another
+	 * account names something different and wins, exactly as before.
+	 *
+	 * A restore already overtaken is not joined even if it has not noticed yet (it notices only when
+	 * the wallet answers): it will publish nothing, so there is nothing to wait for.
+	 */
+	function restoreToJoin(mechanism: Mechanism | undefined): Promise<RestoreOutcome> | undefined {
+		const restore = restoreInFlight;
+		if (!restore || autoConnectOvertaken()) {
+			return undefined;
+		}
+		if (mechanism) {
+			if (mechanism.type !== 'wallet') {
+				return undefined;
+			}
+			if (mechanism.name && !namesSameWallet(mechanism.name, restore.walletName)) {
+				return undefined;
+			}
+			if (mechanism.address && mechanism.address.toLowerCase() !== restore.address) {
+				return undefined;
+			}
+		}
+		return restore.settled;
+	}
+	/** A name may be an EIP-6963 uuid, which is what `connect` looks wallets up by too. */
+	function namesSameWallet(asked: string, restoring: string): boolean {
+		if (asked === restoring) {
+			return true;
+		}
+		const handle = $connection.wallets.find((v) => v.info.name === asked || v.info.uuid === asked);
+		return !!handle && (handle.info.name === restoring || handle.info.uuid === restoring);
+	}
+
 	let $connection: Connection<WalletProviderType> = {
 		step: 'Idle',
 		loading: true,
@@ -1732,6 +1791,28 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// synchronously, before anything else can run, so it has nothing to yield to.
 	const autoConnectStartedAt = flowTransitions;
 	const autoConnectOvertaken = () => flowTransitions !== autoConnectStartedAt;
+	/**
+	 * Record a wallet restore as IN FLIGHT, so an attempt that asks for nothing it is not already
+	 * doing can join it rather than overtake it: see `restoreToJoin`. Cleared when it settles, whatever
+	 * the outcome.
+	 */
+	const trackRestore = (walletName: string, address: `0x${string}` | undefined, restore: Promise<RestoreOutcome>) => {
+		const tracked: RestoreInFlight = {
+			walletName,
+			address: address?.toLowerCase() as `0x${string}` | undefined,
+			settled: restore.then(
+				(outcome) => outcome,
+				// Unreachable (every branch catches), but a joiner must never be left hanging on it.
+				() => (autoConnectOvertaken() ? 'overtaken' : 'failed') as RestoreOutcome,
+			),
+		};
+		restoreInFlight = tracked;
+		tracked.settled.then(() => {
+			if (restoreInFlight === tracked) {
+				restoreInFlight = undefined;
+			}
+		});
+	};
 	if (autoConnect) {
 		if (typeof window !== 'undefined') {
 			try {
@@ -1745,12 +1826,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 							| WalletMechanism<string, `0x${string}`>;
 						if (mechanismUsed.type == 'wallet') {
 							const walletMechanism = mechanismUsed as WalletMechanism<string, `0x${string}`>;
-							waitForWallet(walletMechanism.name)
-								.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
+							const restore = waitForWallet(walletMechanism.name)
+								.then(async (walletDetails: WalletHandle<WalletProviderType>): Promise<RestoreOutcome> => {
 									const walletProvider = walletDetails.walletProvider;
 									const chainIdAsHex = await withTimeout(walletProvider.getChainId());
 									if (autoConnectOvertaken()) {
-										return;
+										return 'overtaken';
 									}
 									const chainId = Number(chainIdAsHex).toString();
 									_wallet = {provider: walletProvider, chainId, info: walletDetails.info};
@@ -1759,7 +1840,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									let accounts: `0x${string}`[] = [];
 									accounts = await withTimeout(walletProvider.getAccounts());
 									if (autoConnectOvertaken()) {
-										return;
+										return 'overtaken';
 									}
 									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
 									set({
@@ -1780,15 +1861,18 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 									alwaysOnProviderWrapper.setWalletStatus('connected');
 									onAccountChanged(accounts);
 									watchForAccountChange(walletProvider);
+									return 'landed';
 								})
-								.catch((err) => {
+								.catch((err): RestoreOutcome => {
 									if (autoConnectOvertaken()) {
-										return;
+										return 'overtaken';
 									}
 									// The wallet may have been registered on the wrapper before the failure (e.g.
 									// getAccounts threw). `set` tears it down: Idle carries no wallet.
 									set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
+									return 'failed';
 								});
+							trackRestore(walletMechanism.name, existingAccount.address, restore);
 						} else {
 							set({
 								step: 'SignedIn',
@@ -1809,12 +1893,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					autoConnectHandled = true;
 					const lastWallet = getLastWallet();
 					if (lastWallet) {
-						waitForWallet(lastWallet.name)
-							.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
+						const restore = waitForWallet(lastWallet.name)
+							.then(async (walletDetails: WalletHandle<WalletProviderType>): Promise<RestoreOutcome> => {
 								const walletProvider = walletDetails.walletProvider;
 								const chainIdAsHex = await withTimeout(walletProvider.getChainId());
 								if (autoConnectOvertaken()) {
-									return;
+									return 'overtaken';
 								}
 								const chainId = Number(chainIdAsHex).toString();
 								_wallet = {provider: walletProvider, chainId, info: walletDetails.info};
@@ -1836,15 +1920,20 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										switchingChain: false,
 									},
 								});
+								return 'landed';
 							})
-							.catch((err) => {
+							.catch((err): RestoreOutcome => {
 								if (autoConnectOvertaken()) {
-									return;
+									return 'overtaken';
 								}
 								// The wallet may have been registered on the wrapper before the failure (e.g.
 								// getAccounts threw). `set` tears it down: Idle carries no wallet.
 								set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
+								return 'failed';
 							});
+						// No address: choosing a wallet never asks it for accounts, so an attempt naming one
+						// names something this restore will not reach.
+						trackRestore(lastWallet.name, undefined, restore);
 					} else {
 						set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 					}
@@ -1857,12 +1946,12 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					// The WalletConnected/SignedIn auto-connect needs an address to restore the
 					// account; without one, fall back to Idle rather than constructing an invalid state.
 					if (lastWallet && lastWallet.address) {
-						waitForWallet(lastWallet.name)
-							.then(async (walletDetails: WalletHandle<WalletProviderType>) => {
+						const restore = waitForWallet(lastWallet.name)
+							.then(async (walletDetails: WalletHandle<WalletProviderType>): Promise<RestoreOutcome> => {
 								const walletProvider = walletDetails.walletProvider;
 								const chainIdAsHex = await withTimeout(walletProvider.getChainId());
 								if (autoConnectOvertaken()) {
-									return;
+									return 'overtaken';
 								}
 								const chainId = Number(chainIdAsHex).toString();
 								_wallet = {provider: walletProvider, chainId, info: walletDetails.info};
@@ -1872,7 +1961,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								let accounts: `0x${string}`[] = [];
 								accounts = await withTimeout(walletProvider.getAccounts());
 								if (autoConnectOvertaken()) {
-									return;
+									return 'overtaken';
 								}
 								accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
 								set({
@@ -1893,15 +1982,18 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								alwaysOnProviderWrapper.setWalletStatus('connected');
 								onAccountChanged(accounts);
 								watchForAccountChange(walletProvider);
+								return 'landed';
 							})
-							.catch((err) => {
+							.catch((err): RestoreOutcome => {
 								if (autoConnectOvertaken()) {
-									return;
+									return 'overtaken';
 								}
 								// The wallet may have been registered on the wrapper before the failure (e.g.
 								// getAccounts threw). `set` tears it down: Idle carries no wallet.
 								set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
+								return 'failed';
 							});
+						trackRestore(lastWallet.name, lastWallet.address, restore);
 					} else {
 						set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
 					}
@@ -2472,6 +2564,40 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	) {
 		if (!mechanism && (targetStep === 'WalletConnected' || walletOnly)) {
 			mechanism = {type: 'wallet'};
+		}
+		// A connect that names nothing the restore in flight is not already doing JOINS it, for the
+		// same reason `ensureConnected` does: starting would overtake the restore and ask the user to
+		// sign in again over a stored session. See `restoreToJoin`. What it does once the restore settles
+		// depends on how it ended:
+		//
+		// - FAILED: nothing was restored, so it runs as asked.
+		// - OVERTAKEN: something started after this call (a `disconnect`, a connect to another account)
+		//   and the newer thing wins, as it would have had this call started at once.
+		// - LANDED: it finishes what the restore left short, and only that. `SignedIn` is all a connect
+		//   reaches, so nothing is left. `WalletConnected` is what a connect lands on too, and it asks
+		//   for the signature from there under the same condition a connect does (the last-wallet
+		//   fallback under `targetStep: 'SignedIn'`). `WalletChosen` asked the wallet for no accounts,
+		//   which is the very thing a connect is for, so it runs and upgrades the chosen wallet.
+		const joined = restoreToJoin(mechanism);
+		if (joined) {
+			const outcome = await joined;
+			if (outcome === 'overtaken') {
+				return;
+			}
+			if (outcome === 'landed') {
+				if (
+					$connection.step === 'WalletConnected' &&
+					$connection.wallet.status === 'connected' &&
+					(requestSignatureAutomaticallyIfPossible || options?.requestSignatureRightAway) &&
+					!options?.requireUserConfirmationBeforeSignatureRequest
+				) {
+					await requestSignature();
+					return;
+				}
+				if ($connection.step !== 'WalletChosen') {
+					return;
+				}
+			}
 		}
 		remember = !(options?.doNotStoreLocally || false);
 		if (mechanism) {
@@ -3088,6 +3214,18 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		// For WalletConnected or WalletChosen step, default to wallet mechanism
 		if (!mechanism && (step === 'WalletConnected' || step === 'WalletChosen')) {
 			mechanism = {type: 'wallet'};
+		}
+
+		// A call that names nothing the restore in flight is not already doing JOINS it: it waits for
+		// the restore to settle, then decides from wherever that left the flow, exactly as if it had been
+		// made a moment later. Landed SignedIn as the stored account, it resolves at once, with no
+		// attempt and so no signature request; landed short of the step, it drives on from there; failed
+		// or overtaken, it does what it does from the state it finds. Without this, the attempt it
+		// starts would overtake the restore (see `flowTransitions`) and ask the user to sign in again
+		// over a stored session. See `restoreToJoin`.
+		const joined = restoreToJoin(mechanism);
+		if (joined) {
+			await joined;
 		}
 
 		const promise = new Promise<
