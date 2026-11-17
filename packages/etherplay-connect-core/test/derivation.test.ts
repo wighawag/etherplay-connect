@@ -104,6 +104,26 @@ describe('originKeyMessage', () => {
 	});
 });
 
+// Frozen: hosted accounts saved signatures over these bytes, and missiv, the push notification
+// server and the trigger service verify them. A change to the text in this package OR in whichever
+// package defines it fails here, before it reaches a signature nobody can verify any more.
+describe('originPublicKeyPublicationMessage', () => {
+	it('is exactly these bytes', () => {
+		const publicKey = '0x02a1633cafcc01ebfb6d78e39f687a1f0995c62fc95f51ead10a02ee0be551b5dc' as const;
+		expect(originPublicKeyPublicationMessage(ORIGIN, publicKey)).toBe(
+			'Origin: https://app.example.com\n' +
+				'\n' +
+				'IMPORTANT: Only sign on trusted websites.\n' +
+				'\n' +
+				'This authorizes the following Public Key to represent your account:\n' +
+				'\n' +
+				'0x02a1633cafcc01ebfb6d78e39f687a1f0995c62fc95f51ead10a02ee0be551b5dc\n' +
+				'\n' +
+				'Others can use this key to write encrypted messages to you securely.',
+		);
+	});
+});
+
 describe('deriveOriginAccount', () => {
 	it('mints nothing when nothing was granted', async () => {
 		signedMessages.length = 0;
