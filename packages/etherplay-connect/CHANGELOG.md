@@ -1,5 +1,15 @@
 # @etherplay/connect
 
+## 0.17.3
+
+### Patch Changes
+
+- 9039b46: A call that asks for nothing new no longer throws away the stored session being restored. Since 0.17.1, the auto-connect at construction drops its result if anything moved the flow while it waited on a slow wallet, and a `connect` or `ensureConnected` made in that window counted as moving it. That is right for an attempt that names something else, and wrong for one that names nothing the restore is not already doing: every action that calls `ensureConnected()` while the page is still loading superseded the restore of a perfectly good stored account and asked the user to sign in again (the account picker, and with `requestSignatureAutomaticallyIfPossible` a fresh signature). Measured downstream as an e2e that signs in, reloads and clicks at once, which passed on 0.17.0 and timed out on 0.17.1.
+
+  Such a call now JOINS the restore: it waits for it to settle (at most the restore's own wallet timeouts, so it never hangs) and carries on from wherever it landed. `ensureConnected()`, `ensureConnected(step)` and `ensureConnected(step, mechanism)` join when the mechanism is absent, or a wallet mechanism naming the restore's wallet (by name or uuid) and, if it names an address, the restored account. Landed `SignedIn` as the stored account, the call resolves at once, with no attempt started and so no signature requested; landed short of the step, it drives on from there; if the restore failed or was overtaken, it does what it does from the state it finds. `connect()` with no argument (or a wallet mechanism naming nothing different) joins too. If the restore failed, it runs as asked; if it was overtaken, something started after the call and wins; if it landed, the connect finishes only what the restore left short: nothing after `SignedIn`, the signature after `WalletConnected` (under the same condition a connect asks for it), and the connection itself after a `WalletChosen` restore, which asked the wallet for no accounts.
+
+  What still wins over the restore, exactly as 0.17.1 made it: `connect` or `ensureConnected` naming another wallet, another account (`{type: 'wallet', address}`, `connectToAddress`) or a hosted mechanism, `selectWallet`, and `disconnect`. A stored account A is still never restored over an explicit switch to and sign-in as B.
+
 ## 0.17.2
 
 ### Patch Changes
