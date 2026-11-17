@@ -5,6 +5,7 @@ import {HDKey} from '@scure/bip32';
 import {keccak_256} from '@noble/hashes/sha3';
 import {secp256k1} from '@noble/curves/secp256k1';
 import {delegationMessage} from '@etherplay/delegation';
+import {originPublicKeyPublicationMessage} from 'delegated-identity';
 import type {AccountGenerator} from '@etherplay/wallet-connector';
 import type {AuthMechanism, EtherplayAccount, OriginAccount, PermissionOutcome, SavedDelegation} from './types.js';
 
@@ -14,9 +15,12 @@ export function originKeyMessage(orig: string): string {
 export function localKeyMessage(): string {
 	return 'DO NOT ACCEPT THIS SIGNATURE REQUEST! This used by Etherplay Wallet to generate your seed phrase.';
 }
-export function originPublicKeyPublicationMessage(orig: string, publicKey: `0x${string}`): string {
-	return `Origin: ${orig}\n\nIMPORTANT: Only sign on trusted websites.\n\nThis authorizes the following Public Key to represent your account:\n\n${publicKey}\n\nOthers can use this key to write encrypted messages to you securely.`;
-}
+// The origin-key publication message is NOT defined here any more. It is the ownership proof that
+// other services (missiv, the push notification server, the trigger service) verify, so it lives in
+// delegated-identity next to the verifier, as the one copy of it in the ecosystem: a second copy
+// could drift and silently invalidate every signature hosted accounts saved over it. Its bytes are
+// still pinned in this package's tests. Re-exported so existing imports keep working.
+export {originPublicKeyPublicationMessage} from 'delegated-identity';
 // The delegation message is NOT defined here any more. It is consensus between three
 // implementations - the verifying contract, this one, and any third-party wallet - so it lives in
 // @etherplay/delegation next to the Solidity that verifies it and the vectors that pin the two
