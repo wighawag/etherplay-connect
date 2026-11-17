@@ -2223,7 +2223,16 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					(settings?.useCurrentAccount == 'always' ||
 						(settings?.useCurrentAccount == 'whenSingle' && accountsFormated.length == 1))
 				) {
-					connectToAddress(accountsFormated[0]);
+					// FOLLOWING the wallet, so the address is a preference, not a demand: the user may move
+					// again before this attempt has read the accounts, and an announcement arriving while it
+					// waits is not seen (the waiting state carries no wallet). Demanding the first address
+					// then failed the attempt and tore the wallet down, over a wallet sitting on an account
+					// the user was connected as a moment ago. As a preference, it degrades to an ordinary
+					// connect on whatever the wallet offers by then, which under `useCurrentAccount` is its
+					// current account. The public `connectToAddress` still demands.
+					connect({type: 'wallet', address: accountsFormated[0], name: $connection.mechanism.name}, undefined, {
+						addressIsPreference: true,
+					});
 				} else {
 					set({
 						...$connection,
@@ -2444,8 +2453,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	 *
 	 * - nothing set: a DEMAND. `connectToAddress(a)` and `connect({type: 'wallet', address: a})` mean
 	 *   that account and no other, so a wallet that cannot offer it fails the attempt.
-	 * - `addressIsPreference`: a mechanism this library REPLAYED from the current state rather than
-	 *   one anybody asked for, so a vanished address degrades to an ordinary connect.
+	 * - `addressIsPreference`: a mechanism this library REPLAYED from the current state, or an
+	 *   account it FOLLOWED from a wallet announcement under `useCurrentAccount`, rather than one
+	 *   anybody asked for, so a vanished address degrades to an ordinary connect.
 	 * - `reportUnavailableAddress`: a demand the caller wants REPORTED rather than thrown, which is
 	 *   what `ensureConnected` asks for. Failing the attempt tears the wallet down (every failure
 	 *   state carries `wallet: undefined`), which is the worst of the three endings: the user is left
@@ -2495,6 +2505,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// threw, which landed in the catch and tore the wallet down: the reconnect performed the
 				// very teardown it exists to prevent, one step later. Degrading to an ordinary connect is
 				// what the caller asked for anyway, since it asked to be connected and named nothing.
+				//
+				// The `useCurrentAccount` follow in `onAccountChanged` is the other source of a reused
+				// address: the wallet announced it, and the user may have moved again before this attempt
+				// reads the accounts.
 				//
 				// The third possibility is `reportUnavailableAddress`: the demand stands, but the answer is
 				// a state rather than a failure. `unavailableAddress` is what records it, and it is read

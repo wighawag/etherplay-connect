@@ -171,6 +171,62 @@ describe('a wallet answer that arrives after the connection moved on', () => {
 		});
 	});
 
+	describe('following the wallet (useCurrentAccount)', () => {
+		it('a switch away and back while the follow is in flight ends on the account the wallet is on', async () => {
+			// The follow (`connectToAddress(B)`) publishes a state with no wallet while it waits, so the
+			// wallet's second announcement (back to A) is ignored. The follow then found only A and, having
+			// DEMANDED B, failed and tore the wallet down: no account and no wallet, while the wallet sat on
+			// the very account the user had been connected as. A follow is a preference, not a demand.
+			const first = install('first', [A]);
+			const connection = createConnection({
+				chainInfo,
+				targetStep: 'WalletConnected',
+				autoConnect: false,
+				useCurrentAccount: 'always',
+			});
+			const snapshot = snapshotOf(connection);
+			await vi.advanceTimersByTimeAsync(200);
+			await connection.connect({type: 'wallet', name: 'first', address: A});
+
+			const release = first.holdNext('eth_accounts');
+			first.switchAccount(B);
+			await vi.advanceTimersByTimeAsync(10);
+			first.switchAccount(A);
+			await vi.advanceTimersByTimeAsync(10);
+			release();
+			await vi.advanceTimersByTimeAsync(2000);
+
+			expect(snapshot().step).toBe('WalletConnected');
+			expect(snapshot().account.address).toBe(A);
+			expect(snapshot().wallet.status).toBe('connected');
+		});
+
+		it('an explicit connectToAddress still DEMANDS its address', async () => {
+			// The fix must not loosen the public call: an app naming an account the wallet does not offer
+			// still gets a failure, not a connection to something else.
+			// Built with `useCurrentAccount`, the store where a loosened demand would quietly connect to
+			// the wallet's first account instead.
+			install('first', [A]);
+			const connection = createConnection({
+				chainInfo,
+				targetStep: 'WalletConnected',
+				autoConnect: false,
+				useCurrentAccount: 'always',
+			});
+			const snapshot = snapshotOf(connection);
+			await vi.advanceTimersByTimeAsync(200);
+			await connection.connect({type: 'wallet', name: 'first', address: A});
+
+			connection.connectToAddress(B);
+			await vi.advanceTimersByTimeAsync(200);
+
+			expect(snapshot().step).not.toBe('WalletConnected');
+			expect(snapshot().wallet).toBeUndefined();
+			expect(snapshot().error.message).toBe('failed to connect to wallet');
+			expect(snapshot().error.cause.message).toContain('could not find address');
+		});
+	});
+
 	describe('the sign-in popup', () => {
 		let originalOpen: typeof window.open;
 		let openedUrls: string[];
