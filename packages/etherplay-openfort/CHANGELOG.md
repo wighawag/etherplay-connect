@@ -1,5 +1,12 @@
 # @etherplay/openfort
 
+## 0.5.5
+
+### Patch Changes
+
+- Updated dependencies [da755de]
+  - @etherplay/connect-core@0.7.5
+
 ## 0.5.4
 
 ### Patch Changes
