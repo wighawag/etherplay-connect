@@ -2567,14 +2567,37 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		}
 		// A connect that names nothing the restore in flight is not already doing JOINS it, for the
 		// same reason `ensureConnected` does: starting would overtake the restore and ask the user to
-		// sign in again over a stored session. See `restoreToJoin`. Unlike `ensureConnected`, which only
-		// ever initiates from a state that needs it, `connect` always starts over, so it runs only if
-		// the restore FAILED. Landed, the restore already did what was asked. Overtaken, something
-		// started after this call (a `disconnect`, a connect to another account) and the newer thing
-		// wins, as it would have had this call started at once.
+		// sign in again over a stored session. See `restoreToJoin`. What it does once the restore settles
+		// depends on how it ended:
+		//
+		// - FAILED: nothing was restored, so it runs as asked.
+		// - OVERTAKEN: something started after this call (a `disconnect`, a connect to another account)
+		//   and the newer thing wins, as it would have had this call started at once.
+		// - LANDED: it finishes what the restore left short, and only that. `SignedIn` is all a connect
+		//   reaches, so nothing is left. `WalletConnected` is what a connect lands on too, and it asks
+		//   for the signature from there under the same condition a connect does (the last-wallet
+		//   fallback under `targetStep: 'SignedIn'`). `WalletChosen` asked the wallet for no accounts,
+		//   which is the very thing a connect is for, so it runs and upgrades the chosen wallet.
 		const joined = restoreToJoin(mechanism);
-		if (joined && (await joined) !== 'failed') {
-			return;
+		if (joined) {
+			const outcome = await joined;
+			if (outcome === 'overtaken') {
+				return;
+			}
+			if (outcome === 'landed') {
+				if (
+					$connection.step === 'WalletConnected' &&
+					$connection.wallet.status === 'connected' &&
+					(requestSignatureAutomaticallyIfPossible || options?.requestSignatureRightAway) &&
+					!options?.requireUserConfirmationBeforeSignatureRequest
+				) {
+					await requestSignature();
+					return;
+				}
+				if ($connection.step !== 'WalletChosen') {
+					return;
+				}
+			}
 		}
 		remember = !(options?.doNotStoreLocally || false);
 		if (mechanism) {

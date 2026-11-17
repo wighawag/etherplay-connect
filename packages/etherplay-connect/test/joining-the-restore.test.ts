@@ -120,6 +120,8 @@ describe('an attempt made while the restore is in flight', () => {
 				"ensureConnected('SignedIn')": (c: any) => c.ensureConnected('SignedIn'),
 				"ensureConnected('WalletConnected')": (c: any) => c.ensureConnected('WalletConnected'),
 				"ensureConnected({type: 'wallet', name})": (c: any) => c.ensureConnected({type: 'wallet', name: WALLET_NAME}),
+				"ensureConnected({type: 'wallet', name: uuid})": (c: any) =>
+					c.ensureConnected({type: 'wallet', name: 'uuid-slow'}),
 				"ensureConnected('SignedIn', the stored account)": (c: any) =>
 					c.ensureConnected('SignedIn', {type: 'wallet', name: WALLET_NAME, address: A}),
 			};
@@ -200,6 +202,76 @@ describe('an attempt made while the restore is in flight', () => {
 		expect(steps).not.toContain('ChooseWalletAccount');
 		expect(steps).not.toContain('WaitingForWalletConnection');
 	});
+
+	// THE RESTORE LANDS SHORT of what the call reaches: the joined call drives on from there.
+
+	function rememberLastWallet(address?: `0x${string}`) {
+		const lastWallet = JSON.stringify(
+			address ? {type: 'wallet', name: WALLET_NAME, address} : {type: 'wallet', name: WALLET_NAME},
+		);
+		localStorage.setItem('__last_wallet', lastWallet);
+		sessionStorage.setItem('__last_wallet', lastWallet);
+	}
+
+	const driveOnCalls = {
+		'connect()': (c: any) => c.connect(),
+		'ensureConnected()': (c: any) => c.ensureConnected(),
+	};
+	for (const [label, call] of Object.entries(driveOnCalls)) {
+		it(`${label} joins a last-wallet restore under targetStep SignedIn and asks for the one signature left`, async () => {
+			// No stored origin account, only the last wallet: the restore lands `WalletConnected` as A, and
+			// the signature is the only thing between there and `SignedIn`. One prompt, no picker.
+			rememberLastWallet(A);
+			const release = installSlowWallet().holdNext('eth_accounts');
+			const {connection, steps, snapshot} = createRestoringConnection(true);
+			await vi.advanceTimersByTimeAsync(200);
+
+			const outcome = settledOf(call(connection));
+			await vi.advanceTimersByTimeAsync(200);
+			expect(outcome.done).toBe(false);
+			release();
+			await vi.advanceTimersByTimeAsync(2000);
+
+			expect(outcome.error).toBeUndefined();
+			expect(outcome.done).toBe(true);
+			expect(snapshot().step).toBe('SignedIn');
+			expect(snapshot().account.address).toBe(A);
+			expect(signatures).toBe(1);
+			expect(steps).not.toContain('ChooseWalletAccount');
+			expect(steps).not.toContain('WalletToChoose');
+			expect(steps).not.toContain('WaitingForWalletConnection');
+		});
+	}
+
+	const upgradeCalls = {
+		"connect({type: 'wallet', name})": (c: any) => c.connect({type: 'wallet', name: WALLET_NAME}),
+		"ensureConnected('WalletConnected')": (c: any) => c.ensureConnected('WalletConnected'),
+	};
+	for (const [label, call] of Object.entries(upgradeCalls)) {
+		it(`${label} joins a WalletChosen restore and still connects the chosen wallet`, async () => {
+			// Choosing a wallet asks it for no accounts, and accounts are what this call is for: landing
+			// on the choice is not landing on what was asked, so the call carries on and connects.
+			rememberLastWallet();
+			const release = installSlowWallet([A]).holdNext('eth_chainId');
+			const connection = createConnection({chainInfo, targetStep: 'WalletChosen', prioritizeWalletProvider: true});
+			let state!: Connection<any>;
+			connection.subscribe((v) => {
+				state = v;
+			});
+			await vi.advanceTimersByTimeAsync(200);
+
+			const outcome = settledOf(call(connection));
+			await vi.advanceTimersByTimeAsync(200);
+			release();
+			await vi.advanceTimersByTimeAsync(2000);
+
+			expect(outcome.error).toBeUndefined();
+			expect(outcome.done).toBe(true);
+			expect((state as any).step).toBe('WalletConnected');
+			expect((state as any).account.address).toBe(A);
+			expect((state as any).wallet.status).toBe('connected');
+		});
+	}
 
 	it('a joined ensureConnected() runs its own flow when the restore fails', async () => {
 		// The held read never comes back inside the restore's 5s `withTimeout`, so the restore rests at
