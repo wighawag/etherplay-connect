@@ -4207,6 +4207,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	}
 
 	type PublicationBinding = {origin: string; publicKey: `0x${string}`; address: `0x${string}`};
+	// The publication prompt the wallet is showing, if any. Deliberately NOT cleared by `disconnect`
+	// or a switch: neither withdraws a prompt already on the user's screen (see `disconnect`), so a
+	// call for the same (origin, key, account) made after signing back in joins the prompt that is
+	// still open rather than stacking a second one on it. Its answer is only written to the account
+	// if that account is the one signed in when it arrives; see `keepPublicationSignature`.
 	let publicationInFlight: {key: string; promise: Promise<`0x${string}`>} | undefined;
 
 	async function recoversTo(binding: PublicationBinding, signature: `0x${string}`): Promise<boolean> {

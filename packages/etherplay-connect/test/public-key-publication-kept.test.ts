@@ -305,7 +305,7 @@ describe('the publication signature of a wallet account', () => {
 
 	it('ignores a stale value an older persisted shape left in the field', async () => {
 		wallet = installKeyedWallet();
-		const before = await signedIn();
+		await signedIn();
 		const stored = storedAccount();
 		localStorage.setItem(
 			'__origin_account',
@@ -320,7 +320,52 @@ describe('the publication signature of a wallet account', () => {
 		expect(answer).not.toBe(NOT_A_SIGNATURE_OF_A);
 		expect(publicationPrompts(wallet)).toHaveLength(1);
 		expect(after.account().savedPublicKeyPublicationSignature).toBe(answer);
-		void before;
+	});
+
+	it('checks a kept value again when it returns it, not only when it restores it', async () => {
+		// No path in the library puts a foreign value on a live account today: the restore drops one
+		// and the write keeps only what recovers. This pins the backstop, the check at the moment of
+		// returning, by putting such a value on the live account object directly, as a future path
+		// (or an app mutating the account it was handed) could.
+		wallet = installKeyedWallet();
+		const {connection, account} = await signedIn();
+		const live = account() as {savedPublicKeyPublicationSignature?: `0x${string}`};
+		live.savedPublicKeyPublicationSignature = NOT_A_SIGNATURE_OF_A;
+
+		const answer = await publication(connection);
+		expect(answer).not.toBe(NOT_A_SIGNATURE_OF_A);
+		expect(publicationPrompts(wallet)).toHaveLength(1);
+		expect(account().savedPublicKeyPublicationSignature).toBe(answer);
+	});
+
+	it('writes nothing back after a disconnect made while the wallet was being asked', async () => {
+		// The disconnect cleared both storages. An answer arriving afterwards must not write the
+		// account back into them, which would restore a session the user just ended.
+		wallet = installKeyedWallet();
+		const {connection, now} = await signedIn();
+		let release!: () => void;
+		wallet.whileSigning = () =>
+			new Promise<void>((resolve) => {
+				release = resolve;
+			});
+		const getting = connection.getSignatureForPublicKeyPublication();
+		const settled = getting.then(
+			(signature) => ({signature}),
+			(error) => ({error}),
+		);
+		await vi.advanceTimersByTimeAsync(50);
+
+		connection.disconnect();
+		expect(now().step).toBe('Idle');
+		expect(storedAccount(localStorage)).toBeUndefined();
+		expect(storedAccount(sessionStorage)).toBeUndefined();
+
+		release();
+		await vi.advanceTimersByTimeAsync(50);
+		await settled;
+		expect(now().step).toBe('Idle');
+		expect(storedAccount(localStorage)).toBeUndefined();
+		expect(storedAccount(sessionStorage)).toBeUndefined();
 	});
 
 	it('does not persist an account the user asked not to store', async () => {
