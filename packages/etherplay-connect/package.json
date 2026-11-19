@@ -47,6 +47,7 @@
 		"@etherplay/connect-core": "workspace:*",
 		"@etherplay/wallet-connector": "workspace:*",
 		"@etherplay/wallet-connector-ethereum": "workspace:*",
+		"delegated-identity": "^0.1.1",
 		"sveltore": "^1.0.0"
 	},
 	"devDependencies": {
