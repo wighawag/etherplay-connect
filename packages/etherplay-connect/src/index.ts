@@ -11,6 +11,9 @@ import type {
 import {walletPrompts} from '@etherplay/wallet-connector';
 import {EthereumWalletConnector, type UnderlyingEthereumProvider} from '@etherplay/wallet-connector-ethereum';
 import {writable} from 'sveltore';
+// Straight from `delegated-identity` rather than through connect-core: this is the check the
+// services that receive the publication signature run, so keeping only what it accepts is the point.
+import {recoverAccount} from 'delegated-identity';
 import {createPopupLauncher, type PopupPromise} from './popup.js';
 import {withTimeout} from './utils.js';
 import {
@@ -879,6 +882,21 @@ export type ConnectionStore<
 	// to upgrade from it. Pass `options.doNotStoreLocally` to keep the choice out of
 	// persisted storage (no auto-connect restore on reload).
 	selectWallet: (name?: string, options?: {doNotStoreLocally?: boolean}) => Promise<void>;
+	/**
+	 * The account's authorisation of this origin's session public key:
+	 * `originPublicKeyPublicationMessage(origin, account.signer.publicKey)` signed by the account.
+	 *
+	 * A wallet is asked AT MOST ONCE per account and origin key. The answer is kept on the account as
+	 * `savedPublicKeyPublicationSignature`, in the store (subscribers see the update) and in the
+	 * persisted account, so later calls and later page loads return it without a prompt, and
+	 * concurrent calls share one prompt. Only a signature that recovers to `account.address` is kept,
+	 * and a kept one is checked again before it is returned, so it is never handed out for another
+	 * origin, key or account. A wallet answer that does not recover (an ERC-1271 smart-contract
+	 * wallet) is returned but not kept, so such a wallet is asked each time.
+	 *
+	 * A hosted account returns the signature it made at sign-in, and throws if it made none.
+	 * Throws `Not signed in` unless `step === 'SignedIn'`.
+	 */
 	getSignatureForPublicKeyPublication: () => Promise<`0x${string}`>;
 	getDelegation: (target: {chainId: number; contract: `0x${string}`; deadline?: number}) => Promise<SavedDelegation>;
 	switchWalletChain: (chainInfo?: BasicChainInfo) => Promise<void>;
@@ -1843,9 +1861,16 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										return 'overtaken';
 									}
 									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
+									// A kept publication signature is SHOWN only if it is this account's for this
+									// origin and key, so an app can read the field to renew without a prompt. See
+									// `getSignatureForPublicKeyPublication`.
+									const account = await withoutForeignPublicationSignature(existingAccount);
+									if (autoConnectOvertaken()) {
+										return 'overtaken';
+									}
 									set({
 										step: 'SignedIn',
-										account: existingAccount,
+										account,
 										mechanism: walletMechanism,
 										wallets: $connection.wallets,
 										wallet: {
@@ -2180,6 +2205,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			},
 			metadata: {},
 			mechanismUsed: $connection.mechanism,
+			// Empty until `getSignatureForPublicKeyPublication` is first called, which asks the wallet and
+			// keeps the answer here. Not asked for now: that would put a second prompt on every sign-in,
+			// including in the apps that never publish the key.
 			savedPublicKeyPublicationSignature: undefined,
 			// Nothing pre-generated on the wallet path, and nothing missing either: the owner is a
 			// live wallet that can be asked to sign at the moment a credential is needed, which is
@@ -4109,6 +4137,22 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// app gets an uncaught exception instead of the reason. `getDelegation` beside it is async and
 	// rejects, and two siblings on the same object failing in two different ways is a difference
 	// nothing in either signature would warn a caller about.
+	//
+	// ASKED AT MOST ONCE per (origin, public key, account) on a wallet account, and the answer is kept
+	// on the account as `savedPublicKeyPublicationSignature`, which is where a hosted account has
+	// always carried its own. The same bytes are verified by several services (push registration,
+	// trigger subscriptions renewed on every page load, missiv), so asking each time meant one wallet
+	// prompt per service per reload. Concurrent calls join the request in flight rather than prompting
+	// twice, the same "join, do not supersede" rule `ensureConnected` follows for the restore.
+	//
+	// Only a signature that RECOVERS to the account is kept, and a kept one is checked again before it
+	// is returned. That single check is the binding: the message names the origin and the key, the
+	// recovered address names the account, so a kept value for anything else (another origin, key or
+	// account, or whatever an older persisted shape left in the field) recovers to somebody else and
+	// is ignored. A wallet answer that does not recover (an ERC-1271 smart-contract wallet, a wallet
+	// that signed with another account than the one it was asked for) is returned as before but not
+	// kept: making it permanent would turn one bad answer into a failure no reload could clear, and
+	// `delegated-identity`'s `recoverAccount`, which the services verify with, refuses it anyway.
 	async function getSignatureForPublicKeyPublication(): Promise<`0x${string}`> {
 		if ($connection.step !== 'SignedIn') {
 			throw new Error('Not signed in');
@@ -4118,11 +4162,39 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			if (!_wallet) {
 				throw new Error(`no provider`);
 			}
-			const message = originPublicKeyPublicationMessage(originToSignWith(), account.signer.publicKey);
-			// Announced, for the same reason as `getDelegation` above.
-			return alwaysOnProviderWrapper.signMessage(message, account.address, {
-				purpose: 'public-key-publication',
-			});
+			const binding: PublicationBinding = {
+				origin: originToSignWith(),
+				publicKey: account.signer.publicKey,
+				address: account.address.toLowerCase() as `0x${string}`,
+			};
+			const key = `${binding.origin}\n${binding.publicKey}\n${binding.address}`;
+			if (publicationInFlight?.key === key) {
+				return publicationInFlight.promise;
+			}
+			const kept = account.savedPublicKeyPublicationSignature;
+			const promise = (async () => {
+				if (kept && (await recoversTo(binding, kept))) {
+					return kept;
+				}
+				const message = originPublicKeyPublicationMessage(binding.origin, binding.publicKey);
+				// Announced, for the same reason as `getDelegation` above.
+				const signature = await alwaysOnProviderWrapper.signMessage(message, account.address, {
+					purpose: 'public-key-publication',
+				});
+				if (await recoversTo(binding, signature)) {
+					keepPublicationSignature(binding, signature);
+				}
+				return signature;
+			})();
+			const inFlight = {key, promise};
+			publicationInFlight = inFlight;
+			const clear = () => {
+				if (publicationInFlight === inFlight) {
+					publicationInFlight = undefined;
+				}
+			};
+			promise.then(clear, clear);
+			return promise;
 		}
 
 		if (account.savedPublicKeyPublicationSignature) {
@@ -4132,6 +4204,81 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		// TODO offer a way to use iframe + popup to sign the message
 		// this would require saving mnemonic or privatekey on etherplay localstorage though
 		throw new Error(`no saved public key publication signature for ${account.address}`);
+	}
+
+	type PublicationBinding = {origin: string; publicKey: `0x${string}`; address: `0x${string}`};
+	// The publication prompt the wallet is showing, if any. Deliberately NOT cleared by `disconnect`
+	// or a switch: neither withdraws a prompt already on the user's screen (see `disconnect`), so a
+	// call for the same (origin, key, account) made after signing back in joins the prompt that is
+	// still open rather than stacking a second one on it. Its answer is only written to the account
+	// if that account is the one signed in when it arrives; see `keepPublicationSignature`.
+	let publicationInFlight: {key: string; promise: Promise<`0x${string}`>} | undefined;
+
+	async function recoversTo(binding: PublicationBinding, signature: `0x${string}`): Promise<boolean> {
+		try {
+			const recovered = await recoverAccount({
+				appOrigin: binding.origin,
+				publicKey: binding.publicKey,
+				ownershipSignature: signature,
+			});
+			return recovered.toLowerCase() === binding.address;
+		} catch {
+			// Malformed: not 64 or 65 bytes, an invalid recovery bit, not a point. Nothing to keep.
+			return false;
+		}
+	}
+
+	/** The account without a kept publication signature that is not its own for this origin and key. */
+	async function withoutForeignPublicationSignature(account: OriginAccount): Promise<OriginAccount> {
+		const kept = account.savedPublicKeyPublicationSignature;
+		if (!kept) {
+			return account;
+		}
+		const binding: PublicationBinding = {
+			origin: originToSignWith(),
+			publicKey: account.signer.publicKey,
+			address: account.address.toLowerCase() as `0x${string}`,
+		};
+		if (await recoversTo(binding, kept)) {
+			return account;
+		}
+		const {savedPublicKeyPublicationSignature, ...rest} = account;
+		return rest;
+	}
+
+	/**
+	 * Write a publication signature onto the account it is FOR, in the store and wherever that account
+	 * is persisted. Nothing if the connection has moved on to another account or key while the wallet
+	 * was being asked: the answer is still returned to whoever asked, but it is not this account's.
+	 */
+	function keepPublicationSignature(binding: PublicationBinding, signature: `0x${string}`) {
+		const isTheAccount = (account: OriginAccount | undefined) =>
+			!!account && account.address.toLowerCase() === binding.address && account.signer?.publicKey === binding.publicKey;
+		if (
+			$connection.step === 'SignedIn' &&
+			$connection.mechanism.type === 'wallet' &&
+			originToSignWith() === binding.origin &&
+			isTheAccount($connection.account)
+		) {
+			set({...$connection, account: {...$connection.account, savedPublicKeyPublicationSignature: signature}});
+		}
+		// Per storage and in place, never through `saveOriginAccount`: an account the user asked not to
+		// store (`doNotStoreLocally`) stays unstored, and one that has left a storage is not resurrected
+		// into it. See `stripStoredEntropyKey` for the same rule.
+		for (const storage of [localStorage, sessionStorage]) {
+			try {
+				const raw = storage.getItem(storageKeyAccount);
+				const stored = raw ? (JSON.parse(raw) as OriginAccount) : undefined;
+				if (stored && isTheAccount(stored)) {
+					storage.setItem(
+						storageKeyAccount,
+						JSON.stringify(withoutEntropyKey({...stored, savedPublicKeyPublicationSignature: signature})),
+					);
+				}
+			} catch {
+				// Unreadable or unwritable storage: the store still has it for this page.
+			}
+		}
 	}
 
 	async function unlock() {

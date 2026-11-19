@@ -78,6 +78,9 @@ importers:
       '@etherplay/wallet-connector-ethereum':
         specifier: workspace:*
         version: link:../etherplay-wallet-connector-ethereum
+      delegated-identity:
+        specifier: ^0.1.1
+        version: 0.1.1
       sveltore:
         specifier: ^1.0.0
         version: 1.0.0

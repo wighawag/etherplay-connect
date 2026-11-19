@@ -767,7 +767,7 @@ reproduce it and then drift from it.
 | `canActAs(address)`                            | Can this connection sign as that address right now? Reads state, initiates nothing                      |
 | `acknowledgeAddressUnavailable()`              | Dismiss `connection.addressUnavailable`; settles a waiting `ensureConnected` as cancelled               |
 | `isTargetStepReached(connection)`              | Check if target step is reached                                                                         |
-| `getSignatureForPublicKeyPublication()`        | Get signature for public key                                                                            |
+| `getSignatureForPublicKeyPublication()`        | The account's authorisation of the session public key; a wallet is asked once, the result is kept       |
 | `getDelegation(target)`                        | Get a delegation credential                                                                             |
 
 ### `getSignatureForPublicKeyPublication()`
@@ -776,7 +776,9 @@ Despite the name, this needs **no `walletHost` and no backend**. It does not pub
 
 Availability depends on the mechanism the user signed in with, not on whether a host is configured:
 
-- **Wallet mechanism** (always the case under `walletOnly: true`): the connected wallet signs `originPublicKeyPublicationMessage(origin, publicKey)` locally. Fully available in the backend-free shape.
+- **Wallet mechanism** (always the case under `walletOnly: true`): the connected wallet signs `originPublicKeyPublicationMessage(origin, publicKey)` locally. Fully available in the backend-free shape. **The wallet is asked at most once per account and origin key**, and the result is kept on the account as `savedPublicKeyPublicationSignature`: in the store, so `$connection.account.savedPublicKeyPublicationSignature` shows it once it exists, and in the persisted account, so later calls and later page loads return it with no prompt. Calls made while the wallet is being asked share that one prompt. A refusal keeps nothing, so the next call asks again. Several services verify these same bytes (push registration, trigger subscriptions, missiv), so an app needs no cache of its own.
+  - **Bound to `(origin, publicKey, address)`.** Only a signature that recovers to `account.address` over the message for this origin and key (`recoverAccount` from `delegated-identity`, which is what those services run) is kept, and a kept one is checked again before it is returned. So it is never returned for another origin, key or account; a new origin key or another account starts empty; and a value that does not recover (from an older persisted shape, say) is ignored and replaced: a restored wallet account does not even show it, so reading the field to renew a subscription without a prompt is safe.
+  - **A smart-contract wallet (ERC-1271) is asked each time.** Its signature cannot be recovered from the bytes, so it is returned exactly as the wallet gave it, and not kept. The same goes for a wallet that signed with another account than the one it was asked for: keeping it would make one bad answer permanent.
 - **Popup mechanisms** (email / OAuth / mnemonic): returns `account.savedPublicKeyPublicationSignature` if the hosted sign-in produced one, and otherwise throws `no saved public key publication signature for <address>`. There is currently no way to sign it after the fact for these mechanisms.
 
 It throws `Not signed in` unless `step === 'SignedIn'`, so it is unavailable in the `targetStep: 'WalletConnected'` shape, which has no session public key to authorize.
@@ -883,7 +885,7 @@ interface OriginAccount {
 		email?: string;
 	};
 	mechanismUsed: Mechanism;
-	savedPublicKeyPublicationSignature?: `0x${string}`;
+	savedPublicKeyPublicationSignature?: `0x${string}`; // hosted: from sign-in; wallet: kept after the first getSignatureForPublicKeyPublication()
 	savedDelegations: SavedDelegation[]; // one per granted (chainId, contract)
 	permissions?: PermissionOutcome[]; // an answer for every permission the app requested
 	accountType: string;

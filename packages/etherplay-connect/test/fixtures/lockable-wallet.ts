@@ -23,6 +23,15 @@
 
 type Handler = (payload: any) => void;
 
+function hexToBytes(hex: string): Uint8Array {
+	const body = hex.startsWith('0x') ? hex.slice(2) : hex;
+	const bytes = new Uint8Array(body.length / 2);
+	for (let i = 0; i < bytes.length; i++) {
+		bytes[i] = parseInt(body.slice(i * 2, i * 2 + 2), 16);
+	}
+	return bytes;
+}
+
 export type LockableWallet = {
 	uninstall: () => void;
 	/** Answer no accounts and announce it, exactly as a wallet does when the user locks it. */
@@ -81,6 +90,15 @@ export type LockableWallet = {
 	setChainId: (chainIdAsHex: string) => void;
 	/** What `personal_sign` answers, for a wallet that returns something that is not a signature. */
 	setSignature: (signature: string) => void;
+	/**
+	 * Sign for real: `personal_sign` answers with whatever `sign` makes of the decoded text and the
+	 * account asked for, instead of the fixed `setSignature` bytes. A fixed answer recovers to nobody,
+	 * which is the right test for a signature the library must not trust and the wrong one for a
+	 * signature it should.
+	 */
+	setSigner: (sign: ((message: string, account: `0x${string}`) => Promise<string>) | undefined) => void;
+	/** Every `personal_sign` the wallet was asked for, in order, as the text the user was shown. */
+	signRequests: () => {message: string; account: `0x${string}`}[];
 	/** Run while the wallet is holding a `personal_sign`, the only moment worth looking at. */
 	set whileSigning(hook: (() => void | Promise<void>) | undefined);
 	/**
@@ -128,6 +146,8 @@ export function installLockableWallet(options?: {
 	let getAccountsCount = 0;
 	let whileSigning: (() => void | Promise<void>) | undefined;
 	let signature = `0x${'ab'.repeat(65)}`;
+	let signer: ((message: string, account: `0x${string}`) => Promise<string>) | undefined;
+	const signRequests: {message: string; account: `0x${string}`}[] = [];
 	let releaseTransaction: ((hash: string) => void) | undefined;
 
 	const held = new Map<string, Promise<void>>();
@@ -168,13 +188,16 @@ export function installLockableWallet(options?: {
 					locked = false;
 					return accounts;
 				case 'personal_sign': {
+					const message = new TextDecoder().decode(hexToBytes(params?.[0] as string));
+					const account = (params?.[1] as `0x${string}`).toLowerCase() as `0x${string}`;
+					signRequests.push({message, account});
 					// A hook may return a promise to HOLD the wallet inside the request, which is how a
 					// test gets two signature requests outstanding at the same time.
 					const held = whileSigning?.();
 					if (held) {
 						await held;
 					}
-					return signature;
+					return signer ? signer(message, account) : signature;
 				}
 				case 'eth_sendTransaction':
 					// Held until the test releases it. Nothing about locking touches this promise,
@@ -281,6 +304,10 @@ export function installLockableWallet(options?: {
 		setSignature: (answer: string) => {
 			signature = answer;
 		},
+		setSigner: (sign) => {
+			signer = sign;
+		},
+		signRequests: () => signRequests,
 		requestAccountsCalls: () => requestAccountsCount,
 		getAccountsCalls: () => getAccountsCount,
 		set whileSigning(hook: (() => void | Promise<void>) | undefined) {
