@@ -1,5 +1,15 @@
 # @etherplay/connect
 
+## 0.18.0
+
+### Minor Changes
+
+- 64aedce: **A wallet is asked for the public-key publication signature at most once per account and origin key.** `getSignatureForPublicKeyPublication()` used to ask a wallet account's wallet on every call, while a hosted account answered from `savedPublicKeyPublicationSignature`. Several services verify the same bytes (push-notification-server's `/register`, etherfold's trigger `/subscriptions` renewed on every page load, missiv's `register`), so a wallet user was prompted once per service per reload. Now the first wallet answer is kept on the account as `savedPublicKeyPublicationSignature`, in the store (subscribers see the update, so `$connection.account.savedPublicKeyPublicationSignature` shows it) and in the persisted account, and later calls and later page loads return it with no prompt. Calls made while the wallet is being asked share that one prompt instead of opening a second. A refusal keeps nothing.
+
+  The kept value is bound to `(origin, publicKey, address)`: only a signature that recovers to `account.address` over the message for this origin and key is kept (`delegated-identity`'s `recoverAccount`, the check the services run, now a direct dependency), and a kept one is checked again before it is returned. So it is never returned for another origin, key or account, a new origin key or another account starts empty, and a value that does not recover (left by an older persisted shape, say) is ignored and replaced; a restored wallet account does not even show it in the store. A wallet answer that does not recover, such as an ERC-1271 smart-contract wallet's, is returned as before and not kept, so such a wallet is still asked each time. An account signed in with `doNotStoreLocally` stays unstored. Nothing changes for hosted accounts, and no type changes.
+
+  An app that kept its own cache of this signature to avoid the repeated prompt can drop it and call `connection.getSignatureForPublicKeyPublication()` instead.
+
 ## 0.17.3
 
 ### Patch Changes
