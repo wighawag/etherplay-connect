@@ -1,5 +1,12 @@
 # @etherplay/connect-core
 
+## 0.7.6
+
+### Patch Changes
+
+- Updated dependencies [f94e447]
+  - @etherplay/delegation@0.2.0
+
 ## 0.7.5
 
 ### Patch Changes
