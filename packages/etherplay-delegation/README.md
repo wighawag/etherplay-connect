@@ -43,7 +43,7 @@ contract MyGame is UsingDelegation {
 
 That is the whole adoption. `UsingDelegation` declares **no storage of its own** (the library keeps its state in an ERC-7201 namespaced region), so it adds nothing to your layout and shifts nothing you already have, which is what makes it safe to add to a contract already live behind a proxy.
 
-It gives your contract six external functions:
+It gives your contract seven external functions:
 
 ```solidity
 function registerDelegate(address delegate, address payable payee) external payable;
@@ -54,14 +54,17 @@ function registerDelegateViaSignature(
 	bytes calldata signature
 ) external payable;
 function revokeDelegate(address delegate) external;
+function resignDelegate(address owner, address payable payee) external payable;
 function delegationStatus(address owner, address delegate) external view returns (bool allowed, bool withdrawn);
 function delegationMessage(address delegate, uint256 deadline) external view returns (string memory);
 function delegationDigest(address delegate, uint256 deadline) external view returns (bytes32);
 ```
 
-If you want fewer, or different ones, use `Delegation` (the library) directly and write your own; `UsingDelegation` is only those six written once. `IDelegation` is the same set as a type, for a router composing a selector list or a caller that does not compile against you.
+If you want fewer, or different ones, use `Delegation` (the library) directly and write your own; `UsingDelegation` is only those seven written once. `IDelegation` is the same set as a type, for a router composing a selector list or a caller that does not compile against you.
 
 **What you are handing over:** a delegate authorised at your contract may do anything at your contract that its owner could do through the paths you resolve with `_requireAccountForSender`. Not a scope, not one action. It can do nothing anywhere else. If that is more than you mean to grant, narrow it in the override.
+
+**Withdrawing, from either side.** `revokeDelegate(delegate)` is the owner's: sent from the account, it withdraws any of its delegates, including one it no longer holds the key for. `resignDelegate(owner, payee)` is the delegate's: sent from the delegate key itself, it withdraws that key's own authorisation and forwards the attached value to `payee`. An app that funds a key for its user uses it to give the user both things they want when they turn the key off, the access gone and the funds back, in one transaction with no wallet prompt and nothing needed from an account that may hold nothing. Both land in the same withdrawn state, so either way only the owner can authorise that delegate again, and only by a transaction (a public registration signature must not be able to undo it). Only a delegate that is currently allowed may resign.
 
 **Enumeration is the event.** There is no onchain list of an account's delegates; `DelegationChanged(owner, delegate, allowed)` is indexed on both addresses, and the set is reconstructed by replaying it. Note that many public RPCs cap `eth_getLogs` ranges, so a browser reconstructing from genesis wants a stored deployment block and paging.
 

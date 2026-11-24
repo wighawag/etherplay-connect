@@ -369,6 +369,49 @@ library Delegation {
         emit DelegationChanged(owner, delegate, false);
     }
 
+    /// @notice `delegate` gives up its own authorisation to act for `owner`:
+    /// the same end state as {revoke}, reached from the other side.
+    ///
+    /// AUTHORISES NOTHING ITSELF: the adopting contract must already have
+    /// established that `delegate` is the one asking, normally by passing
+    /// `msg.sender`. Passing anything else would let anyone withdraw anyone's
+    /// delegate.
+    ///
+    /// Why a delegate needs this at all. A delegate is typically a key an app
+    /// holds for its user, funded so that it can act without a prompt. When
+    /// the user wants that key to stop, {revoke} needs a transaction FROM THE
+    /// OWNER, who may hold nothing (the funds having gone to the key), and it
+    /// leaves the key's funds stranded on an address that can no longer do
+    /// anything useful. Resigning is sent by the key itself, so it needs no
+    /// owner prompt and no owner funds, and the adopting entry point can carry
+    /// the key's balance back in the same transaction.
+    ///
+    /// SAFE WITHOUT A SIGNATURE, because it can only REDUCE authority, and only
+    /// the caller's own: the worst a stolen delegate key achieves with it is to
+    /// stop being a delegate. It lands in the same Withdrawn state as {revoke},
+    /// deliberately, and not in "never authorised": the owner's registration
+    /// signature is public once submitted and carries no nonce, so a state a
+    /// signature could cross would let anyone, the thief included, put the key
+    /// straight back. Re-authorising THIS delegate therefore takes a
+    /// transaction from the owner ({register}), exactly as after {revoke}.
+    ///
+    /// Only a delegate that is CURRENTLY allowed may resign. Withdrawing an
+    /// address that was never authorised is meaningful when the owner does it
+    /// (see {revoke}), but from anyone else it would only write entries into
+    /// {DelegationChanged}, which is the enumeration API, for owners who never
+    /// had anything to do with the caller.
+    ///
+    /// @param owner the account `delegate` stops acting for
+    /// @param delegate the address resigning, i.e. `msg.sender`
+    function resign(address owner, address delegate) internal {
+        Layout storage $ = layout();
+        if ($.status[owner][delegate] != Status.Allowed) {
+            revert NotDelegate(owner, delegate);
+        }
+        $.status[owner][delegate] = Status.Withdrawn;
+        emit DelegationChanged(owner, delegate, false);
+    }
+
     // ------------------------------------------------------------------------
     // THE SIGNED TEXT
     // ------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 /**
  * The delegation surface as an ABI, for a client that calls a contract it does not compile against.
  *
- * The same six functions {@link file://../contracts/IDelegation.sol} declares, plus the event and
+ * The same seven functions {@link file://../contracts/IDelegation.sol} declares, plus the event and
  * the errors an adopter of `UsingDelegation` actually exposes - the event because it IS the
  * enumeration API (there is no onchain list of an account's delegates, so the set is reconstructed
  * by replaying these logs), and the errors so a revert decodes into something an app can act on
@@ -41,6 +41,16 @@ export const DELEGATION_ABI = [
 		name: 'revokeDelegate',
 		stateMutability: 'nonpayable',
 		inputs: [{name: 'delegate', type: 'address'}],
+		outputs: [],
+	},
+	{
+		type: 'function',
+		name: 'resignDelegate',
+		stateMutability: 'payable',
+		inputs: [
+			{name: 'owner', type: 'address'},
+			{name: 'payee', type: 'address'},
+		],
 		outputs: [],
 	},
 	{
