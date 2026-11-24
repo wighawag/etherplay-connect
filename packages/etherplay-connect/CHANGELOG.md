@@ -1,5 +1,11 @@
 # @etherplay/connect
 
+## 0.18.1
+
+### Patch Changes
+
+- @etherplay/connect-core@0.7.6
+
 ## 0.18.0
 
 ### Minor Changes
