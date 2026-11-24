@@ -232,6 +232,25 @@ contract UsingDelegationTest is Test {
         assertTrue(otherAllowed);
     }
 
+    /// @notice The delegate's side of withdrawal reaches the library, with
+    /// `msg.sender` as the delegate and the value forwarded.
+    function test_resignIsTheSender() public {
+        vm.prank(stranger);
+        adopter.registerDelegate(delegate, payable(address(0)));
+        vm.deal(delegate, 1 ether);
+
+        vm.prank(delegate);
+        adopter.resignDelegate{value: 0.4 ether}(stranger, payable(stranger));
+
+        (bool allowed, bool withdrawn) = adopter.delegationStatus(
+            stranger,
+            delegate
+        );
+        assertFalse(allowed);
+        assertTrue(withdrawn);
+        assertEq(stranger.balance, 0.4 ether);
+    }
+
     function test_digestMatchesTheMessage() public view {
         string memory message = adopter.delegationMessage(delegate, 0);
         assertEq(

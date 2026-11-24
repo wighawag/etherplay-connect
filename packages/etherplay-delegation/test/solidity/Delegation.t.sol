@@ -49,6 +49,14 @@ contract DelegationHarness {
         Delegation.revoke(msg.sender, delegate);
     }
 
+    function resignDelegate(
+        address owner,
+        address payable payee
+    ) external payable {
+        Delegation.resign(owner, msg.sender);
+        Payments.forward(payee, msg.value);
+    }
+
     function delegationStatus(
         address owner,
         address delegate
@@ -686,6 +694,160 @@ contract DelegationTest is Test {
         );
         assertTrue(_allowed(owner, otherDelegate));
         assertFalse(_withdrawn(owner, otherDelegate));
+    }
+
+    // ==================== resign ====================
+
+    /// @notice The delegate ends its own authorisation, with no owner
+    /// transaction and nothing from the owner's balance.
+    function test_resign_endsTheAuthorisation() public {
+        address owner = _owner();
+        vm.prank(submitter);
+        harness.registerDelegateViaSignature(
+            owner,
+            delegate,
+            0,
+            _sign(ownerKey, delegate, 0)
+        );
+
+        vm.prank(delegate);
+        harness.resignDelegate(owner, payable(address(0)));
+
+        assertFalse(_allowed(owner, delegate));
+        assertTrue(_withdrawn(owner, delegate));
+    }
+
+    function test_resign_emits() public {
+        vm.prank(stranger);
+        harness.registerDelegate(delegate, payable(address(0)));
+
+        vm.expectEmit(true, true, false, true);
+        emit Delegation.DelegationChanged(stranger, delegate, false);
+        vm.prank(delegate);
+        harness.resignDelegate(stranger, payable(address(0)));
+    }
+
+    /// @notice The point of the entry point: the delegate's balance goes back
+    /// with the resignation, in the same transaction.
+    function test_resign_forwardsTheValueToThePayee() public {
+        vm.prank(stranger);
+        harness.registerDelegate(delegate, payable(address(0)));
+        vm.deal(delegate, 1 ether);
+
+        vm.prank(delegate);
+        harness.resignDelegate{value: 0.7 ether}(stranger, payable(stranger));
+
+        assertEq(stranger.balance, 0.7 ether);
+        assertEq(delegate.balance, 0.3 ether);
+        assertEq(address(harness).balance, 0);
+    }
+
+    /// @notice Value with nowhere to go is refused, as everywhere else, rather
+    /// than kept by a contract that has no way to release it.
+    function test_resign_refusesValueWithNoPayee() public {
+        vm.prank(stranger);
+        harness.registerDelegate(delegate, payable(address(0)));
+        vm.deal(delegate, 1 ether);
+
+        vm.prank(delegate);
+        vm.expectRevert(
+            abi.encodeWithSelector(Payments.ValueWithNoPayee.selector, 1 ether)
+        );
+        harness.resignDelegate{value: 1 ether}(stranger, payable(address(0)));
+        assertTrue(_allowed(stranger, delegate));
+    }
+
+    /// @notice Only a delegate that is allowed now may resign. Anybody else
+    /// would only be writing withdrawals into the log an app replays, for
+    /// owners that never had anything to do with them.
+    function test_resign_refusesAnAddressThatIsNotADelegate() public {
+        vm.prank(stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Delegation.NotDelegate.selector,
+                _owner(),
+                stranger
+            )
+        );
+        harness.resignDelegate(_owner(), payable(address(0)));
+    }
+
+    /// @notice ... including one that already resigned or was revoked: the
+    /// state is already where resigning would put it.
+    function test_resign_refusesAWithdrawnDelegate() public {
+        vm.startPrank(stranger);
+        harness.registerDelegate(delegate, payable(address(0)));
+        harness.revokeDelegate(delegate);
+        vm.stopPrank();
+
+        vm.prank(delegate);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Delegation.NotDelegate.selector,
+                stranger,
+                delegate
+            )
+        );
+        harness.resignDelegate(stranger, payable(address(0)));
+    }
+
+    /// @notice A delegate resigns only ITSELF: the owner's other delegates
+    /// stand.
+    function test_resign_leavesTheOtherDelegates() public {
+        vm.startPrank(stranger);
+        harness.registerDelegate(delegate, payable(address(0)));
+        harness.registerDelegate(otherDelegate, payable(address(0)));
+        vm.stopPrank();
+
+        vm.prank(delegate);
+        harness.resignDelegate(stranger, payable(address(0)));
+
+        assertFalse(_allowed(stranger, delegate));
+        assertTrue(_allowed(stranger, otherDelegate));
+    }
+
+    /// @notice Why resigning lands in Withdrawn and not in "never authorised":
+    /// the owner's registration signature is public once submitted, so a state
+    /// it could cross would let anyone, a thief holding the key included, put
+    /// the key straight back.
+    function test_resign_cannotBeUndoneByPresentingTheSignatureAgain() public {
+        address owner = _owner();
+        bytes memory signature = _sign(ownerKey, delegate, 0);
+        vm.prank(submitter);
+        harness.registerDelegateViaSignature(owner, delegate, 0, signature);
+
+        vm.prank(delegate);
+        harness.resignDelegate(owner, payable(address(0)));
+
+        vm.prank(submitter);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Delegation.DelegationWithdrawn.selector,
+                owner,
+                delegate
+            )
+        );
+        harness.registerDelegateViaSignature(owner, delegate, 0, signature);
+    }
+
+    /// @notice ... while the owner can always bring it back with a
+    /// transaction, exactly as after {revoke}.
+    function test_resign_isClearedByTheOwnerRegisteringAgain() public {
+        address owner = _owner();
+        vm.prank(submitter);
+        harness.registerDelegateViaSignature(
+            owner,
+            delegate,
+            0,
+            _sign(ownerKey, delegate, 0)
+        );
+        vm.prank(delegate);
+        harness.resignDelegate(owner, payable(address(0)));
+
+        vm.prank(owner);
+        harness.registerDelegate(delegate, payable(address(0)));
+        assertTrue(_allowed(owner, delegate));
+        assertFalse(_withdrawn(owner, delegate));
     }
 
     /// @notice Withdrawal is one-way for signatures, but the OWNER can always

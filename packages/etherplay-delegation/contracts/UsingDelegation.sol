@@ -97,6 +97,29 @@ abstract contract UsingDelegation {
         Delegation.revoke(msg.sender, delegate);
     }
 
+    /// @notice stop acting for `owner` here, as the delegate itself, and send
+    /// whatever value comes with the call to `payee`.
+    ///
+    /// The delegate's side of {revokeDelegate}: sent BY the delegate, so the
+    /// owner signs nothing and pays nothing. An app holding a funded key for
+    /// its user calls this from that key with the key's balance (less the gas)
+    /// and `payee` set to the owner, and the user gets their access withdrawn
+    /// AND their funds back in one transaction, with no wallet prompt.
+    ///
+    /// `payee` is free rather than forced to `owner`, for the same reason it is
+    /// free in {registerDelegate}: it is the sender's own money. Value with no
+    /// payee reverts rather than being kept by this contract.
+    ///
+    /// Re-authorising this delegate afterwards takes a transaction from the
+    /// owner, as after {revokeDelegate}. See {Delegation-resign}.
+    function resignDelegate(
+        address owner,
+        address payable payee
+    ) external payable virtual {
+        Delegation.resign(owner, msg.sender);
+        Payments.forward(payee, msg.value);
+    }
+
     /// @notice whether `delegate` may act for `owner` here, and whether `owner`
     /// withdrew it.
     ///

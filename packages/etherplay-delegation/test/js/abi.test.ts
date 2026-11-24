@@ -11,7 +11,7 @@ import {DELEGATION_ABI} from '../../src/index.js';
  * side, a `view` that became `payable`, an error removed - each changes a selector, and a client
  * built on a stale ABI does not fail loudly, it calls a function that is not there.
  *
- * The comparison is against the compiled artifacts of the interface (the six functions) and of the
+ * The comparison is against the compiled artifacts of the interface (the seven functions) and of the
  * libraries an adopter's ABI actually surfaces (the event and the errors). Together they are
  * precisely what a contract inheriting `UsingDelegation` exposes.
  */
@@ -57,7 +57,7 @@ function sorted(entries: AbiEntry[]) {
 describe('DELEGATION_ABI', () => {
 	it('is exactly what the Solidity exposes', () => {
 		const compiled = [
-			// the six external functions
+			// the seven external functions
 			...artifactAbi('IDelegation.sol/IDelegation.json'),
 			// the event that IS the enumeration API, and the errors the library raises
 			...artifactAbi('Delegation.sol/Delegation.json'),

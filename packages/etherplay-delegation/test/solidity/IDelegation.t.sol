@@ -78,6 +78,23 @@ contract IDelegationTest is Test {
         assertTrue(withdrawn);
     }
 
+    function test_resignIsReachableThroughTheInterface() public {
+        vm.prank(stranger);
+        adopter.registerDelegate(delegate, payable(address(0)));
+        vm.deal(delegate, 1 ether);
+
+        vm.prank(delegate);
+        adopter.resignDelegate{value: 0.5 ether}(stranger, payable(stranger));
+
+        (bool allowed, bool withdrawn) = adopter.delegationStatus(
+            stranger,
+            delegate
+        );
+        assertFalse(allowed);
+        assertTrue(withdrawn);
+        assertEq(stranger.balance, 0.5 ether);
+    }
+
     function test_registerViaSignatureIsReachableThroughTheInterface() public {
         address owner = vm.addr(ownerKey);
         uint256 deadline = block.timestamp + 30 days;

@@ -12,7 +12,7 @@ pragma solidity ^0.8.4;
 ///  - A contract behind a ROUTER cannot say "these selectors are mine" by
 ///    inheriting an abstract contract: the router needs a list of selectors,
 ///    composed from interfaces, while the implementation lives elsewhere.
-///    Without a shared declaration every router restates the same six
+///    Without a shared declaration every router restates the same seven
 ///    signatures, and a restatement is a copy that can drift.
 ///  - A client, a script or a test that calls into a contract it does not
 ///    compile against - `IDelegation(target).delegationStatus(owner, delegate)`
@@ -20,7 +20,7 @@ pragma solidity ^0.8.4;
 ///    `DELEGATION_ABI`, checked against this file by a test.
 ///
 /// DO NOT WRITE `is IDelegation, UsingDelegation`. It does not compile without
-/// restating all six functions as `override`, which is exactly the boilerplate
+/// restating all seven functions as `override`, which is exactly the boilerplate
 /// {UsingDelegation} exists to spare an adopter. Inherit the implementation
 /// alone and use this interface where a TYPE is wanted; the two agreeing is
 /// covered by a test (test/solidity/IDelegation.t.sol), and on a router the
@@ -54,6 +54,13 @@ interface IDelegation {
     /// @notice withdraw your authorisation of `delegate`; no signature can put
     /// that one back.
     function revokeDelegate(address delegate) external;
+
+    /// @notice as the delegate, stop acting for `owner` here, and send whatever
+    /// value is attached to `payee`.
+    function resignDelegate(
+        address owner,
+        address payable payee
+    ) external payable;
 
     /// @notice whether `delegate` may act for `owner` here, and whether `owner`
     /// withdrew it.
