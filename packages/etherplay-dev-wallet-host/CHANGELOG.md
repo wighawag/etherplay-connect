@@ -1,5 +1,11 @@
 # @etherplay/dev-wallet-host
 
+## 0.2.0
+
+### Minor Changes
+
+- c7c87af: Rebuilt on `@etherplay/connect-core` 0.8.0: the dev wallet host returns the account's key set (`keySet`, an Ed25519 signing key and an X25519 encryption key) and a publication signature over the message naming it. Required by `@etherplay/connect` 0.19.0, which refuses an account from an older host with "the wallet host is out of date".
+
 ## 0.1.2
 
 ### Patch Changes
