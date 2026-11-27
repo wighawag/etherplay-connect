@@ -12,6 +12,7 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {createConnection, type Connection} from '../src/index.js';
 import {installLockableWallet, type LockableWallet} from './fixtures/lockable-wallet.js';
+import {keySetOf} from './fixtures/current-accounts.js';
 
 const chainInfo = {
 	id: 1,
@@ -37,6 +38,8 @@ function rememberSignedInAs(address: `0x${string}`) {
 			publicKey: `0x${'cd'.repeat(33)}`,
 			privateKey: `0x${'ef'.repeat(32)}`,
 		},
+		// No publication signature yet, as the wallet path stores it until the app asks for one.
+		keySet: keySetOf(`0x${'ef'.repeat(32)}`),
 		metadata: {},
 		mechanismUsed: mechanism,
 		savedDelegations: [],

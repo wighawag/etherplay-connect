@@ -13,6 +13,7 @@
 
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {createConnection, type Connection, type OriginAccount} from '../src/index.js';
+import {hostedAccount as currentHostedAccount} from './fixtures/current-accounts.js';
 
 const chainInfo = {
 	id: 1,
@@ -23,27 +24,18 @@ const chainInfo = {
 
 const WALLET_HOST = 'https://wallet.example.com';
 const PAGE_ORIGIN = 'http://localhost:3000';
-const ACCOUNT = '0xaaaa000000000000000000000000000000000aaa' as `0x${string}`;
-const SIGNER = '0xbbbb000000000000000000000000000000000bbb' as `0x${string}`;
 const CONTRACT = '0xe7f1725e7734ce288f8367e1bb143e90bb3f0512' as `0x${string}`;
 const OTHER_CONTRACT = '0xcccc000000000000000000000000000000000ccc' as `0x${string}`;
 const SIGNATURE = `0x${'ab'.repeat(65)}` as `0x${string}`;
 
+/** The origin signer of the account the host returns: the delegate of its credentials. */
+async function signerAddress(): Promise<`0x${string}`> {
+	return (await currentHostedAccount(PAGE_ORIGIN)).signer.address;
+}
+
 /** What the wallet host sends back when a popup sign-in succeeds. */
-function hostedAccount(overrides?: Partial<OriginAccount>): OriginAccount {
-	return {
-		address: ACCOUNT,
-		signer: {
-			origin: PAGE_ORIGIN,
-			address: SIGNER,
-			publicKey: `0x${'cd'.repeat(33)}` as `0x${string}`,
-			privateKey: `0x${'ef'.repeat(32)}` as `0x${string}`,
-		},
-		metadata: {email: 'user@example.com'},
-		mechanismUsed: {type: 'email'},
-		savedDelegations: [],
-		...overrides,
-	} as OriginAccount;
+function hostedAccount(overrides?: Partial<OriginAccount>): Promise<OriginAccount> {
+	return currentHostedAccount(PAGE_ORIGIN, {overrides});
 }
 
 describe('credentials on a hosted account', () => {
@@ -95,8 +87,8 @@ describe('credentials on a hosted account', () => {
 	}
 
 	it('returns the credential minted at sign-in for the pair the app asked about', async () => {
-		const saved = {chainId: 1, contract: CONTRACT, delegate: SIGNER, deadline: 0, signature: SIGNATURE};
-		const {connection} = await signedInAsHosted(hostedAccount({savedDelegations: [saved]}));
+		const saved = {chainId: 1, contract: CONTRACT, delegate: await signerAddress(), deadline: 0, signature: SIGNATURE};
+		const {connection} = await signedInAsHosted(await hostedAccount({savedDelegations: [saved]}));
 
 		await expect(connection.getDelegation({chainId: 1, contract: CONTRACT})).resolves.toEqual(saved);
 	});
@@ -105,8 +97,8 @@ describe('credentials on a hosted account', () => {
 		// Addresses arrive checksummed from some sources and lower-cased from others, and the same
 		// account is the same account. A lookup that missed on case would report "no credential" for
 		// one the user had already granted, and send them back through sign-in for nothing.
-		const saved = {chainId: 1, contract: CONTRACT, delegate: SIGNER, deadline: 0, signature: SIGNATURE};
-		const {connection} = await signedInAsHosted(hostedAccount({savedDelegations: [saved]}));
+		const saved = {chainId: 1, contract: CONTRACT, delegate: await signerAddress(), deadline: 0, signature: SIGNATURE};
+		const {connection} = await signedInAsHosted(await hostedAccount({savedDelegations: [saved]}));
 
 		const upperCased = CONTRACT.toUpperCase().replace('0X', '0x') as `0x${string}`;
 		await expect(connection.getDelegation({chainId: 1, contract: upperCased})).resolves.toEqual(saved);
@@ -116,8 +108,8 @@ describe('credentials on a hosted account', () => {
 		// The pair is the whole extent of the authority: the contract's address is inside the signed
 		// bytes, so a credential for another contract is worth nothing and returning it would fail
 		// onchain instead of here.
-		const saved = {chainId: 1, contract: CONTRACT, delegate: SIGNER, deadline: 0, signature: SIGNATURE};
-		const {connection} = await signedInAsHosted(hostedAccount({savedDelegations: [saved]}));
+		const saved = {chainId: 1, contract: CONTRACT, delegate: await signerAddress(), deadline: 0, signature: SIGNATURE};
+		const {connection} = await signedInAsHosted(await hostedAccount({savedDelegations: [saved]}));
 
 		await expect(connection.getDelegation({chainId: 1, contract: OTHER_CONTRACT})).rejects.toThrow(
 			'no delegation credential',
@@ -130,8 +122,14 @@ describe('credentials on a hosted account', () => {
 	it('refuses a stored credential when the app asks for a DIFFERENT deadline', async () => {
 		// The deadline is inside the signature too, so a record signed for one deadline cannot
 		// answer a request naming another: those are different bytes, and they would not verify.
-		const saved = {chainId: 1, contract: CONTRACT, delegate: SIGNER, deadline: 1893456000, signature: SIGNATURE};
-		const {connection} = await signedInAsHosted(hostedAccount({savedDelegations: [saved]}));
+		const saved = {
+			chainId: 1,
+			contract: CONTRACT,
+			delegate: await signerAddress(),
+			deadline: 1893456000,
+			signature: SIGNATURE,
+		};
+		const {connection} = await signedInAsHosted(await hostedAccount({savedDelegations: [saved]}));
 
 		// Asking for the same deadline is answered.
 		await expect(connection.getDelegation({chainId: 1, contract: CONTRACT, deadline: 1893456000})).resolves.toEqual(
@@ -148,26 +146,18 @@ describe('credentials on a hosted account', () => {
 	it('says to sign in again, because a hosted account cannot sign after the fact', async () => {
 		// The message is the remedy: there is nothing the app can do at this point except take the
 		// user back through sign-in and declare the permission that time.
-		const {connection} = await signedInAsHosted(hostedAccount());
+		const {connection} = await signedInAsHosted(await hostedAccount());
 
 		await expect(connection.getDelegation({chainId: 1, contract: CONTRACT})).rejects.toThrow(/sign in again/);
 	});
 
 	it('returns the publication signature the host produced', async () => {
-		const {connection} = await signedInAsHosted(
-			hostedAccount({savedPublicKeyPublicationSignature: SIGNATURE as `0x${string}`}),
+		const account = await hostedAccount();
+		const {connection} = await signedInAsHosted(account);
+
+		await expect(connection.getSignatureForPublicKeyPublication()).resolves.toBe(
+			account.savedPublicKeyPublicationSignature,
 		);
-
-		await expect(connection.getSignatureForPublicKeyPublication()).resolves.toBe(SIGNATURE);
-	});
-
-	it('names the account it has no publication signature for', async () => {
-		// Named rather than a bare failure, because an app running several accounts needs to know
-		// WHICH one is unusable for this.
-		//
-		const {connection} = await signedInAsHosted(hostedAccount());
-
-		await expect(connection.getSignatureForPublicKeyPublication()).rejects.toThrow(ACCOUNT);
 	});
 
 	it('refuses both before sign-in, rather than reporting an absent credential', async () => {
@@ -189,14 +179,17 @@ describe('credentials on a hosted account', () => {
 		// Asserted as two separate facts, because the pair is the contract: the call must NOT throw at
 		// call time, AND the promise it returns must reject. A test for the rejection alone would pass
 		// against the old code under `await`, since `await` propagates both.
-		const {connection} = await signedInAsHosted(hostedAccount());
+		//
+		// Before sign-in: a hosted account without a publication signature can no longer be signed in
+		// at all (the wallet host is out of date), so `Not signed in` is the failure left to reach.
+		const connection = createConnection({walletHost: WALLET_HOST, chainInfo, autoConnect: false});
 
 		let promise: Promise<unknown> | undefined;
 		expect(() => {
 			promise = connection.getSignatureForPublicKeyPublication();
 			promise.catch(() => {});
 		}).not.toThrow();
-		await expect(promise).rejects.toThrow(ACCOUNT);
+		await expect(promise).rejects.toThrow('Not signed in');
 
 		// And the same for both of them, since the point is that they agree.
 		let delegation: Promise<unknown> | undefined;
@@ -204,6 +197,6 @@ describe('credentials on a hosted account', () => {
 			delegation = connection.getDelegation({chainId: 1, contract: CONTRACT});
 			delegation.catch(() => {});
 		}).not.toThrow();
-		await expect(delegation).rejects.toThrow(/sign in again/);
+		await expect(delegation).rejects.toThrow('Not signed in');
 	});
 });

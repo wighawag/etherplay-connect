@@ -12,6 +12,7 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {createConnection, type Connection} from '../src/index.js';
 import {installLockableWallet, type LockableWallet} from './fixtures/lockable-wallet.js';
+import {hostedAccount} from './fixtures/current-accounts.js';
 
 const chainInfo = {
 	id: 1,
@@ -32,22 +33,8 @@ function rememberWallet(name = WALLET_NAME, address: `0x${string}` = ACCOUNT) {
 }
 
 /** What a previous session left behind for a HOSTED account. */
-function rememberHostedAccount() {
-	localStorage.setItem(
-		'__origin_account',
-		JSON.stringify({
-			address: '0xaaaa000000000000000000000000000000000aaa',
-			signer: {
-				origin: PAGE_ORIGIN,
-				address: '0xbbbb000000000000000000000000000000000bbb',
-				publicKey: `0x${'cd'.repeat(33)}`,
-				privateKey: `0x${'ef'.repeat(32)}`,
-			},
-			metadata: {email: 'user@example.com'},
-			mechanismUsed: {type: 'email'},
-			savedDelegations: [],
-		}),
-	);
+async function rememberHostedAccount() {
+	localStorage.setItem('__origin_account', JSON.stringify(await hostedAccount(PAGE_ORIGIN)));
 }
 
 describe('auto-connect on page load', () => {
@@ -159,7 +146,7 @@ describe('auto-connect on page load', () => {
 	it('restores a hosted session with no wallet involved at all', async () => {
 		// The other kind of returning user: signed in through the popup, with a session account in
 		// storage and no wallet to wait for. It resolves without any EIP-6963 announcement.
-		rememberHostedAccount();
+		await rememberHostedAccount();
 
 		const connection = createConnection({walletHost: 'https://wallet.example.com', chainInfo});
 		const snapshot = snapshotOf(connection);

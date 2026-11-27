@@ -490,15 +490,17 @@ describe('getSignatureForPublicKeyPublication needs no host in this configuratio
 		expect(calls[before].account).toBe(ACCOUNT);
 		expect(openSpy).not.toHaveBeenCalled();
 
-		// The message is the origin publication message for the derived public key, over the
-		// page's own origin: no host takes part in deciding what gets published.
+		// The message is the origin publication message for the derived key set, over the page's own
+		// origin: no host takes part in deciding what gets published.
 		const state = currentState(connection);
 		if (state.step !== 'SignedIn') {
 			throw new Error(`expected SignedIn, got ${state.step}`);
 		}
-		expect(originPublicKeyPublicationMessage(PAGE_ORIGIN, state.account.signer.publicKey)).toContain(
-			state.account.signer.publicKey,
+		// `personal_sign` carries the message as hex of its UTF-8 bytes.
+		const signed = new TextDecoder().decode(
+			Uint8Array.from(calls[before].message.slice(2).match(/../g)!, (byte) => parseInt(byte, 16)),
 		);
+		expect(signed).toBe(originPublicKeyPublicationMessage(PAGE_ORIGIN, state.account.keySet));
 	});
 });
 
