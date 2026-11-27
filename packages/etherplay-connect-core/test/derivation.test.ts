@@ -3,8 +3,10 @@ import {keccak_256} from '@noble/hashes/sha3';
 import {bytesToHex} from '@noble/hashes/utils';
 import {secp256k1} from '@noble/curves/secp256k1';
 import type {AccountGenerator, PrivateKeyAccount} from '@etherplay/wallet-connector';
+import {recoverAccount} from 'delegated-identity';
 import {
 	delegationMessage,
+	deriveKeySet,
 	deriveOriginAccount,
 	fromMnemonicToHDKey,
 	fromPublicKey,
@@ -104,22 +106,27 @@ describe('originKeyMessage', () => {
 	});
 });
 
-// Frozen: hosted accounts saved signatures over these bytes, and missiv, the push notification
+// Frozen: hosted accounts save signatures over these bytes, and missiv, the push notification
 // server and the trigger service verify them. A change to the text in this package OR in whichever
 // package defines it fails here, before it reaches a signature nobody can verify any more.
 describe('originPublicKeyPublicationMessage', () => {
 	it('is exactly these bytes', () => {
-		const publicKey = '0x02a1633cafcc01ebfb6d78e39f687a1f0995c62fc95f51ead10a02ee0be551b5dc' as const;
-		expect(originPublicKeyPublicationMessage(ORIGIN, publicKey)).toBe(
+		const keySet = {
+			signing: {publicKey: `0x${'a1'.repeat(32)}` as const},
+			encryption: {publicKey: `0x${'b2'.repeat(32)}` as const},
+		};
+		expect(originPublicKeyPublicationMessage(ORIGIN, keySet)).toBe(
 			'Origin: https://app.example.com\n' +
 				'\n' +
 				'IMPORTANT: Only sign on trusted websites.\n' +
 				'\n' +
-				'This authorizes the following Public Key to represent your account:\n' +
+				'This authorizes the following keys for your account:\n' +
 				'\n' +
-				'0x02a1633cafcc01ebfb6d78e39f687a1f0995c62fc95f51ead10a02ee0be551b5dc\n' +
+				'Signing key, to act for your account in this app:\n' +
+				`ed25519:0x${'a1'.repeat(32)}\n` +
 				'\n' +
-				'Others can use this key to write encrypted messages to you securely.',
+				'Encryption key, for others to send you encrypted messages:\n' +
+				`x25519:0x${'b2'.repeat(32)}`,
 		);
 	});
 });
@@ -134,8 +141,26 @@ describe('deriveOriginAccount', () => {
 		expect(originAccount.savedDelegations).toEqual([]);
 		expect(signedMessages.map((m) => m.message)).toEqual([
 			originKeyMessage(ORIGIN),
-			originPublicKeyPublicationMessage(ORIGIN, originAccount.signer.publicKey),
+			originPublicKeyPublicationMessage(ORIGIN, originAccount.keySet),
 		]);
+	});
+
+	it('derives the key set from the origin signer and signs a publication of it that verifies', async () => {
+		const account = anAccount();
+		const originAccount = await deriveOriginAccount(ORIGIN, account, accountGenerator);
+
+		// Beside the signer, from its private key: the same derivation any device of the account runs.
+		expect(originAccount.keySet).toEqual(deriveKeySet(originAccount.signer.privateKey));
+		expect(originAccount.keySet.signing.publicKey).toMatch(/^0x[0-9a-f]{64}$/);
+		expect(originAccount.keySet.encryption.publicKey).toMatch(/^0x[0-9a-f]{64}$/);
+
+		// Checked with the verifier the services run, not with a helper of this test.
+		const recovered = await recoverAccount({
+			appOrigin: ORIGIN,
+			keySet: originAccount.keySet,
+			ownershipSignature: originAccount.savedPublicKeyPublicationSignature!,
+		});
+		expect(recovered).toBe(account.localAccount.address.toLowerCase());
 	});
 
 	it('mints one credential per granted pair, signed by the account, delegating to the signer', async () => {
@@ -263,6 +288,9 @@ describe('deriveOriginAccount', () => {
 		// reminted by signing in again rather than migrated.
 		expect(second.signer.address).toBe(first.signer.address);
 		expect(second.savedDelegations).toEqual(first.savedDelegations);
+		// ...and one key set and one publication of it, so every device publishes the same keys.
+		expect(second.keySet).toEqual(first.keySet);
+		expect(second.savedPublicKeyPublicationSignature).toBe(first.savedPublicKeyPublicationSignature);
 	});
 
 	it('keeps the credentials distinct from the public key publication signature', async () => {

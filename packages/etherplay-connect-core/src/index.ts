@@ -5,7 +5,7 @@ import {HDKey} from '@scure/bip32';
 import {keccak_256} from '@noble/hashes/sha3';
 import {secp256k1} from '@noble/curves/secp256k1';
 import {delegationMessage} from '@etherplay/delegation';
-import {originPublicKeyPublicationMessage} from 'delegated-identity';
+import {deriveKeySet, originPublicKeyPublicationMessage} from 'delegated-identity';
 import type {AccountGenerator} from '@etherplay/wallet-connector';
 import type {AuthMechanism, EtherplayAccount, OriginAccount, PermissionOutcome, SavedDelegation} from './types.js';
 
@@ -19,8 +19,9 @@ export function localKeyMessage(): string {
 // other services (missiv, the push notification server, the trigger service) verify, so it lives in
 // delegated-identity next to the verifier, as the one copy of it in the ecosystem: a second copy
 // could drift and silently invalidate every signature hosted accounts saved over it. Its bytes are
-// still pinned in this package's tests. Re-exported so existing imports keep working.
-export {originPublicKeyPublicationMessage} from 'delegated-identity';
+// still pinned in this package's tests. Re-exported so existing imports keep working, with the key
+// set it names: an Ed25519 signing key and an X25519 encryption key derived from the origin signer.
+export {originPublicKeyPublicationMessage, deriveKeySet, type KeySet} from 'delegated-identity';
 // The delegation message is NOT defined here any more. It is consensus between three
 // implementations - the verifying contract, this one, and any third-party wallet - so it lives in
 // @etherplay/delegation next to the Solidity that verifies it and the vectors that pin the two
@@ -86,9 +87,15 @@ export async function deriveOriginAccount(
 	const originKey = fromSignatureToKey(originKeySignature);
 	const originMnemonic = fromEntropyKeyToMnemonic(originKey);
 	const originAccount = accountGenerator.fromMnemonicToAccount(originMnemonic, 0);
+	// Beside the origin signer, not instead of it: the signer stays the on-chain delegate of
+	// `savedDelegations`, while services that check a delegated request (missiv, the push
+	// notification server, the trigger service) verify the Ed25519 key and encrypt to the X25519 one.
+	// Derived from the signer's private key, so every device of the account derives the same set.
+	const keySet = deriveKeySet(originAccount.privateKey);
 
+	// The publication names the key set, not the signer's secp256k1 key.
 	const savedPublicKeyPublicationSignature = await accountGenerator.signTextMessage(
-		originPublicKeyPublicationMessage(origin, originAccount.publicKey),
+		originPublicKeyPublicationMessage(origin, keySet),
 		accountObject.privateKey,
 	);
 
@@ -127,6 +134,7 @@ export async function deriveOriginAccount(
 			address: originAccount.address,
 			privateKey: originAccount.privateKey,
 		},
+		keySet,
 		metadata: {},
 		mechanismUsed: account.signer.mechanismUsed,
 		savedPublicKeyPublicationSignature,
