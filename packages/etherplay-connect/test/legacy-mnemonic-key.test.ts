@@ -26,12 +26,14 @@ import type {
 	AccountGenerator,
 } from '@etherplay/wallet-connector';
 import {createConnection, type ChainInfo} from '../src/index.js';
+import {hostedAccount, keySetOf} from './fixtures/current-accounts.js';
 
 type MockUnderlyingProvider = {request: ReturnType<typeof vi.fn>};
 
 const ACCOUNT = `0x05624ada${'0'.repeat(28)}37b8` as `0x${string}`;
 const SIGNATURE = `0x${'ab'.repeat(32)}` as `0x${string}`;
 const LEGACY_ENTROPY = `0x${'cd'.repeat(32)}` as `0x${string}`;
+const SIGNER_PRIVATE_KEY = `0x${'0a'.repeat(32)}` as `0x${string}`;
 
 const WALLET_HOST = 'https://wallet.example.com';
 const KEY_ACCOUNT = '__origin_account';
@@ -68,7 +70,7 @@ function createMockWalletConnector(): WalletConnector<MockUnderlyingProvider> {
 		fromMnemonicToAccount: vi.fn(() => ({
 			address: '0xoriginaddress' as `0x${string}`,
 			publicKey: '0xpublickey' as `0x${string}`,
-			privateKey: '0xprivatekey' as `0x${string}`,
+			privateKey: SIGNER_PRIVATE_KEY,
 		})),
 		signTextMessage: vi.fn().mockResolvedValue('0xsig' as `0x${string}`),
 	};
@@ -90,7 +92,11 @@ const chainInfo: ChainInfo<MockUnderlyingProvider> = {
 	nativeCurrency: {name: 'Ether', symbol: 'ETH', decimals: 18},
 };
 
-/** Exactly what an older version of the library left behind, entropy field included. */
+/**
+ * What an older version of the library left behind, entropy field included. With a key set beside
+ * it, which no version ever wrote together with the entropy key: an account without one is dropped
+ * on load (see `outdated-accounts.test.ts`), and the stripping must hold on its own.
+ */
 function legacyStoredAccount() {
 	return {
 		address: ACCOUNT,
@@ -98,9 +104,10 @@ function legacyStoredAccount() {
 			origin: 'https://app.example.com',
 			address: '0xoriginaddress' as `0x${string}`,
 			publicKey: '0xpublickey' as `0x${string}`,
-			privateKey: '0xprivatekey' as `0x${string}`,
+			privateKey: SIGNER_PRIVATE_KEY,
 			mnemonicKey: LEGACY_ENTROPY,
 		},
+		keySet: keySetOf(SIGNER_PRIVATE_KEY),
 		metadata: {},
 		mechanismUsed: {type: 'wallet', name: 'MockWallet', address: ACCOUNT},
 		savedPublicKeyPublicationSignature: undefined,
@@ -183,10 +190,10 @@ describe('legacy mnemonicKey in stored accounts', () => {
 				origin: 'https://app.example.com',
 				address: '0xoriginaddress',
 				publicKey: '0xpublickey',
-				privateKey: '0xprivatekey',
+				privateKey: SIGNER_PRIVATE_KEY,
 			},
 		});
-		expect(state.account.signer.privateKey).toBe('0xprivatekey');
+		expect(state.account.signer.privateKey).toBe(SIGNER_PRIVATE_KEY);
 	});
 
 	it('is stripped even when the app never auto-connects', async () => {
@@ -289,14 +296,27 @@ describe('a legacy account arriving from the wallet host popup', () => {
 		(window as any).open = originalOpen;
 	});
 
+	/**
+	 * A hosted account carrying the entropy key, as an older deployment returned it. With a current
+	 * publication beside it, which no deployment returned together with the entropy key: a host
+	 * returning none is refused outright (see `outdated-accounts.test.ts`), and the stripping must
+	 * hold on its own.
+	 */
+	async function legacyHostedAccount() {
+		const account = await hostedAccount('https://app.example.com');
+		return {...account, signer: {...account.signer, mnemonicKey: LEGACY_ENTROPY}};
+	}
+
 	/** Sign in through the popup, with the host answering exactly as an older deployment would. */
 	async function signInThroughPopup(options?: {doNotStoreLocally?: boolean}) {
 		const connection = createConnection({
 			walletHost: WALLET_HOST,
+			signingOrigin: 'https://app.example.com',
 			chainInfo,
 			walletConnector: createMockWalletConnector(),
 			autoConnect: false,
 		});
+		const fromOlderHost = await legacyHostedAccount();
 
 		const signedIn = connection.connect({type: 'email', email: 'user@example.com', mode: 'otp'}, options);
 		await vi.waitFor(() => expect(openedURLs.length).toBe(1));
@@ -305,7 +325,7 @@ describe('a legacy account arriving from the wallet host popup', () => {
 		const id = new URL(openedURLs[0]).searchParams.get('id');
 		window.dispatchEvent(
 			new MessageEvent('message', {
-				data: {id, result: legacyStoredAccount()},
+				data: {id, result: fromOlderHost},
 				origin: WALLET_HOST,
 			}),
 		);
@@ -328,8 +348,9 @@ describe('a legacy account arriving from the wallet host popup', () => {
 		expect(readJSON(localStorage, KEY_ACCOUNT).signer).not.toHaveProperty('mnemonicKey');
 		expect(readJSON(sessionStorage, KEY_ACCOUNT).signer).not.toHaveProperty('mnemonicKey');
 		// The session is otherwise exactly what the host sent.
-		expect(state.account.signer.privateKey).toBe('0xprivatekey');
-		expect(state.account.address).toBe(ACCOUNT);
+		const {mnemonicKey, ...sentSigner} = (await legacyHostedAccount()).signer;
+		expect(state.account.signer).toEqual(sentSigner);
+		expect(state.account.address).toBe((await legacyHostedAccount()).address);
 	});
 
 	it('is stripped from the in-memory account even when nothing is persisted', async () => {

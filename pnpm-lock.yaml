@@ -79,8 +79,8 @@ importers:
         specifier: workspace:*
         version: link:../etherplay-wallet-connector-ethereum
       delegated-identity:
-        specifier: ^0.1.1
-        version: 0.1.1
+        specifier: ^0.2.0
+        version: 0.2.0
       sveltore:
         specifier: ^1.0.0
         version: 1.0.0
@@ -131,8 +131,8 @@ importers:
         specifier: ^1.5.4
         version: 1.6.0
       delegated-identity:
-        specifier: ^0.1.1
-        version: 0.1.1
+        specifier: ^0.2.0
+        version: 0.2.0
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.0.18
@@ -1789,8 +1789,8 @@ packages:
     resolution: {integrity: sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ==}
     engines: {node: '>=0.4.0'}
 
-  delegated-identity@0.1.1:
-    resolution: {integrity: sha512-JnsY+IMX/ebUAb8buUgr4/LYbLe4sWHD96wwvmwqtNxi6zGpbilpBdDM5cxKHwFiZGehP2/Zl03t2t+b1o1jDg==}
+  delegated-identity@0.2.0:
+    resolution: {integrity: sha512-UOysSpobqDIzv6SzJ+a5HOTyJRWIOC34vqrZEH4MSoNcCPboxm3XIduCR8UYtRrrhgukzBrXGBP/vXLvwrny8Q==}
 
   des.js@1.1.0:
     resolution: {integrity: sha512-r17GxjhUCjSRy8aiJpr8/UadFIzMzJGexI3Nmz4ADi9LYSFx4gTBp80+NaX/YsXWWLhpZ7v/v/ubEc/bCNfKwg==}
@@ -4751,8 +4751,9 @@ snapshots:
 
   delayed-stream@1.0.0: {}
 
-  delegated-identity@0.1.1:
+  delegated-identity@0.2.0:
     dependencies:
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@noble/secp256k1': 2.2.3
 

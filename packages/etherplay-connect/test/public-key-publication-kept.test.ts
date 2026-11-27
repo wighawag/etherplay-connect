@@ -1,8 +1,8 @@
-// A wallet is asked for the public-key publication signature AT MOST ONCE per account and origin
-// key, and the answer is kept on the account.
+// A wallet is asked for the public-key publication signature AT MOST ONCE per account and key
+// set, and the answer is kept on the account.
 //
-// The signature is the wallet's authorisation of the app's origin key
-// (`originPublicKeyPublicationMessage(origin, publicKey)`), and several services verify the very
+// The signature is the wallet's authorisation of the account's key set in the app
+// (`originPublicKeyPublicationMessage(origin, keySet)`), and several services verify the very
 // same bytes: push-notification-server's `/register`, etherfold's trigger `/subscriptions` (renewed
 // on every page load), missiv's `register`. A hosted account signed it once at sign-in and always
 // answered from `savedPublicKeyPublicationSignature`; a wallet account asked the wallet EVERY time,
@@ -11,9 +11,9 @@
 //
 // What is kept is only ever a signature that RECOVERS to the account for the message about to be
 // signed (`delegated-identity`'s `recoverAccount`), checked when it is written and again when it is
-// read. That one check is the whole binding to (origin, publicKey, address): a kept value for another
-// origin, another key or another account recovers to somebody else and is ignored, and so is
-// whatever an older persisted shape left in the field. A wallet answer that does not recover (an
+// read. That one check is the whole binding to (origin, keySet, address): a kept value for another
+// origin, another key set or another account recovers to somebody else. On a reload such a value
+// signs the stored account out (see `isCurrentOriginAccount`), so the next sign-in starts clean. A wallet answer that does not recover (an
 // ERC-1271 smart-contract wallet, a wallet that signed with another account than the one asked
 // for) is returned as it always was, and not kept: it would be wrong to make a bad answer permanent,
 // and none of the three services above accepts one anyway.
@@ -55,7 +55,7 @@ function installKeyedWallet(accounts: `0x${string}`[] = [A]): LockableWallet {
 
 /** The publication prompts the wallet has shown, as opposed to the sign-in one. */
 function publicationPrompts(wallet: LockableWallet) {
-	return wallet.signRequests().filter((r) => r.message.includes('This authorizes the following Public Key'));
+	return wallet.signRequests().filter((r) => r.message.includes('This authorizes the following keys for your account'));
 }
 
 function track(connection: {subscribe: (run: (v: Connection<any>) => void) => () => void}) {
@@ -145,7 +145,7 @@ describe('the publication signature of a wallet account', () => {
 		expect(second).toBe(first);
 		expect(publicationPrompts(wallet)).toHaveLength(1);
 		expect(publicationPrompts(wallet)[0].message).toBe(
-			originPublicKeyPublicationMessage(PAGE_ORIGIN, account().signer.publicKey),
+			originPublicKeyPublicationMessage(PAGE_ORIGIN, account().keySet),
 		);
 		// A subscriber SEES it, so an app reading `$connection.account.savedPublicKeyPublicationSignature`
 		// gets it without calling anything.
@@ -263,47 +263,55 @@ describe('the publication signature of a wallet account', () => {
 		expect(storedAccount().savedPublicKeyPublicationSignature).toBeUndefined();
 	});
 
-	it('asks again for another origin key, never answering it with the kept one', async () => {
-		// The same stored account restored under another signing origin: the message is now over
-		// another origin, which the kept signature does not authorise.
+	/** Construct a connection the way a page load does, and let the restore settle. */
+	async function reloadedSignedOut(options?: {signingOrigin?: string}) {
+		const connection = createConnection({
+			walletHost: 'https://wallet.example.com',
+			chainInfo,
+			signingOrigin: options?.signingOrigin,
+		});
+		const view = track(connection);
+		await vi.advanceTimersByTimeAsync(200);
+		return {connection, ...view};
+	}
+
+	it('signs the stored account out under another signing origin, whose publication it is not', async () => {
+		// The same stored account restored under another signing origin: the kept signature is over
+		// another origin, which no service accepts for this one.
 		wallet = installKeyedWallet();
 		const before = await signedIn();
-		const kept = await publication(before.connection);
+		await publication(before.connection);
 
-		const after = await reloaded({signingOrigin: 'https://other.example.com'});
-		const answer = await publication(after.connection);
-
-		expect(answer).not.toBe(kept);
-		expect(publicationPrompts(wallet)).toHaveLength(2);
-		expect(publicationPrompts(wallet)[1].message).toContain('Origin: https://other.example.com');
+		const after = await reloadedSignedOut({signingOrigin: 'https://other.example.com'});
+		expect(after.now().step).toBe('Idle');
+		expect(after.seen.some((s) => s.step === 'SignedIn')).toBe(false);
 	});
 
-	it('ignores a kept value that is not for this key', async () => {
-		// A stored account whose kept signature was made for another public key: what a hand-edited
-		// or an older persisted shape could hold. It is ignored, asked for again, and replaced.
+	it('signs the stored account out when its kept value is not for its key set', async () => {
+		// A kept signature made for another key set: what an older persisted shape (a signature over
+		// the old message) or an app deriving a key set beside one could hold.
 		wallet = installKeyedWallet();
-		const before = await signedIn();
-		const kept = await publication(before.connection);
+		await signedIn();
 		const stored = storedAccount();
-		const otherKey = `0x02${'cd'.repeat(32)}`;
-		const forOtherKey = await generator.signTextMessage(
-			originPublicKeyPublicationMessage(PAGE_ORIGIN, otherKey as `0x${string}`),
+		const otherKeySet = {
+			signing: {publicKey: `0x${'cd'.repeat(32)}` as `0x${string}`},
+			encryption: {publicKey: `0x${'ce'.repeat(32)}` as `0x${string}`},
+		};
+		const forOtherKeySet = await generator.signTextMessage(
+			originPublicKeyPublicationMessage(PAGE_ORIGIN, otherKeySet),
 			KEYS[0].privateKey,
 		);
 		localStorage.setItem(
 			'__origin_account',
-			JSON.stringify({...stored, savedPublicKeyPublicationSignature: forOtherKey}),
+			JSON.stringify({...stored, savedPublicKeyPublicationSignature: forOtherKeySet}),
 		);
 
-		const after = await reloaded();
-		expect(after.account().savedPublicKeyPublicationSignature).toBeUndefined();
-		await expect(publication(after.connection)).resolves.toBe(kept);
-		expect(publicationPrompts(wallet)).toHaveLength(2);
-		expect(after.account().savedPublicKeyPublicationSignature).toBe(kept);
-		expect(storedAccount().savedPublicKeyPublicationSignature).toBe(kept);
+		const after = await reloadedSignedOut();
+		expect(after.now().step).toBe('Idle');
+		expect(storedAccount()).toBeUndefined();
 	});
 
-	it('ignores a stale value an older persisted shape left in the field', async () => {
+	it('signs the stored account out when a stale value an older persisted shape left is in the field', async () => {
 		wallet = installKeyedWallet();
 		await signedIn();
 		const stored = storedAccount();
@@ -312,14 +320,11 @@ describe('the publication signature of a wallet account', () => {
 			JSON.stringify({...stored, savedPublicKeyPublicationSignature: NOT_A_SIGNATURE_OF_A}),
 		);
 
-		const after = await reloaded();
 		// Not even SHOWN: an app reading the field to renew a subscription without a prompt would
 		// otherwise send bytes every service refuses.
-		expect(after.account().savedPublicKeyPublicationSignature).toBeUndefined();
-		const answer = await publication(after.connection);
-		expect(answer).not.toBe(NOT_A_SIGNATURE_OF_A);
-		expect(publicationPrompts(wallet)).toHaveLength(1);
-		expect(after.account().savedPublicKeyPublicationSignature).toBe(answer);
+		const after = await reloadedSignedOut();
+		expect(after.now().step).toBe('Idle');
+		expect(after.seen.some((s) => s.step === 'SignedIn')).toBe(false);
 	});
 
 	it('checks a kept value again when it returns it, not only when it restores it', async () => {
@@ -408,7 +413,7 @@ describe('the publication signature of a wallet account', () => {
 			wallet = installKeyedWallet([A, B]);
 			const {connection, account} = await signedIn({address: A});
 			const byB = await generator.signTextMessage(
-				originPublicKeyPublicationMessage(PAGE_ORIGIN, account().signer.publicKey),
+				originPublicKeyPublicationMessage(PAGE_ORIGIN, account().keySet),
 				KEYS[1].privateKey,
 			);
 			wallet.setSigner(async () => byB);

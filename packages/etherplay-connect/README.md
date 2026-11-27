@@ -767,21 +767,29 @@ reproduce it and then drift from it.
 | `canActAs(address)`                            | Can this connection sign as that address right now? Reads state, initiates nothing                      |
 | `acknowledgeAddressUnavailable()`              | Dismiss `connection.addressUnavailable`; settles a waiting `ensureConnected` as cancelled               |
 | `isTargetStepReached(connection)`              | Check if target step is reached                                                                         |
-| `getSignatureForPublicKeyPublication()`        | The account's authorisation of the session public key; a wallet is asked once, the result is kept       |
+| `getSignatureForPublicKeyPublication()`        | The account's authorisation of its key set (`account.keySet`); a wallet is asked once, it is kept       |
 | `getDelegation(target)`                        | Get a delegation credential                                                                             |
 
 ### `getSignatureForPublicKeyPublication()`
 
-Despite the name, this needs **no `walletHost` and no backend**. It does not publish anything: it returns a signature that authorizes your session public key to represent your account, which your own application then publishes wherever it wants.
+Despite the name, this needs **no `walletHost` and no backend**. It does not publish anything: it returns a signature that authorizes the account's key set (`account.keySet`: an Ed25519 signing key and an X25519 encryption key, see "Origin Account Structure") for your app's origin, which your own application then publishes wherever it wants. The message is `originPublicKeyPublicationMessage(origin, keySet)` from `delegated-identity`, and the services that receive it check it with that package's `recoverAccount({appOrigin, keySet, ownershipSignature})`.
 
 Availability depends on the mechanism the user signed in with, not on whether a host is configured:
 
-- **Wallet mechanism** (always the case under `walletOnly: true`): the connected wallet signs `originPublicKeyPublicationMessage(origin, publicKey)` locally. Fully available in the backend-free shape. **The wallet is asked at most once per account and origin key**, and the result is kept on the account as `savedPublicKeyPublicationSignature`: in the store, so `$connection.account.savedPublicKeyPublicationSignature` shows it once it exists, and in the persisted account, so later calls and later page loads return it with no prompt. Calls made while the wallet is being asked share that one prompt. A refusal keeps nothing, so the next call asks again. Several services verify these same bytes (push registration, trigger subscriptions, missiv), so an app needs no cache of its own.
-  - **Bound to `(origin, publicKey, address)`.** Only a signature that recovers to `account.address` over the message for this origin and key (`recoverAccount` from `delegated-identity`, which is what those services run) is kept, and a kept one is checked again before it is returned. So it is never returned for another origin, key or account; a new origin key or another account starts empty; and a value that does not recover (from an older persisted shape, say) is ignored and replaced: a restored wallet account does not even show it, so reading the field to renew a subscription without a prompt is safe.
+- **Wallet mechanism** (always the case under `walletOnly: true`): the connected wallet signs `originPublicKeyPublicationMessage(origin, keySet)` locally. Fully available in the backend-free shape. **The wallet is asked at most once per account and key set**, and the result is kept on the account as `savedPublicKeyPublicationSignature`: in the store, so `$connection.account.savedPublicKeyPublicationSignature` shows it once it exists, and in the persisted account, so later calls and later page loads return it with no prompt. Calls made while the wallet is being asked share that one prompt. A refusal keeps nothing, so the next call asks again. Several services verify these same bytes (push registration, trigger subscriptions, missiv), so an app needs no cache of its own.
+  - **Bound to `(origin, keySet, address)`.** Only a signature that recovers to `account.address` over the message for this origin and key set (`recoverAccount` from `delegated-identity`, which is what those services run) is kept, and a kept one is checked again before it is returned. So it is never returned for another origin, key set or account, and another account starts empty. A stored account whose kept value does not recover (an older persisted shape, a signature for another origin) is signed out on load rather than restored, see "Accounts from before the key set", so reading the field to renew a subscription without a prompt is safe.
   - **A smart-contract wallet (ERC-1271) is asked each time.** Its signature cannot be recovered from the bytes, so it is returned exactly as the wallet gave it, and not kept. The same goes for a wallet that signed with another account than the one it was asked for: keeping it would make one bad answer permanent.
-- **Popup mechanisms** (email / OAuth / mnemonic): returns `account.savedPublicKeyPublicationSignature` if the hosted sign-in produced one, and otherwise throws `no saved public key publication signature for <address>`. There is currently no way to sign it after the fact for these mechanisms.
+- **Popup mechanisms** (email / OAuth / mnemonic): returns `account.savedPublicKeyPublicationSignature`, which the hosted sign-in produced. There is currently no way to sign it after the fact for these mechanisms, which is why a hosted account without a valid one is never signed in (see below); the call still throws `no saved public key publication signature for <address>` if one is somehow missing.
 
-It throws `Not signed in` unless `step === 'SignedIn'`, so it is unavailable in the `targetStep: 'WalletConnected'` shape, which has no session public key to authorize.
+It throws `Not signed in` unless `step === 'SignedIn'`, so it is unavailable in the `targetStep: 'WalletConnected'` shape, which has no key set to authorize.
+
+### Accounts from before the key set
+
+The publication message used to name the session signer's secp256k1 public key (`signer.publicKey`); it now names the key set. No service accepts a signature over the old message, so every account connected before this version signs in once more:
+
+- **On load**, a stored account is kept only if it has a `keySet` and its `savedPublicKeyPublicationSignature` verifies for it (`recoverAccount({appOrigin, keySet, ownershipSignature})` equals `account.address`). A key set beside an old signature is not enough. A **wallet** account with a `keySet` and no signature yet is kept too, since the wallet path asks for the publication lazily: its first `getSignatureForPublicKeyPublication()` signs the new message. Any other stored account is removed from both storages and the connection rests on `Idle` (signed out); the next connect goes through sign-in again and produces the key set and the new signature.
+- **The check is asynchronous**, so a stored hosted session now lands on `SignedIn` a moment after `createConnection` returns rather than during it (`loading` stays `true` until then). An `ensureConnected()` or `connect()` naming no mechanism, made before it lands, waits for it rather than starting a sign-in, as it does for a wallet restore.
+- **The wallet host is deployed separately**, so an app can talk to an older one. An account it returns without a key set, or whose signature does not verify for its key set, is not signed in: the connection rests on `Idle` with `error.message` starting `the wallet host is out of date`, `error.cause` `{type: 'wallet-host-out-of-date'}` and `error.reason` `'failed'`, and `ensureConnected` rejects with the same. Deploy the wallet host before shipping this version.
 
 ### `account.savedDelegations`
 
@@ -877,10 +885,11 @@ interface OriginAccount {
 	address: `0x${string}`; // Main wallet address
 	signer: {
 		origin: string; // Origin used for signing
-		address: `0x${string}`; // Derived session address
+		address: `0x${string}`; // Derived session address, the onchain delegate of savedDelegations
 		publicKey: `0x${string}`; // Session public key
 		privateKey: `0x${string}`; // Session private key
 	};
+	keySet: KeySet; // derived from signer.privateKey, what the publication signature authorizes
 	metadata: {
 		email?: string;
 	};
@@ -891,6 +900,8 @@ interface OriginAccount {
 	accountType: string;
 }
 ```
+
+`keySet` is `delegated-identity`'s `KeySet`, `{signing: {publicKey, privateKey}, encryption: {publicKey, privateKey}}`: an Ed25519 signing key and an X25519 encryption key, each 32 bytes as `0x`-prefixed hex, derived with `deriveKeySet(signer.privateKey)` (re-exported here), so every device of the account derives the same set. Pass it as is to the `delegated-identity` request signer and to the services that take a key set (`{address, keySet, ownershipSignature}`, with `ownershipSignature` being `savedPublicKeyPublicationSignature`). It is persisted with the account, the same exposure as `signer.privateKey` it is derived from.
 
 ## Type Helpers
 
@@ -983,13 +994,14 @@ Off-browser, Node provides a real global `fetch`, so `connection.provider.reques
 export {
 	fromEntropyKeyToMnemonic,
 	originPublicKeyPublicationMessage,
+	deriveKeySet,
 	originKeyMessage,
 	delegationMessage,
 	delegationDigest,
 	DELEGATION_ABI,
 	findSavedDelegation,
 };
-export type {OriginAccount};
+export type {OriginAccount, KeySet};
 
 // Re-exported from @etherplay/wallet-connector-ethereum
 export type {UnderlyingEthereumProvider};

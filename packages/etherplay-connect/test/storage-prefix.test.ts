@@ -67,7 +67,7 @@ function createMockAccountGenerator(): AccountGenerator {
 		fromMnemonicToAccount: vi.fn(() => ({
 			address: '0xoriginaddress' as `0x${string}`,
 			publicKey: '0xpublickey' as `0x${string}`,
-			privateKey: '0xprivatekey' as `0x${string}`,
+			privateKey: `0x${'0a'.repeat(32)}` as `0x${string}`,
 		})),
 		signTextMessage: vi.fn().mockResolvedValue('0xsig' as `0x${string}`),
 	};

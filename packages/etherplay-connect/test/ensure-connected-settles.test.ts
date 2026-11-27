@@ -43,6 +43,7 @@ import {
 	type TargetStep,
 } from '../src/index.js';
 import {installLockableWallet, type LockableWallet} from './fixtures/lockable-wallet.js';
+import {hostedAccount} from './fixtures/current-accounts.js';
 
 /**
  * THE WHOLE VOCABULARY, WRITTEN OUT.
@@ -527,18 +528,7 @@ describe('every reachable entry state settles, or rests on something the user ca
 					new MessageEvent('message', {
 						data: {
 							id,
-							result: {
-								address: B,
-								signer: {
-									origin: PAGE_ORIGIN,
-									address: B,
-									publicKey: `0x${'cd'.repeat(33)}`,
-									privateKey: `0x${'ef'.repeat(32)}`,
-								},
-								metadata: {email: 'user@example.com'},
-								mechanismUsed: {type: 'email'},
-								savedDelegations: [],
-							},
+							result: await hostedAccount(PAGE_ORIGIN),
 						},
 						origin: WALLET_HOST,
 					}),

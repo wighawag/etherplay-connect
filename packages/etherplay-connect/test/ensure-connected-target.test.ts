@@ -19,6 +19,7 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {createConnection, canActAs, ConnectionFailure, type Connection} from '../src/index.js';
 import {installLockableWallet, type LockableWallet} from './fixtures/lockable-wallet.js';
+import {hostedAccount} from './fixtures/current-accounts.js';
 
 const chainInfo = {
 	id: 1,
@@ -370,18 +371,7 @@ describe('ensureConnected treats the steps as ordered', () => {
 			new MessageEvent('message', {
 				data: {
 					id,
-					result: {
-						address: B,
-						signer: {
-							origin: PAGE_ORIGIN,
-							address: B,
-							publicKey: `0x${'cd'.repeat(33)}`,
-							privateKey: `0x${'ef'.repeat(32)}`,
-						},
-						metadata: {},
-						mechanismUsed: {type: 'email'},
-						savedDelegations: [],
-					},
+					result: await hostedAccount(PAGE_ORIGIN),
 				},
 				origin: WALLET_HOST,
 			}),

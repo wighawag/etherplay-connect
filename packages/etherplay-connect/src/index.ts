@@ -13,12 +13,14 @@ import {EthereumWalletConnector, type UnderlyingEthereumProvider} from '@etherpl
 import {writable} from 'sveltore';
 // Straight from `delegated-identity` rather than through connect-core: this is the check the
 // services that receive the publication signature run, so keeping only what it accepts is the point.
-import {recoverAccount} from 'delegated-identity';
+import {recoverAccount, type PublicKeySet} from 'delegated-identity';
 import {createPopupLauncher, type PopupPromise} from './popup.js';
 import {withTimeout} from './utils.js';
 import {
 	fromEntropyKeyToMnemonic,
 	type OriginAccount,
+	type KeySet,
+	deriveKeySet,
 	originPublicKeyPublicationMessage,
 	originKeyMessage,
 	delegationMessage,
@@ -38,6 +40,8 @@ import {
 export {
 	fromEntropyKeyToMnemonic,
 	originPublicKeyPublicationMessage,
+	// How `account.keySet` is derived from `account.signer.privateKey`, for an app that checks it.
+	deriveKeySet,
 	originKeyMessage,
 	// The delegation feature, re-exported so an app has one import: the message an owner signs, its
 	// digest, the ABI of the contract that verifies it, and the lookup that picks the credential for
@@ -48,7 +52,7 @@ export {
 	findSavedDelegation,
 };
 
-export type {OriginAccount, AuthMechanism, PermissionRequest, PermissionOutcome, SavedDelegation};
+export type {OriginAccount, KeySet, AuthMechanism, PermissionRequest, PermissionOutcome, SavedDelegation};
 
 // What `wallet.pendingRequests` and `onRequest` are made of. Re-exported so a consumer rendering
 // "your wallet is asking for something" can name WHICH thing without a second dependency.
@@ -817,6 +821,13 @@ function reasonForError(err: unknown): ConnectionFailureReason {
  * closing the popup sets no error at all, and `ensureConnected` reports it through its own
  * cancellation branch. A `undefined` refusal likewise cannot arrive, for the same reason.
  */
+/**
+ * The error a hosted sign-in rests on when the wallet host returned an account in an older format
+ * (no key set, or a publication signature over the old message): the host must be updated.
+ */
+const WALLET_HOST_OUT_OF_DATE_MESSAGE =
+	'the wallet host is out of date: it returned an account without a publication of its key set, sign-in refused';
+
 function reasonForHostRefusal(refusal: {type?: string} | undefined): ConnectionFailureReason {
 	return refusal?.type === 'cross-origin-blocked' ? 'cross-origin-blocked' : 'host-refused';
 }
@@ -883,15 +894,15 @@ export type ConnectionStore<
 	// persisted storage (no auto-connect restore on reload).
 	selectWallet: (name?: string, options?: {doNotStoreLocally?: boolean}) => Promise<void>;
 	/**
-	 * The account's authorisation of this origin's session public key:
-	 * `originPublicKeyPublicationMessage(origin, account.signer.publicKey)` signed by the account.
+	 * The account's authorisation of its key set in this origin (`account.keySet`):
+	 * `originPublicKeyPublicationMessage(origin, account.keySet)` signed by the account.
 	 *
-	 * A wallet is asked AT MOST ONCE per account and origin key. The answer is kept on the account as
+	 * A wallet is asked AT MOST ONCE per account and key set. The answer is kept on the account as
 	 * `savedPublicKeyPublicationSignature`, in the store (subscribers see the update) and in the
 	 * persisted account, so later calls and later page loads return it without a prompt, and
 	 * concurrent calls share one prompt. Only a signature that recovers to `account.address` is kept,
 	 * and a kept one is checked again before it is returned, so it is never handed out for another
-	 * origin, key or account. A wallet answer that does not recover (an ERC-1271 smart-contract
+	 * origin, key set or account. A wallet answer that does not recover (an ERC-1271 smart-contract
 	 * wallet) is returned but not kept, so such a wallet is asked each time.
 	 *
 	 * A hosted account returns the signature it made at sign-in, and throws if it made none.
@@ -1282,7 +1293,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// `restoreToJoin` for what counts as naming nothing new, and `test/joining-the-restore.test.ts`.
 	type RestoreOutcome = 'landed' | 'failed' | 'overtaken';
 	type RestoreInFlight = {
-		walletName: string;
+		/** The wallet it waits for; `undefined` for a hosted account, which waits for no wallet. */
+		walletName: string | undefined;
 		/** The account it restores, lowercased; `undefined` for a wallet choice, which reaches none. */
 		address: `0x${string}` | undefined;
 		settled: Promise<RestoreOutcome>;
@@ -1296,7 +1308,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	 * restore's account. The STEP asked for does not enter into it: a step the restore reaches or
 	 * passes resolves when it lands, and one it falls short of is driven on from where it landed,
 	 * which beats superseding it and starting over. A hosted mechanism, another wallet or another
-	 * account names something different and wins, exactly as before.
+	 * account names something different and wins, exactly as before. A hosted restore (which only
+	 * waits for its account's publication signature to be verified) is joined by an attempt naming
+	 * no mechanism at all: any mechanism names something it is not doing.
 	 *
 	 * A restore already overtaken is not joined even if it has not noticed yet (it notices only when
 	 * the wallet answers): it will publish nothing, so there is nothing to wait for.
@@ -1307,7 +1321,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			return undefined;
 		}
 		if (mechanism) {
-			if (mechanism.type !== 'wallet') {
+			if (mechanism.type !== 'wallet' || restore.walletName === undefined) {
 				return undefined;
 			}
 			if (mechanism.name && !namesSameWallet(mechanism.name, restore.walletName)) {
@@ -1793,6 +1807,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		try {
 			stripStoredEntropyKey(localStorage);
 			stripStoredEntropyKey(sessionStorage);
+			// At the same choke point, for the same reason: an account stored before the publication
+			// named the key set is dropped, whether or not this connection restores it.
+			dropStoredOutdatedAccount(localStorage);
+			dropStoredOutdatedAccount(sessionStorage);
 		} catch {
 			// Storage access throws outright in some configurations (disabled cookies, Safari private
 			// browsing). Failing to clean up must never stop a connection from being constructed.
@@ -1804,9 +1822,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// When targetStep: 'SignedIn' - check originAccount first, then fallback to lastWallet
 	let autoConnectHandled = false;
 	// A restore yields to ANYTHING that moved the flow after it started: see `flowTransitions`. Every
-	// wallet branch below checks it after each await, and on its failure path too, since resting at
-	// `Idle` over a newer session tears that session's wallet down. The hosted branch publishes
-	// synchronously, before anything else can run, so it has nothing to yield to.
+	// branch below checks it after each await, and on its failure path too, since resting at `Idle`
+	// over a newer session tears that session's wallet down. The hosted branch too: it awaits the
+	// verification of the stored account's publication signature (see `isCurrentOriginAccount`).
 	const autoConnectStartedAt = flowTransitions;
 	const autoConnectOvertaken = () => flowTransitions !== autoConnectStartedAt;
 	/**
@@ -1814,7 +1832,11 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	 * doing can join it rather than overtake it: see `restoreToJoin`. Cleared when it settles, whatever
 	 * the outcome.
 	 */
-	const trackRestore = (walletName: string, address: `0x${string}` | undefined, restore: Promise<RestoreOutcome>) => {
+	const trackRestore = (
+		walletName: string | undefined,
+		address: `0x${string}` | undefined,
+		restore: Promise<RestoreOutcome>,
+	) => {
 		const tracked: RestoreInFlight = {
 			walletName,
 			address: address?.toLowerCase() as `0x${string}` | undefined,
@@ -1842,10 +1864,29 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 						const mechanismUsed = existingAccount.mechanismUsed as
 							| AuthMechanism
 							| WalletMechanism<string, `0x${string}`>;
+						// Only an account in the current format is restored: see `isCurrentOriginAccount`. One
+						// that is not (stored by an older version, its publication signature over the old
+						// message) is signed out, and the next connect signs in again, producing the key set
+						// and a publication of it. Verified before anything else, so a wallet account is not
+						// even waited for. Asynchronous, hosted accounts included: a hosted session lands a
+						// moment after construction rather than during it, tracked like a wallet restore so
+						// an attempt naming nothing new joins it rather than overtakes it.
+						const storedAccountIsCurrent = isCurrentOriginAccount(existingAccount);
+						const signOutOutdatedAccount = (): RestoreOutcome => {
+							set({step: 'Idle', loading: false, wallet: undefined, wallets: $connection.wallets});
+							return 'failed';
+						};
 						if (mechanismUsed.type == 'wallet') {
 							const walletMechanism = mechanismUsed as WalletMechanism<string, `0x${string}`>;
-							const restore = waitForWallet(walletMechanism.name)
-								.then(async (walletDetails: WalletHandle<WalletProviderType>): Promise<RestoreOutcome> => {
+							const restore = storedAccountIsCurrent
+								.then(async (current): Promise<RestoreOutcome> => {
+									if (autoConnectOvertaken()) {
+										return 'overtaken';
+									}
+									if (!current) {
+										return signOutOutdatedAccount();
+									}
+									const walletDetails = await waitForWallet(walletMechanism.name);
 									const walletProvider = walletDetails.walletProvider;
 									const chainIdAsHex = await withTimeout(walletProvider.getChainId());
 									if (autoConnectOvertaken()) {
@@ -1861,16 +1902,9 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 										return 'overtaken';
 									}
 									accounts = accounts.map((v) => v.toLowerCase() as `0x${string}`);
-									// A kept publication signature is SHOWN only if it is this account's for this
-									// origin and key, so an app can read the field to renew without a prompt. See
-									// `getSignatureForPublicKeyPublication`.
-									const account = await withoutForeignPublicationSignature(existingAccount);
-									if (autoConnectOvertaken()) {
-										return 'overtaken';
-									}
 									set({
 										step: 'SignedIn',
-										account,
+										account: existingAccount,
 										mechanism: walletMechanism,
 										wallets: $connection.wallets,
 										wallet: {
@@ -1899,13 +1933,25 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 								});
 							trackRestore(walletMechanism.name, existingAccount.address, restore);
 						} else {
-							set({
-								step: 'SignedIn',
-								account: existingAccount,
-								mechanism: mechanismUsed,
-								wallets: $connection.wallets,
-								wallet: undefined,
-							});
+							const restore = storedAccountIsCurrent
+								.then((current): RestoreOutcome => {
+									if (autoConnectOvertaken()) {
+										return 'overtaken';
+									}
+									if (!current) {
+										return signOutOutdatedAccount();
+									}
+									set({
+										step: 'SignedIn',
+										account: existingAccount,
+										mechanism: mechanismUsed,
+										wallets: $connection.wallets,
+										wallet: undefined,
+									});
+									return 'landed';
+								})
+								.catch((): RestoreOutcome => (autoConnectOvertaken() ? 'overtaken' : signOutOutdatedAccount()));
+							trackRestore(undefined, existingAccount.address, restore);
 						}
 					}
 				}
@@ -2058,6 +2104,36 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		}
 	}
 
+	/**
+	 * Remove ONE storage's account if it is not in the current format (see `isCurrentOriginAccount`),
+	 * in place, for the same per-storage reason as `stripStoredEntropyKey`. Asynchronous, since the
+	 * check is: only the blob that was checked is removed, so an account a sign-in saved meanwhile
+	 * stays.
+	 */
+	async function dropStoredOutdatedAccount(storage: Storage) {
+		try {
+			const raw = storage.getItem(storageKeyAccount);
+			if (!raw) {
+				return;
+			}
+			let account: OriginAccount;
+			try {
+				account = JSON.parse(raw) as OriginAccount;
+			} catch {
+				// Not parseable, so not an account this library wrote, and not ours to remove.
+				return;
+			}
+			if (await isCurrentOriginAccount(account)) {
+				return;
+			}
+			if (storage.getItem(storageKeyAccount) === raw) {
+				storage.removeItem(storageKeyAccount);
+			}
+		} catch {
+			// Unreadable or unwritable storage: the restore checks the account again anyway.
+		}
+	}
+
 	function getOriginAccount(): OriginAccount | undefined {
 		const fromStorage = localStorage.getItem(storageKeyAccount);
 		if (fromStorage) {
@@ -2203,6 +2279,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				// derived from, and this object gets persisted. See `OriginAccount['signer']`.
 				privateKey: originAccount.privateKey,
 			},
+			// The same derivation as the hosted path (`deriveOriginAccount`), from the same key.
+			keySet: deriveKeySet(originAccount.privateKey),
 			metadata: {},
 			mechanismUsed: $connection.mechanism,
 			// Empty until `getSignatureForPublicKeyPublication` is first called, which asks the wallet and
@@ -3075,11 +3153,29 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 					// account arrives from code this package does not version: the wallet host is deployed
 					// separately, so an app on a current build can be talking to an older popup.
 					const result = withoutEntropyKey(await popup);
+					// The wallet host is deployed separately: an older one returns no key set, or a publication
+					// signature over the old message, which no service accepts and which a hosted account
+					// cannot replace after sign-in. Refused here rather than stored, with a reason to show.
+					const current = await isCurrentOriginAccount(result, {publicationRequired: true});
 					// The same ownership check as the failure path below, for the same reason. Connecting a
 					// wallet meanwhile does not close the popup, so it can still finish, and signing its account
 					// in then tore down the wallet the app had connected since, and saved the hosted account over
 					// it. The newer attempt wins; the user can sign in through the popup again.
 					if (popup !== launchedPopup || $connection.step !== 'PopupLaunched') {
+						return;
+					}
+					if (!current) {
+						set({
+							step: 'Idle',
+							loading: false,
+							wallet: undefined,
+							wallets: $connection.wallets,
+							error: {
+								message: WALLET_HOST_OUT_OF_DATE_MESSAGE,
+								cause: {type: 'wallet-host-out-of-date'},
+								reason: 'failed',
+							},
+						});
 						return;
 					}
 					// console.log({result});
@@ -4138,7 +4234,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// rejects, and two siblings on the same object failing in two different ways is a difference
 	// nothing in either signature would warn a caller about.
 	//
-	// ASKED AT MOST ONCE per (origin, public key, account) on a wallet account, and the answer is kept
+	// ASKED AT MOST ONCE per (origin, key set, account) on a wallet account, and the answer is kept
 	// on the account as `savedPublicKeyPublicationSignature`, which is where a hosted account has
 	// always carried its own. The same bytes are verified by several services (push registration,
 	// trigger subscriptions renewed on every page load, missiv), so asking each time meant one wallet
@@ -4146,8 +4242,8 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	// twice, the same "join, do not supersede" rule `ensureConnected` follows for the restore.
 	//
 	// Only a signature that RECOVERS to the account is kept, and a kept one is checked again before it
-	// is returned. That single check is the binding: the message names the origin and the key, the
-	// recovered address names the account, so a kept value for anything else (another origin, key or
+	// is returned. That single check is the binding: the message names the origin and the key set, the
+	// recovered address names the account, so a kept value for anything else (another origin, key set or
 	// account, or whatever an older persisted shape left in the field) recovers to somebody else and
 	// is ignored. A wallet answer that does not recover (an ERC-1271 smart-contract wallet, a wallet
 	// that signed with another account than the one it was asked for) is returned as before but not
@@ -4164,10 +4260,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 			}
 			const binding: PublicationBinding = {
 				origin: originToSignWith(),
-				publicKey: account.signer.publicKey,
+				keySet: account.keySet,
 				address: account.address.toLowerCase() as `0x${string}`,
 			};
-			const key = `${binding.origin}\n${binding.publicKey}\n${binding.address}`;
+			const key = `${binding.origin}\n${binding.keySet.signing.publicKey}\n${binding.keySet.encryption.publicKey}\n${binding.address}`;
 			if (publicationInFlight?.key === key) {
 				return publicationInFlight.promise;
 			}
@@ -4176,7 +4272,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 				if (kept && (await recoversTo(binding, kept))) {
 					return kept;
 				}
-				const message = originPublicKeyPublicationMessage(binding.origin, binding.publicKey);
+				const message = originPublicKeyPublicationMessage(binding.origin, binding.keySet);
 				// Announced, for the same reason as `getDelegation` above.
 				const signature = await alwaysOnProviderWrapper.signMessage(message, account.address, {
 					purpose: 'public-key-publication',
@@ -4206,10 +4302,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		throw new Error(`no saved public key publication signature for ${account.address}`);
 	}
 
-	type PublicationBinding = {origin: string; publicKey: `0x${string}`; address: `0x${string}`};
+	type PublicationBinding = {origin: string; keySet: PublicKeySet; address: `0x${string}`};
 	// The publication prompt the wallet is showing, if any. Deliberately NOT cleared by `disconnect`
 	// or a switch: neither withdraws a prompt already on the user's screen (see `disconnect`), so a
-	// call for the same (origin, key, account) made after signing back in joins the prompt that is
+	// call for the same (origin, key set, account) made after signing back in joins the prompt that is
 	// still open rather than stacking a second one on it. Its answer is only written to the account
 	// if that account is the one signed in when it arrives; see `keepPublicationSignature`.
 	let publicationInFlight: {key: string; promise: Promise<`0x${string}`>} | undefined;
@@ -4218,7 +4314,7 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		try {
 			const recovered = await recoverAccount({
 				appOrigin: binding.origin,
-				publicKey: binding.publicKey,
+				keySet: binding.keySet,
 				ownershipSignature: signature,
 			});
 			return recovered.toLowerCase() === binding.address;
@@ -4228,22 +4324,33 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 		}
 	}
 
-	/** The account without a kept publication signature that is not its own for this origin and key. */
-	async function withoutForeignPublicationSignature(account: OriginAccount): Promise<OriginAccount> {
+	/**
+	 * Whether an account (stored, or returned by the wallet host) is in the current format, and so may
+	 * be restored or signed in: it carries a key set, and its saved publication signature is the
+	 * account's own over `originPublicKeyPublicationMessage(origin, keySet)`, checked with
+	 * `delegated-identity`'s `recoverAccount`, which the services verify with. The presence of a key
+	 * set is not enough: one can sit beside a signature over the old message, which no service accepts.
+	 *
+	 * A stored wallet account with no saved signature yet is current too: the wallet path asks for the
+	 * publication lazily (`getSignatureForPublicKeyPublication`), so it signs the current message the
+	 * first time it is asked. A hosted account cannot sign after the fact, so it must carry one, and
+	 * so must anything the wallet host returns (`publicationRequired`), whatever mechanism it names.
+	 */
+	async function isCurrentOriginAccount(
+		account: OriginAccount,
+		options?: {publicationRequired?: boolean},
+	): Promise<boolean> {
+		if (!account?.address || !account.keySet?.signing?.publicKey || !account.keySet.encryption?.publicKey) {
+			return false;
+		}
 		const kept = account.savedPublicKeyPublicationSignature;
 		if (!kept) {
-			return account;
+			return !options?.publicationRequired && account.mechanismUsed?.type === 'wallet';
 		}
-		const binding: PublicationBinding = {
-			origin: originToSignWith(),
-			publicKey: account.signer.publicKey,
-			address: account.address.toLowerCase() as `0x${string}`,
-		};
-		if (await recoversTo(binding, kept)) {
-			return account;
-		}
-		const {savedPublicKeyPublicationSignature, ...rest} = account;
-		return rest;
+		return recoversTo(
+			{origin: originToSignWith(), keySet: account.keySet, address: account.address.toLowerCase() as `0x${string}`},
+			kept,
+		);
 	}
 
 	/**
@@ -4253,7 +4360,10 @@ export function createConnection<WalletProviderType = UnderlyingEthereumProvider
 	 */
 	function keepPublicationSignature(binding: PublicationBinding, signature: `0x${string}`) {
 		const isTheAccount = (account: OriginAccount | undefined) =>
-			!!account && account.address.toLowerCase() === binding.address && account.signer?.publicKey === binding.publicKey;
+			!!account &&
+			account.address.toLowerCase() === binding.address &&
+			account.keySet?.signing?.publicKey === binding.keySet.signing.publicKey &&
+			account.keySet?.encryption?.publicKey === binding.keySet.encryption.publicKey;
 		if (
 			$connection.step === 'SignedIn' &&
 			$connection.mechanism.type === 'wallet' &&

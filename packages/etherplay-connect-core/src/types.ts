@@ -1,3 +1,5 @@
+import type {KeySet} from 'delegated-identity';
+
 export type MnemonicMechanism<T extends number | undefined> = {
 	type: 'mnemonic';
 	mnemonic: string;
@@ -129,6 +131,11 @@ export type OriginAccount = {
 		// it would put that seed at rest in the app's storage for nothing: nothing reads it.
 		privateKey: `0x${string}`;
 	};
+	// The account's keys in this app, derived from `signer.privateKey` (`deriveKeySet`): an Ed25519
+	// signing key and an X25519 encryption key. They are what `savedPublicKeyPublicationSignature`
+	// authorizes (`originPublicKeyPublicationMessage(signer.origin, keySet)`). Persisted like
+	// `signer.privateKey`, the same exposure, since they are derived from it.
+	keySet: KeySet;
 	metadata: {
 		email?: string;
 	};
