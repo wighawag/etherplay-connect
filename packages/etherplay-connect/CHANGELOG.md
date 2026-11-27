@@ -1,5 +1,16 @@
 # @etherplay/connect
 
+## 0.19.0
+
+### Minor Changes
+
+- ef4f4fa: BREAKING: the account carries a key set and the publication signature names it. `account.keySet` (`delegated-identity`'s `KeySet`: an Ed25519 signing key and an X25519 encryption key derived from `signer.privateKey`) is on every signed-in account, and `getSignatureForPublicKeyPublication()` signs, keeps and returns a signature over `originPublicKeyPublicationMessage(origin, keySet)`. Every account connected before signs in once more: on load a stored account is kept only if it has a key set and its saved publication signature verifies for it (`recoverAccount({appOrigin, keySet, ownershipSignature})` is the account), or it is a wallet account with a key set and no signature yet; any other is removed from storage and the connection rests on `Idle`. The check is asynchronous, so a stored hosted session lands on `SignedIn` a moment after construction (an `ensureConnected()` made meanwhile waits for it). An account from an out-of-date wallet host (no key set, or a signature that does not verify) fails sign-in with `the wallet host is out of date` (`error.cause.type` `'wallet-host-out-of-date'`, reason `'failed'`) rather than being stored; deploy the wallet host first. Re-exports `deriveKeySet` and the `KeySet` type.
+
+### Patch Changes
+
+- Updated dependencies [ef4f4fa]
+  - @etherplay/connect-core@0.8.0
+
 ## 0.18.1
 
 ### Patch Changes
